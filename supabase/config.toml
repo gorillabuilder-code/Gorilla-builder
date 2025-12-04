@@ -1,0 +1,83 @@
+# ---------------------------------------------------------
+# SUPABASE PROJECT CONFIGURATION — gor://a
+# This configuration supports:
+# • Durable storage syncing
+# • Edge functions for AI workflows
+# • Future user app deployments
+# ---------------------------------------------------------
+
+project_id = "gor-a-studio"
+project_name = "gor_a"
+
+# -----------------------------
+# Database Settings
+# -----------------------------
+[db]
+schema = "public"
+backup = true
+extensions = ["pg_net", "pgcrypto", "uuid-ossp", "vector"]
+
+# Enable WAL replication for durability
+write_ahead_log = "logical"
+
+# -----------------------------
+# Auth Settings
+# -----------------------------
+[auth]
+enabled = true
+email_confirmation_required = false
+external_providers = ["google", "github"]
+
+session_expiry_seconds = 604800   # 7 days
+refresh_token_rotation = "enabled"
+
+# -----------------------------
+# Storage Settings
+# -----------------------------
+[storage]
+enabled = true
+versioning = true  # prevent data loss
+allow_public_uploads = false
+
+# -----------------------------
+# Edge Function Settings
+# -----------------------------
+[functions]
+verify_jwt = true
+import_map = "./import_map.json"
+node_runtime = "20"
+python_runtime = "3.12"
+timeout_seconds = 25
+
+[functions.variables]
+LLM_PROVIDER = "GROQ"
+GROQ_MODEL_PLAN = "mixtral-8x7b"
+GROQ_MODEL_CODE = "mixtral-8x7b"
+GROQ_MODEL_REASONING = "mixtral-8x7b"
+WORKSPACE_MODE = "durable"   # prevents file corruption
+
+# -----------------------------
+# Realtime
+# -----------------------------
+[realtime]
+enabled = true
+broadcast = true
+presence = true
+
+# -----------------------------
+# API Rate Limits
+# -----------------------------
+[limits]
+max_requests_per_minute = 900
+burst_limit = 250
+
+# -----------------------------
+# Platform Personality
+# -----------------------------
+[branding]
+product_name = "GOR://A"
+theme = "futuristic_tech"
+color_primary = "#4A8CFF"
+color_secondary = "#0F111A"
+ui_style = "neon_minimal"
+
