@@ -1,0 +1,253 @@
+/* =========================================================
+   GOR://A GLOBAL STYLES — Minimal, Flat, Zero Gradients
+   Colors:
+      --primary-blue: #2F6CCB;
+      --black: #000000;
+      --white: #FFFFFF;
+      --light-grey: #F5F5F5;
+   Typography:
+      Bold, confident, modern
+   ========================================================= */
+
+:root {
+    --primary-blue: #2F6CCB;
+    --black: #0A0A0A;
+    --white: #FFFFFF;
+    --light-grey: #F5F5F5;
+    --border-grey: #DADADA;
+    --radius: 12px;
+    --shadow: 0px 2px 10px rgba(0,0,0,0.05);
+    --transition: 0.2s ease;
+    --font-main: 'Inter', system-ui, sans-serif;
+}
+
+/* ---------------------------------------------------------
+   GLOBAL RESET
+--------------------------------------------------------- */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: var(--font-main);
+}
+
+body {
+    background: var(--white);
+    color: var(--black);
+    line-height: 1.5;
+}
+
+/* ---------------------------------------------------------
+   LAYOUT CONTAINERS
+--------------------------------------------------------- */
+
+.container {
+    width: 90%;
+    max-width: 1200px;
+    margin: auto;
+}
+
+.section {
+    padding: 70px 0;
+}
+
+.center {
+    text-align: center;
+}
+
+/* ---------------------------------------------------------
+   NAVIGATION BAR
+--------------------------------------------------------- */
+
+.navbar {
+    width: 100%;
+    padding: 20px 0;
+    border-bottom: 1px solid var(--border-grey);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.nav-left,
+.nav-right {
+    display: flex;
+    align-items: center;
+    gap: 30px;
+}
+
+.nav-logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 800;
+    font-size: 22px;
+}
+
+.nav-link {
+    text-decoration: none;
+    color: var(--black);
+    font-weight: 500;
+}
+
+.nav-link:hover {
+    color: var(--primary-blue);
+}
+
+/* ---------------------------------------------------------
+   BUTTONS
+--------------------------------------------------------- */
+
+button, .btn {
+    padding: 14px 26px;
+    border-radius: var(--radius);
+    border: 1px solid var(--black);
+    background: var(--white);
+    cursor: pointer;
+    transition: var(--transition);
+    font-weight: 600;
+}
+
+button:hover, .btn:hover {
+    background: var(--primary-blue);
+    color: var(--white);
+    border-color: var(--primary-blue);
+}
+
+/* Primary CTA */
+.btn-primary {
+    background: var(--primary-blue);
+    color: var(--white);
+    border-color: var(--primary-blue);
+}
+
+.btn-primary:hover {
+    opacity: 0.85;
+}
+
+/* ---------------------------------------------------------
+   HERO TEXT
+--------------------------------------------------------- */
+
+.hero-title {
+    font-size: 64px;
+    font-weight: 800;
+    margin-bottom: 20px;
+}
+
+.hero-sub {
+    font-size: 22px;
+    color: #333;
+    margin-bottom: 30px;
+}
+
+/* ---------------------------------------------------------
+   INPUT PROMPT BAR
+--------------------------------------------------------- */
+
+.prompt-bar {
+    width: 100%;
+    max-width: 750px;
+    margin: 30px auto;
+    display: flex;
+    border: 1px solid var(--border-grey);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--white);
+}
+
+.prompt-bar input {
+    flex: 1;
+    padding: 18px;
+    border: none;
+    font-size: 17px;
+    outline: none;
+}
+
+.prompt-bar button {
+    border: none;
+    width: 120px;
+    background: var(--primary-blue);
+    color: var(--white);
+    font-weight: 600;
+}
+
+/* ---------------------------------------------------------
+   CARD SYSTEM
+--------------------------------------------------------- */
+
+.card {
+    background: var(--white);
+    padding: 30px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border-grey);
+}
+
+.card:hover {
+    box-shadow: 0px 3px 14px rgba(0,0,0,0.08);
+    transform: translateY(-2px);
+}
+
+/* =========================================================
+   BUILDER LAYOUT
+========================================================= */
+
+.builder-container {
+    display: flex;
+    height: calc(100vh - 70px);
+}
+
+/* small chat column */
+.builder-chat {
+    width: 20%;
+    border-right: 1px solid var(--border-grey);
+    display: flex;
+    flex-direction: column;
+    padding: 15px;
+    gap: 20px;
+    overflow-y: auto;
+}
+
+/* editor + preview tabs section */
+.builder-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+/* chrome-like tabs */
+.tab-bar {
+    border-bottom: 1px solid var(--border-grey);
+    display: flex;
+}
+
+.tab {
+    padding: 14px 28px;
+    cursor: pointer;
+    font-weight: 600;
+    border-right: 1px solid var(--border-grey);
+}
+
+.tab.active {
+    border-bottom: 3px solid var(--primary-blue);
+    color: var(--primary-blue);
+}
+
+/* editor / preview window */
+.tab-content {
+    flex: 1;
+    overflow: auto;
+    padding: 15px;
+}
+
+/* ---------------------------------------------------------
+   FOOTER
+--------------------------------------------------------- */
+
+.footer {
+    padding: 40px;
+    text-align: center;
+    border-top: 1px solid var(--border-grey);
+    color: #555;
+}
