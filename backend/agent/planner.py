@@ -18,7 +18,7 @@ import json
 import httpx
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = os.getenv("GROQ_MODEL_PLAN", "mixtral-8x7b")
+GROQ_MODEL = os.getenv("GROQ_MODEL_PLAN", "openai/gpt-oss-120b")
 
 if not GROQ_API_KEY:
     raise RuntimeError("GROQ_API_KEY must be configured in the environment")
