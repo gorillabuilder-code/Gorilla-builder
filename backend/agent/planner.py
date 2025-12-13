@@ -1,120 +1,180 @@
 """
-planner.py — gor://a AI Planning Module
+planner.py — gor://a Deterministic Planning Module
 
-This module turns user intent into a structured build plan (todo.md style).
-The plan serves as the blueprint for:
-- code generation (frontend + backend)
-- folder creation
-- db modifications
-- feature updates
+Purpose:
+- Classify user intent
+- Expand from known app templates
+- Output a strict build plan (JSON)
+- Generate todo.md from that plan
 
-LLM Provider: GROQ ONLY
+LLM Runtime: Groq (text-only)
 """
 
 from __future__ import annotations
 import os
-from typing import Dict, Any
 import json
-import httpx
+from typing import Dict, Any
+
+from groq import Groq
+
+# -------------------------------------------------
+# Configuration
+# -------------------------------------------------
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = os.getenv("GROQ_MODEL_PLAN", "openai/gpt-oss-120b")
+PLANNER_MODEL = os.getenv("MODEL_LONGFORM", "gpt-oss-120b")
 
 if not GROQ_API_KEY:
-    raise RuntimeError("GROQ_API_KEY must be configured in the environment")
+    raise RuntimeError("GROQ_API_KEY must be set")
 
+client = Groq(api_key=GROQ_API_KEY)
+
+# -------------------------------------------------
+# Canonical app templates (VERY IMPORTANT)
+# -------------------------------------------------
+
+APP_TEMPLATES = {
+    "chatbot": {
+        "frontend": ["chat.html", "settings.html"],
+        "backend": ["chat_api.py", "history_api.py"],
+        "database": ["messages", "sessions"],
+        "ai_features": ["text-chat"],
+        "tools": [],
+    },
+    "voice_chatbot": {
+        "frontend": ["chat.html", "voice.html"],
+        "backend": ["chat_api.py", "voice_api.py"],
+        "database": ["messages", "sessions"],
+        "ai_features": ["text-chat", "voice-input", "voice-output"],
+        "tools": ["speech"],
+    },
+    "ocr_app": {
+        "frontend": ["upload.html", "results.html"],
+        "backend": ["ocr_api.py"],
+        "database": ["documents"],
+        "ai_features": ["ocr"],
+        "tools": ["vision"],
+    },
+}
+
+# -------------------------------------------------
+# Planner
+# -------------------------------------------------
 
 class Planner:
     """
-    The Planner receives:
-        - raw user prompt
-        - context (existing fs, feature, goal)
-    It returns:
-        - structured build plan
-        - todo.md content
+    Planner produces a deterministic build plan.
     """
 
-    def __init__(self):
-        self.groq_url = "https://api.groq.com/openai/v1/chat/completions"
-
-    async def _call_groq(self, system: str, user: str) -> str:
+    def _classify_intent(self, user_request: str) -> str:
         """
-        Calls Groq chat-completion endpoint directly via HTTP.
+        VERY simple intent classifier.
+        No LLM creativity here.
         """
-        payload = {
-            "model": GROQ_MODEL,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            "temperature": 0.15,
-        }
+        text = user_request.lower()
 
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json",
-        }
+        if "voice" in text and "chat" in text:
+            return "voice_chatbot"
+        if "chat" in text:
+            return "chatbot"
+        if "ocr" in text or "scan" in text:
+            return "ocr_app"
 
-        async with httpx.AsyncClient(timeout=40.0) as client:
-            resp = await client.post(self.groq_url, json=payload, headers=headers)
-            resp.raise_for_status()
-            content = resp.json()
-            return content["choices"][0]["message"]["content"]
+        # Safe default
+        return "chatbot"
 
-    @staticmethod
-    def _post_process(plan: str) -> Dict[str, Any]:
+    def _expand_plan(
+        self,
+        base_plan: Dict[str, Any],
+        user_request: str,
+        project_context: Dict[str, Any],
+    ) -> Dict[str, Any]:
         """
-        Converts structured markdown to JSON-like dict.
-        The coder and generator use this dict to coordinate.
-        """
-        lines = plan.splitlines()
-        sections = {}
-        current_header = None
-        buffer = []
-
-        for line in lines:
-            if line.startswith("# "):
-                if current_header:
-                    sections[current_header] = "\n".join(buffer).strip()
-                    buffer = []
-                current_header = line[2:].strip()
-            else:
-                buffer.append(line)
-
-        if current_header:
-            sections[current_header] = "\n".join(buffer).strip()
-
-        return {
-            "raw": plan,
-            "structured": sections,
-        }
-
-    async def generate_plan(self, user_request: str, project_context: Dict) -> Dict[str, Any]:
-        """
-        Generates a todo plan based on the user request + project context.
-        
-        Example input:
-        - user_request: "Add a login screen and ChatGPT-style chat area"
-        - project_context: {"files": [...], "project_name": "..."}
+        Uses LLM ONLY to refine wording and add optional tasks.
+        NEVER to change structure.
         """
 
         system = (
-            "You are the planning brain for gor://a, the future of AI app building.\n"
-            "Write a clear, efficient plan in TODO.md format.\n"
-            "Plan must include sections if applicable:\n"
-            "- Frontend\n"
-            "- Backend\n"
-            "- Database\n"
-            "- AI interactions\n"
-            "- UX adjustments\n"
-            "- Deployment\n"
-            "Be concise but precise. Avoid code — list what must be created or changed."
+            "You expand an existing app plan.\n"
+            "Rules:\n"
+            "- Do NOT change keys or structure\n"
+            "- Do NOT introduce new APIs or providers\n"
+            "- Do NOT invent endpoints\n"
+            "- Only refine descriptions and add TODO steps\n"
+            "- Output VALID JSON ONLY\n"
         )
 
-        user_msg = (
-            f"User request: {user_request}\n\n"
-            f"Current project summary:\n{json.dumps(project_context, indent=2)}"
+        user = {
+            "user_request": user_request,
+            "project_context": project_context,
+            "base_plan": base_plan,
+        }
+
+        response = client.chat.completions.create(
+            model=PLANNER_MODEL,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": json.dumps(user)},
+            ],
+            temperature=0.1,
         )
 
-        response = await self._call_groq(system, user_msg)
-        return self._post_process(response)
+        return json.loads(response.choices[0].message.content)
+
+    def generate_plan(
+        self,
+        user_request: str,
+        project_context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Main entry point.
+        """
+
+        app_type = self._classify_intent(user_request)
+        base_template = APP_TEMPLATES[app_type]
+
+        base_plan = {
+            "app_type": app_type,
+            "frontend": base_template["frontend"],
+            "backend": base_template["backend"],
+            "database": base_template["database"],
+            "ai_features": base_template["ai_features"],
+            "tools": base_template["tools"],
+            "todo": [],
+        }
+
+        expanded = self._expand_plan(
+            base_plan=base_plan,
+            user_request=user_request,
+            project_context=project_context,
+        )
+
+        return {
+            "plan": expanded,
+            "todo_md": self._to_todo_md(expanded),
+        }
+
+    @staticmethod
+    def _to_todo_md(plan: Dict[str, Any]) -> str:
+        """
+        Converts plan JSON into human-readable todo.md
+        """
+
+        lines = []
+        lines.append(f"# Build plan: {plan['app_type']}\n")
+
+        for section in ["frontend", "backend", "database", "ai_features", "tools"]:
+            items = plan.get(section, [])
+            if not items:
+                continue
+            lines.append(f"## {section.capitalize()}")
+            for item in items:
+                lines.append(f"- {item}")
+            lines.append("")
+
+        if plan.get("todo"):
+            lines.append("## Tasks")
+            for task in plan["todo"]:
+                lines.append(f"- {task}")
+
+        return "\n".join(lines)
