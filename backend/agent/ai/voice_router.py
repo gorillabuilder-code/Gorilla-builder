@@ -1,32 +1,29 @@
 """
-voice_router.py — gor://a Voice AI (Free Hybrid: Whisper + Piper/Coqui)
+voice_router.py — gor://a Voice AI (Groq Whisper + Optional Local TTS)
 
 Purpose:
-- Speech-to-Text (STT) using Whisper (local or small model)
-- Text-to-Speech (TTS) using Piper/Coqui (local where available)
-- Keep everything as free as possible for testing and dev
-
-Design:
-- Try local libraries first
-- If not installed, return clear error but don't crash platform
+- Speech-to-Text (STT) via Groq Whisper (whisper-large-v3)
+- Optional Text-to-Speech (TTS) via local Piper / Coqui if installed
+- No local LLM or Whisper model loading (low RAM, no GPU)
 """
 
 from __future__ import annotations
 import io
+import os
 from typing import Dict, Any, Optional
 
 # -----------------------------
-# Try to import Whisper (STT)
+# Groq Whisper (STT)
 # -----------------------------
 try:
-    import whisper  # openai/whisper
-    WHISPER_AVAILABLE = True
+    from groq import Groq
+    GROQ_AVAILABLE = True
 except Exception:
-    whisper = None
-    WHISPER_AVAILABLE = False
+    Groq = None
+    GROQ_AVAILABLE = False
 
 # -----------------------------
-# Try to import Coqui TTS / Piper
+# Optional local TTS (Coqui / Piper)
 # -----------------------------
 try:
     from TTS.api import TTS  # Coqui TTS
@@ -39,78 +36,93 @@ except Exception:
 class VoiceRouter:
     """
     VoiceRouter coordinates:
-    - STT: audio bytes → text
-    - TTS: text → audio bytes
+    - STT: audio bytes → text (Groq Whisper)
+    - TTS: text → audio bytes (optional local)
     """
 
     def __init__(self):
-        # Load Whisper model lazily
-        self._whisper_model = None
+        self._groq_client = None
         self._tts_model = None
 
     # =========================================================
     # Internal helpers
     # =========================================================
 
-    def _ensure_whisper(self):
-        if not WHISPER_AVAILABLE:
+    def _ensure_groq(self):
+        if not GROQ_AVAILABLE:
             return None
-        if self._whisper_model is None:
-            # Use small or tiny for CPU-friendly local runs
-            try:
-                self._whisper_model = whisper.load_model("small")
-            except Exception:
-                self._whisper_model = None
-        return self._whisper_model
+        if self._groq_client is None:
+            api_key = os.getenv("GROQ_API_KEY")
+            if not api_key:
+                return None
+            self._groq_client = Groq(api_key=api_key)
+        return self._groq_client
 
     def _ensure_tts(self):
         if not TTS_AVAILABLE:
             return None
         if self._tts_model is None:
             try:
-                # Auto-select lightweight TTS model
-                self._tts_model = TTS(model_name="tts_models/en/ljspeech/tacotron2-DDC", progress_bar=False)
+                # Lightweight, CPU-friendly TTS
+                self._tts_model = TTS(
+                    model_name="tts_models/en/ljspeech/tacotron2-DDC",
+                    progress_bar=False,
+                )
             except Exception:
                 self._tts_model = None
         return self._tts_model
 
     # =========================================================
-    # STT — Speech to Text
+    # STT — Speech to Text (Groq Whisper)
     # =========================================================
-    def speech_to_text(self, audio_bytes: bytes, language: Optional[str] = None) -> Dict[str, Any]:
+    def speech_to_text(
+        self,
+        audio_bytes: bytes,
+        language: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
-        Convert audio to text using Whisper (local).
-        audio_bytes should be raw file bytes (e.g. WAV, MP3, M4A)
+        Convert audio to text using Groq Whisper (whisper-large-v3).
+        audio_bytes should be raw file bytes (wav, mp3, m4a).
         """
-        model = self._ensure_whisper()
+        client = self._ensure_groq()
 
-        if model is None:
+        if client is None:
             return {
                 "success": False,
-                "error": "Whisper STT is not available. Install `whisper` and FFmpeg for local speech recognition."
+                "error": "Groq Whisper is not available. Set GROQ_API_KEY to enable speech recognition."
             }
 
         try:
-            audio_buf = io.BytesIO(audio_bytes)
-            # Whisper expects filename or numpy array; easiest to write to temp if needed.
-            # For simplicity in this skeleton, we rely on load_audio accepting BytesIO with monkey-patched frontends.
-            result = model.transcribe(audio_buf, language=language)
+            audio_file = io.BytesIO(audio_bytes)
+            audio_file.name = "audio.wav"  # Groq SDK expects a filename
+
+            response = client.audio.transcriptions.create(
+                file=audio_file,
+                model="whisper-large-v3",
+                language=language,
+            )
+
             return {
                 "success": True,
-                "text": result.get("text", "").strip()
+                "text": response.text.strip()
             }
+
         except Exception as exc:
             return {
                 "success": False,
-                "error": f"whisper-stt-failed: {exc}"
+                "error": f"groq-whisper-failed: {exc}"
             }
 
     # =========================================================
-    # TTS — Text to Speech
+    # TTS — Text to Speech (Optional, Local)
     # =========================================================
-    def text_to_speech(self, text: str, speaker: Optional[str] = None) -> Dict[str, Any]:
+    def text_to_speech(
+        self,
+        text: str,
+        speaker: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
-        Convert text to speech using Coqui TTS where available.
+        Convert text to speech using local Coqui TTS where available.
         Returns raw WAV bytes.
         """
         tts = self._ensure_tts()
@@ -118,23 +130,22 @@ class VoiceRouter:
         if tts is None:
             return {
                 "success": False,
-                "error": "Coqui TTS is not available. Install `TTS` library or configure a TTS backend."
+                "error": "Local TTS not available. Install `TTS` (Coqui) or add a TTS backend."
             }
 
         try:
             buf = io.BytesIO()
-            # Generate directly to memory buffer
             tts.tts_to_file(
                 text=text,
                 file_path=buf,
                 speaker=speaker if speaker else None,
             )
-            wav_bytes = buf.getvalue()
             return {
                 "success": True,
-                "audio_bytes": wav_bytes,
+                "audio_bytes": buf.getvalue(),
                 "format": "wav"
             }
+
         except Exception as exc:
             return {
                 "success": False,
