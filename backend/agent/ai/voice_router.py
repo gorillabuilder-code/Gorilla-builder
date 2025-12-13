@@ -1,10 +1,10 @@
 """
-voice_router.py — gor://a Voice AI (Groq Whisper + Optional Local TTS)
+voice_router.py — gor://a Voice AI (Groq Whisper + PlayAI TTS)
 
 Purpose:
 - Speech-to-Text (STT) via Groq Whisper (whisper-large-v3)
-- Optional Text-to-Speech (TTS) via local Piper / Coqui if installed
-- No local LLM or Whisper model loading (low RAM, no GPU)
+- Text-to-Speech (TTS) via PlayAI (served through Groq)
+- No local models, no GPU, low RAM
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import os
 from typing import Dict, Any, Optional
 
 # -----------------------------
-# Groq Whisper (STT)
+# Groq Client
 # -----------------------------
 try:
     from groq import Groq
@@ -22,27 +22,16 @@ except Exception:
     Groq = None
     GROQ_AVAILABLE = False
 
-# -----------------------------
-# Optional local TTS (Coqui / Piper)
-# -----------------------------
-try:
-    from TTS.api import TTS  # Coqui TTS
-    TTS_AVAILABLE = True
-except Exception:
-    TTS = None
-    TTS_AVAILABLE = False
-
 
 class VoiceRouter:
     """
     VoiceRouter coordinates:
     - STT: audio bytes → text (Groq Whisper)
-    - TTS: text → audio bytes (optional local)
+    - TTS: text → audio bytes (PlayAI via Groq)
     """
 
     def __init__(self):
         self._groq_client = None
-        self._tts_model = None
 
     # =========================================================
     # Internal helpers
@@ -57,20 +46,6 @@ class VoiceRouter:
                 return None
             self._groq_client = Groq(api_key=api_key)
         return self._groq_client
-
-    def _ensure_tts(self):
-        if not TTS_AVAILABLE:
-            return None
-        if self._tts_model is None:
-            try:
-                # Lightweight, CPU-friendly TTS
-                self._tts_model = TTS(
-                    model_name="tts_models/en/ljspeech/tacotron2-DDC",
-                    progress_bar=False,
-                )
-            except Exception:
-                self._tts_model = None
-        return self._tts_model
 
     # =========================================================
     # STT — Speech to Text (Groq Whisper)
@@ -89,12 +64,12 @@ class VoiceRouter:
         if client is None:
             return {
                 "success": False,
-                "error": "Groq Whisper is not available. Set GROQ_API_KEY to enable speech recognition."
+                "error": "Groq client unavailable. Set GROQ_API_KEY."
             }
 
         try:
             audio_file = io.BytesIO(audio_bytes)
-            audio_file.name = "audio.wav"  # Groq SDK expects a filename
+            audio_file.name = "audio.wav"  # filename required by SDK
 
             response = client.audio.transcriptions.create(
                 file=audio_file,
@@ -104,50 +79,51 @@ class VoiceRouter:
 
             return {
                 "success": True,
-                "text": response.text.strip()
+                "text": response.text.strip(),
             }
 
         except Exception as exc:
             return {
                 "success": False,
-                "error": f"groq-whisper-failed: {exc}"
+                "error": f"groq-whisper-failed: {exc}",
             }
 
     # =========================================================
-    # TTS — Text to Speech (Optional, Local)
+    # TTS — Text to Speech (PlayAI via Groq)
     # =========================================================
     def text_to_speech(
         self,
         text: str,
-        speaker: Optional[str] = None,
+        voice: str = "default",
     ) -> Dict[str, Any]:
         """
-        Convert text to speech using local Coqui TTS where available.
+        Convert text to speech using PlayAI TTS served via Groq.
         Returns raw WAV bytes.
         """
-        tts = self._ensure_tts()
+        client = self._ensure_groq()
 
-        if tts is None:
+        if client is None:
             return {
                 "success": False,
-                "error": "Local TTS not available. Install `TTS` (Coqui) or add a TTS backend."
+                "error": "Groq client unavailable. Set GROQ_API_KEY."
             }
 
         try:
-            buf = io.BytesIO()
-            tts.tts_to_file(
-                text=text,
-                file_path=buf,
-                speaker=speaker if speaker else None,
+            response = client.audio.speech.create(
+                model="playai-tts",
+                voice=voice,
+                input=text,
+                format="wav",
             )
+
             return {
                 "success": True,
-                "audio_bytes": buf.getvalue(),
-                "format": "wav"
+                "audio_bytes": response.audio,
+                "format": "wav",
             }
 
         except Exception as exc:
             return {
                 "success": False,
-                "error": f"tts-failed: {exc}"
+                "error": f"groq-playai-tts-failed: {exc}",
             }
