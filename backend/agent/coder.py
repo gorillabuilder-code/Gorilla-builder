@@ -19,7 +19,7 @@ import json
 import httpx
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = os.getenv("GROQ_MODEL_CODE", "llama-3.1-8b-instant")
+GROQ_MODEL = os.getenv("GROQ_MODEL_CODE", "meta-llama/llama-4-scout-17b-16e-instruct")
 
 if not GROQ_API_KEY:
     raise RuntimeError("GROQ_API_KEY must be configured in the environment")
