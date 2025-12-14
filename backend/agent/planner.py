@@ -127,6 +127,7 @@ class Planner:
             "- Tasks should reference files and orchestration steps only\n"
             "- Always use Fast API and HTML\n"
             "- Always be very clear for a coding agent to follow instructions\n"
+            "- Elaborate on the idea sometimes invent new features (when asked or nessacary, like Oauth not specified for a networking app) but otherwise try to invent things but make them really elaborate and nice\n"
         )
 
         payload = {
