@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Preview · {{ project_id }} · gor://a</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body{margin:0;background:#0b1020;color:#fff}
+    header{
+      height:54px;display:flex;align-items:center;justify-content:space-between;
+      padding:0 14px;border-bottom:1px solid rgba(255,255,255,.08)
+    }
+    a{color:#6ea0ff;text-decoration:none;font-size:13px}
+    .pill{
+      padding:7px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);
+      font-size:12px;opacity:.75
+    }
+    iframe{width:100%;height:calc(100vh - 54px);border:0;background:#fff}
+  </style>
+</head>
+<body>
+  <header>
+    <a href="/projects/{{ project_id }}/editor">← Back to editor</a>
+    <span class="pill">Live preview</span>
+    <a href="/projects/{{ project_id }}">Project</a>
+  </header>
+
+  <iframe src="/app/{{ project_id }}/index.html"></iframe>
+</body>
+</html>
