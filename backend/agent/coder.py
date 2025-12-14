@@ -79,7 +79,7 @@ class Coder:
             '  "action": "patch_file", "path": "...", "diff": "..." \n'
             "}\n\n"
             "NO markdown. NO commentary. NO code fences.\n"
-            "Return only raw JSON.\n"
+            "Return only raw JSON. Each file should be really big and above all expectations, with the best UI (if not specified)\n"
         )
 
         file_summary = "\n".join([f"- {p}" for p in file_tree])
