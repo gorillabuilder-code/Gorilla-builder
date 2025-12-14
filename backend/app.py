@@ -1,8 +1,9 @@
-from fastapi import FastAPI, Request, HTTPException, Form
+from fastapi import FastAPI, Request, HTTPException, Form, Depends
 from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from supabase import create_client, Client
 import httpx
 import os
 import secrets
@@ -27,6 +28,25 @@ templates = Jinja2Templates(directory="templates")
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 
 # ------------------------
+# SUPABASE INIT
+# ------------------------
+
+supabase: Client = create_client(
+    os.getenv("SUPABASE_URL"),
+    os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
+)
+
+# ------------------------
+# AUTH HELPERS
+# ------------------------
+
+def get_current_user(request: Request):
+    user = request.session.get("user")
+    if not user:
+        raise HTTPException(status_code=401)
+    return user
+
+# ------------------------
 # STATIC PAGE ROUTES
 # ------------------------
 
@@ -35,19 +55,9 @@ PAGES = {
     "/login": "login.html",
     "/signup": "signup.html",
     "/forgot-password": "forgot.html",
-    "/settings": "settings.html",
-    "/dashboard": "dashboard.html",
-    "/workspace": "workspace.html",
     "/pricing": "pricing.html",
     "/help": "help.html",
     "/about": "about.html",
-    "/builder": "builder-home.html",
-    "/builder/new": "builder-new.html",
-    "/builder/import": "builder-import.html",
-    "/builder/marketplace": "marketplace.html",
-    "/builder/docs": "builder-docs.html",
-    "/projects": "projects-list.html",
-    "/projects/create": "project-create.html",
 }
 
 for route, template in PAGES.items():
@@ -56,155 +66,157 @@ for route, template in PAGES.items():
     app.get(route, response_class=HTMLResponse)(page)
 
 # ------------------------
-# AUTH — EMAIL/PASSWORD (basic)
+# DASHBOARD (REAL DATA)
 # ------------------------
 
-@app.post("/auth/signup")
-async def signup(email: str = Form(...), password: str = Form(...)):
-    # 🔒 Replace with DB later
-    return RedirectResponse("/dashboard", status_code=303)
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    user = get_current_user(request)
 
-@app.post("/auth/login")
-async def login(email: str = Form(...), password: str = Form(...)):
-    # 🔒 Replace with DB later
-    return RedirectResponse("/dashboard", status_code=303)
-
-# ------------------------
-# AUTH — OAUTH PROVIDERS
-# ------------------------
-
-OAUTH_CONFIG = {
-    "google": {
-        "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
-        "token_url": "https://oauth2.googleapis.com/token",
-        "user_url": "https://www.googleapis.com/oauth2/v2/userinfo",
-        "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-        "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
-        "scope": "openid email profile",
-    },
-    "github": {
-        "auth_url": "https://github.com/login/oauth/authorize",
-        "token_url": "https://github.com/login/oauth/access_token",
-        "user_url": "https://api.github.com/user",
-        "client_id": os.getenv("GITHUB_CLIENT_ID"),
-        "client_secret": os.getenv("GITHUB_CLIENT_SECRET"),
-        "scope": "read:user user:email",
-    },
-}
-
-@app.get("/auth/{provider}")
-async def oauth_start(provider: str, request: Request):
-    if provider not in OAUTH_CONFIG:
-        raise HTTPException(404)
-
-    cfg = OAUTH_CONFIG[provider]
-    state = secrets.token_urlsafe(16)
-    request.session["oauth_state"] = state
-
-    redirect_uri = f"{BASE_URL}/auth/callback/{provider}"
-
-    url = (
-        f"{cfg['auth_url']}?"
-        f"client_id={cfg['client_id']}&"
-        f"redirect_uri={redirect_uri}&"
-        f"response_type=code&"
-        f"scope={cfg['scope']}&"
-        f"state={state}"
+    projects = (
+        supabase.table("projects")
+        .select("*")
+        .eq("owner_id", user["id"])
+        .order("updated_at", desc=True)
+        .execute()
+        .data
     )
 
-    return RedirectResponse(url)
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {"request": request, "projects": projects, "user": user},
+    )
 
-@app.get("/auth/callback/{provider}")
-async def oauth_callback(provider: str, request: Request, code: str, state: str):
-    cfg = OAUTH_CONFIG.get(provider)
-    if not cfg:
-        raise HTTPException(404)
+@app.get("/workspace", response_class=HTMLResponse)
+async def workspace(request: Request):
+    user = get_current_user(request)
 
-    if state != request.session.get("oauth_state"):
-        raise HTTPException(403, "Invalid OAuth state")
+    projects = (
+        supabase.table("projects")
+        .select("id,name,updated_at")
+        .eq("owner_id", user["id"])
+        .execute()
+        .data
+    )
 
-    async with httpx.AsyncClient() as client:
-        token_resp = await client.post(
-            cfg["token_url"],
-            data={
-                "client_id": cfg["client_id"],
-                "client_secret": cfg["client_secret"],
-                "code": code,
-                "redirect_uri": f"{BASE_URL}/auth/callback/{provider}",
-            },
-            headers={"Accept": "application/json"},
-        )
-
-        token_data = token_resp.json()
-        access_token = token_data.get("access_token")
-        if not access_token:
-            raise HTTPException(400, "OAuth failed")
-
-        user_resp = await client.get(
-            cfg["user_url"],
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-
-    request.session["user"] = user_resp.json()
-    return RedirectResponse("/dashboard")
+    return templates.TemplateResponse(
+        "workspace.html",
+        {"request": request, "projects": projects},
+    )
 
 # ------------------------
-# PROJECT SYSTEM (UNCHANGED)
+# PROJECT ROUTES
 # ------------------------
+
+@app.get("/projects", response_class=HTMLResponse)
+async def projects_list(request: Request):
+    user = get_current_user(request)
+
+    projects = (
+        supabase.table("projects")
+        .select("*")
+        .eq("owner_id", user["id"])
+        .execute()
+        .data
+    )
+
+    return templates.TemplateResponse(
+        "projects-list.html",
+        {"request": request, "projects": projects},
+    )
+
+@app.get("/projects/create", response_class=HTMLResponse)
+async def project_create(request: Request):
+    return templates.TemplateResponse("project-create.html", {"request": request})
+
+@app.post("/projects/create")
+async def create_project(
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(""),
+):
+    user = get_current_user(request)
+
+    project = (
+        supabase.table("projects")
+        .insert(
+            {
+                "owner_id": user["id"],
+                "name": name,
+                "description": description,
+            }
+        )
+        .execute()
+        .data[0]
+    )
+
+    return RedirectResponse(f"/projects/{project['id']}", status_code=303)
 
 @app.get("/projects/{project_id}", response_class=HTMLResponse)
 async def project_detail(request: Request, project_id: str):
-    return templates.TemplateResponse(
-        "project-detail.html", {"request": request, "project_id": project_id}
+    user = get_current_user(request)
+
+    project = (
+        supabase.table("projects")
+        .select("*")
+        .eq("id", project_id)
+        .eq("owner_id", user["id"])
+        .single()
+        .execute()
+        .data
     )
 
-@app.get("/projects/{project_id}/editor", response_class=HTMLResponse)
-async def project_editor(request: Request, project_id: str, file: str = "index.html"):
-    return templates.TemplateResponse(
-        "project-editor.html",
-        {"request": request, "project_id": project_id, "file": file},
+    files = (
+        supabase.table("files")
+        .select("path,updated_at")
+        .eq("project_id", project_id)
+        .execute()
+        .data
     )
 
-@app.get("/projects/{project_id}/preview", response_class=HTMLResponse)
-async def project_preview(request: Request, project_id: str):
     return templates.TemplateResponse(
-        "project-preview.html", {"request": request, "project_id": project_id}
+        "project-detail.html",
+        {
+            "request": request,
+            "project": project,
+            "files": files,
+        },
     )
 
 # ------------------------
-# DEPLOYED APP SIMULATION
-# ------------------------
-
-DEPLOY_DIR = "user_apps"
-
-@app.get("/app/{project_id}/{path:path}")
-async def serve_deployed_app(project_id: str, path: str):
-    app_path = os.path.join(DEPLOY_DIR, project_id, path)
-
-    if os.path.isdir(app_path):
-        app_path = os.path.join(app_path, "index.html")
-
-    if not os.path.exists(app_path):
-        raise HTTPException(404, "File not found")
-
-    return FileResponse(app_path)
-
-# ------------------------
-# API — FILE OPS
+# FILE API (SUPABASE)
 # ------------------------
 
 @app.post("/api/project/{project_id}/save")
-async def save_file(project_id: str, file: str, content: str):
-    project_dir = os.path.join(DEPLOY_DIR, project_id)
-    os.makedirs(project_dir, exist_ok=True)
-    with open(os.path.join(project_dir, file), "w", encoding="utf-8") as f:
-        f.write(content)
+async def save_file(
+    request: Request,
+    project_id: str,
+    file: str = Form(...),
+    content: str = Form(...),
+):
+    user = get_current_user(request)
+
+    supabase.table("files").upsert(
+        {
+            "project_id": project_id,
+            "path": file,
+            "content": content,
+        },
+        on_conflict="project_id,path",
+    ).execute()
+
     return {"success": True}
 
-@app.post("/api/project/{project_id}/generate-file")
-async def generate_new_file(project_id: str, filename: str):
-    project_dir = os.path.join(DEPLOY_DIR, project_id)
-    os.makedirs(project_dir, exist_ok=True)
-    with open(os.path.join(project_dir, filename), "w") as f:
-        f.write("<!-- Generated by gor://a -->")
-    return {"success": True}
+@app.get("/api/project/{project_id}/files")
+async def list_files(request: Request, project_id: str):
+    user = get_current_user(request)
+
+    files = (
+        supabase.table("files")
+        .select("path,updated_at")
+        .eq("project_id", project_id)
+        .execute()
+        .data
+    )
+
+    return {"files": files}
