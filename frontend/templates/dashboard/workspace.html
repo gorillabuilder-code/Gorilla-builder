@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Workspace · gor://a</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <style>
+    @font-face {
+      font-family: 'din-next-w01-light';
+      font-style: normal;
+      font-weight: 400;
+      src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2');
+      font-display: swap;
+    }
+
+    * {
+      box-sizing: border-box;
+      font-family: 'din-next-w01-light', system-ui, sans-serif;
+    }
+
+    body {
+      margin: 0;
+      background: #0b1020;
+      color: #ffffff;
+      min-height: 100vh;
+    }
+
+    header {
+      padding: 24px 36px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    header nav a {
+      color: #6ea0ff;
+      text-decoration: none;
+      margin-left: 24px;
+      font-size: 14px;
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 44px 36px;
+    }
+
+    h1 {
+      font-size: 32px;
+      font-weight: 400;
+      margin-bottom: 6px;
+    }
+
+    .sub {
+      font-size: 15px;
+      opacity: 0.65;
+      margin-bottom: 36px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 24px;
+    }
+
+    .card {
+      background: #0f1530;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 18px;
+      padding: 26px;
+      transition: transform 0.15s ease, border 0.15s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: #3b6cff;
+    }
+
+    .card h3 {
+      margin: 0 0 8px;
+      font-size: 20px;
+      font-weight: 400;
+    }
+
+    .card p {
+      font-size: 13px;
+      opacity: 0.6;
+      margin-bottom: 18px;
+    }
+
+    .card a {
+      font-size: 14px;
+      color: #6ea0ff;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">gor://a</div>
+  <nav>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/projects">Projects</a>
+    <a href="/settings">Settings</a>
+  </nav>
+</header>
+
+<main>
+  <h1>Your workspace</h1>
+  <p class="sub">
+    All your AI applications, files, and experiments live here.
+  </p>
+
+  <div class="grid">
+    {% for project in projects %}
+      <div class="card">
+        <h3>{{ project.name }}</h3>
+        <p>Last updated {{ project.updated_at }}</p>
+        <a href="/projects/{{ project.id }}">Open project →</a>
+      </div>
+    {% else %}
+      <p class="sub">No projects yet.</p>
+    {% endfor %}
+  </div>
+</main>
+
+</body>
+</html>
