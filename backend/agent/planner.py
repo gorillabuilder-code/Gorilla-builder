@@ -125,6 +125,8 @@ class Planner:
             "- Do NOT mention providers, APIs, or models\n"
             "- Do NOT invent new modules\n"
             "- Tasks should reference files and orchestration steps only\n"
+            "- Always use Fast API and HTML\n"
+            "- Always be very clear for a coding agent to follow instructions\n"
         )
 
         payload = {
