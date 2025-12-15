@@ -1,397 +1,363 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Editor · {{ project_id }} · gor://a</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta charset="UTF-8" />
+<title>Editor · {{ project_id }} · gor://a</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- CodeMirror 6 (bundled via skypack) -->
-  <script type="module">
-    import {EditorView, basicSetup} from "https://cdn.jsdelivr.net/npm/codemirror@6.0.1/dist/index.js";
-    import {EditorState} from "https://cdn.jsdelivr.net/npm/@codemirror/state@6.4.1/dist/index.js";
-    import {javascript} from "https://cdn.jsdelivr.net/npm/@codemirror/lang-javascript@6.2.2/dist/index.js";
-    import {html as htmlLang} from "https://cdn.jsdelivr.net/npm/@codemirror/lang-html@6.4.9/dist/index.js";
-    import {css as cssLang} from "https://cdn.jsdelivr.net/npm/@codemirror/lang-css@6.3.0/dist/index.js";
-    import {python} from "https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6.1.6/dist/index.js";
-    import {oneDark} from "https://cdn.jsdelivr.net/npm/@codemirror/theme-one-dark@6.1.2/dist/index.js";
+<!-- CodeMirror 6 -->
+<script type="module">
+  import {EditorView, basicSetup} from "https://cdn.jsdelivr.net/npm/codemirror@6/dist/index.js";
+  import {EditorState} from "https://cdn.jsdelivr.net/npm/@codemirror/state@6/dist/index.js";
+  import {javascript} from "https://cdn.jsdelivr.net/npm/@codemirror/lang-javascript@6/dist/index.js";
+  import {html} from "https://cdn.jsdelivr.net/npm/@codemirror/lang-html@6/dist/index.js";
+  import {css} from "https://cdn.jsdelivr.net/npm/@codemirror/lang-css@6/dist/index.js";
+  import {python} from "https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6/dist/index.js";
+  import {oneDark} from "https://cdn.jsdelivr.net/npm/@codemirror/theme-one-dark@6/dist/index.js";
+  window.__CM = {EditorView, EditorState, basicSetup, javascript, html, css, python, oneDark};
+</script>
 
-    // Make available to inline scripts
-    window.__CM = { EditorView, EditorState, basicSetup, javascript, htmlLang, cssLang, python, oneDark };
-  </script>
+<style>
+@font-face{
+  font-family:'din-next-w01-light';
+  src:url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2');
+}
+*{box-sizing:border-box;font-family:'din-next-w01-light',system-ui}
+body{margin:0;background:#0b1020;color:#fff;height:100vh;overflow:hidden}
 
-  <style>
-    @font-face{
-      font-family:'din-next-w01-light';
-      font-style:normal;
-      font-weight:400;
-      src:url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2');
-      font-display:swap;
-    }
-    *{box-sizing:border-box;font-family:'din-next-w01-light',system-ui,sans-serif}
-    body{margin:0;background:#0b1020;color:#fff;height:100vh;overflow:hidden}
+.shell{display:flex;height:100vh}
 
-    .shell{display:flex;height:100vh;width:100%}
+/* ================= LEFT: AGENT ================= */
+.left{
+  width:400px;
+  background:#0f1530;
+  border-right:1px solid rgba(255,255,255,.08);
+  display:flex;
+  flex-direction:column;
+}
 
-    /* Left bar (agent/progress/chat) */
-    .leftbar{
-      width:300px;min-width:260px;max-width:360px;
-      background:#0f1530;border-right:1px solid rgba(255,255,255,.08);
-      display:flex;flex-direction:column
-    }
-    .brand{
-      padding:16px 16px 12px;border-bottom:1px solid rgba(255,255,255,.08);
-      display:flex;align-items:center;justify-content:space-between;gap:10px
-    }
-    .brand .t{font-size:16px;opacity:.95}
-    .brand .id{font-size:12px;opacity:.55}
-    .agent{
-      padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.08);
-      display:flex;flex-direction:column;gap:10px
-    }
-    .prompt{
-      width:100%;height:92px;resize:none;border-radius:14px;
-      border:1px solid rgba(255,255,255,.10);
-      background:#0b1020;color:#fff;padding:10px 10px;font-size:13px;outline:none
-    }
-    .row{display:flex;gap:10px;align-items:center}
-    .btn{
-      padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.10);
-      background:rgba(255,255,255,.02);color:#fff;font-size:13px;cursor:pointer;text-decoration:none
-    }
-    .btn.primary{background:#3b6cff;border-color:#3b6cff}
-    .btn:hover{border-color:#3b6cff}
-    .status{font-size:12px;opacity:.65}
-    .log{
-      flex:1;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px
-    }
-    .msg{
-      border:1px solid rgba(255,255,255,.07);
-      border-radius:14px;padding:10px 10px;background:rgba(255,255,255,.02)
-    }
-    .msg .k{font-size:12px;opacity:.6;margin-bottom:6px}
-    .msg .v{font-size:13px;opacity:.95;white-space:pre-wrap;word-break:break-word}
+.left header{
+  padding:16px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.left header .t{font-size:16px}
+.left header .id{font-size:12px;opacity:.55}
 
-    /* Main area */
-    .main{flex:1;display:flex;flex-direction:column;min-width:0}
+.phases{
+  display:flex;
+  gap:8px;
+  padding:12px 16px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.phase{
+  padding:6px 10px;
+  border-radius:999px;
+  font-size:11px;
+  border:1px solid rgba(255,255,255,.1);
+  opacity:.4;
+}
+.phase.active{
+  border-color:#3b6cff;
+  opacity:1;
+}
 
-    /* Top bar: tabs + actions */
-    .topbar{
-      height:54px;min-height:54px;
-      display:flex;align-items:center;justify-content:space-between;
-      padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08)
-    }
+.chat{
+  flex:1;
+  padding:16px;
+  overflow:auto;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
 
-    .tabs{display:flex;gap:8px;align-items:center}
-    .tab{
-      padding:10px 12px;border-radius:14px;border:1px solid rgba(255,255,255,.10);
-      background:rgba(255,255,255,.02);cursor:pointer;font-size:13px;opacity:.85
-    }
-    .tab.active{border-color:#3b6cff;opacity:1}
-    .actions{display:flex;gap:10px;align-items:center}
-    .pill{
-      padding:7px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);
-      font-size:12px;opacity:.75
-    }
+.msg{
+  max-width:90%;
+  padding:10px 12px;
+  border-radius:14px;
+  font-size:13px;
+  line-height:1.45;
+}
+.msg.user{
+  align-self:flex-end;
+  background:#3b6cff;
+}
+.msg.agent{
+  align-self:flex-start;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.08);
+}
+.msg.system{
+  align-self:center;
+  opacity:.6;
+  font-size:12px;
+}
 
-    /* Content split: file list + editor/preview */
-    .content{display:flex;flex:1;min-height:0}
-    .files{
-      width:280px;min-width:240px;max-width:360px;
-      border-right:1px solid rgba(255,255,255,.08);
-      background:#0f1530;display:flex;flex-direction:column;min-height:0
-    }
-    .files-head{
-      padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);
-      display:flex;align-items:center;justify-content:space-between
-    }
-    .files-head .h{font-size:13px;opacity:.9}
-    .filelist{flex:1;overflow:auto;padding:10px}
-    .fileitem{
-      padding:10px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.06);
-      background:rgba(255,255,255,.02);cursor:pointer;margin-bottom:8px
-    }
-    .fileitem.active{border-color:#3b6cff}
-    .fileitem .p{font-size:12px;opacity:.9;word-break:break-all}
-    .fileitem .m{font-size:11px;opacity:.55;margin-top:4px}
+.msg .meta{
+  font-size:11px;
+  opacity:.5;
+  margin-bottom:4px;
+}
 
-    .stage{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
-    .stagebar{
-      padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08);
-      display:flex;align-items:center;justify-content:space-between;gap:10px
-    }
-    .path{font-size:12px;opacity:.7;word-break:break-all}
-    .stagebody{flex:1;min-height:0}
-    #editor{height:100%}
-    #preview{
-      width:100%;height:100%;border:0;background:#fff;display:none
-    }
+.agent-input{
+  padding:14px;
+  border-top:1px solid rgba(255,255,255,.08);
+  display:flex;
+  gap:10px;
+}
+.agent-input textarea{
+  flex:1;
+  height:72px;
+  resize:none;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.1);
+  background:#0b1020;
+  color:#fff;
+  padding:10px;
+  font-size:13px;
+}
+.agent-input button{
+  background:#3b6cff;
+  border:none;
+  color:#fff;
+  border-radius:12px;
+  padding:14px 16px;
+  cursor:pointer;
+}
 
-    .hint{font-size:12px;opacity:.6}
-  </style>
+/* ================= MAIN ================= */
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+
+.topbar{
+  height:54px;
+  padding:0 14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.tabs{display:flex;gap:8px}
+.tab{
+  padding:8px 12px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.1);
+  cursor:pointer;
+  font-size:13px;
+}
+.tab.active{border-color:#3b6cff}
+
+.content{flex:1;display:flex;min-height:0}
+
+.files{
+  width:260px;
+  background:#0f1530;
+  border-right:1px solid rgba(255,255,255,.08);
+  padding:12px;
+  overflow:auto;
+}
+.file{
+  padding:10px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.06);
+  margin-bottom:8px;
+  cursor:pointer;
+  font-size:12px;
+}
+.file.active{border-color:#3b6cff}
+
+.stage{flex:1;min-width:0}
+#editor{height:100%}
+#preview{
+  width:100%;
+  height:100%;
+  border:0;
+  display:none;
+  background:#fff;
+}
+</style>
 </head>
-<body>
 
+<body>
 <div class="shell">
 
-  <!-- Left: Agent + Progress -->
-  <aside class="leftbar">
-    <div class="brand">
-      <div>
-        <div class="t">gor://a builder</div>
-        <div class="id">project: {{ project_id }}</div>
-      </div>
-      <a class="btn" href="/projects/{{ project_id }}">Back</a>
+<!-- LEFT / AGENT -->
+<aside class="left">
+  <header>
+    <div class="t">gor://a agent</div>
+    <div class="id">{{ project_id }}</div>
+  </header>
+
+  <div class="phases">
+    <div class="phase" id="phase-planner">Planner</div>
+    <div class="phase" id="phase-coder">Coder</div>
+    <div class="phase" id="phase-files">Files</div>
+  </div>
+
+  <div class="chat" id="chat"></div>
+
+  <div class="agent-input">
+    <textarea id="prompt" placeholder="Describe what you want to build or change…"></textarea>
+    <button id="runAgent">→</button>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<section class="main">
+  <div class="topbar">
+    <div class="tabs">
+      <div class="tab active" id="tabCode">Code</div>
+      <div class="tab" id="tabPreview">Preview</div>
     </div>
+    <a class="tab" href="/projects/{{ project_id }}/preview" target="_blank">Open</a>
+  </div>
 
-    <div class="agent">
-      <textarea id="agentPrompt" class="prompt" placeholder="Tell the agent what to build or change…&#10;Example: add a settings page, wire chat history, add bg remove tool UI"></textarea>
-      <div class="row">
-        <button class="btn primary" id="runAgent">Run agent</button>
-        <button class="btn" id="stopStream">Stop</button>
-      </div>
-      <div class="status" id="agentStatus">Idle</div>
+  <div class="content">
+    <aside class="files" id="filelist"></aside>
+    <div class="stage">
+      <div id="editor"></div>
+      <iframe id="preview"></iframe>
     </div>
+  </div>
+</section>
 
-    <div class="log" id="log"></div>
-  </aside>
-
-  <!-- Main -->
-  <section class="main">
-
-    <div class="topbar">
-      <div class="tabs">
-        <div class="tab active" id="tabCode">Code</div>
-        <div class="tab" id="tabPreview">Preview</div>
-      </div>
-      <div class="actions">
-        <span class="pill" id="saveState">Not saved</span>
-        <button class="btn" id="saveBtn">Save</button>
-        <a class="btn" href="/projects/{{ project_id }}/preview" target="_blank">Open preview</a>
-      </div>
-    </div>
-
-    <div class="content">
-      <!-- File list -->
-      <aside class="files">
-        <div class="files-head">
-          <div class="h">Files</div>
-          <button class="btn" id="refreshFiles">Refresh</button>
-        </div>
-        <div class="filelist" id="filelist"></div>
-      </aside>
-
-      <!-- Editor/Preview -->
-      <div class="stage">
-        <div class="stagebar">
-          <div class="path" id="currentPath">loading…</div>
-          <div class="hint">Autosave is off. Save when ready.</div>
-        </div>
-        <div class="stagebody">
-          <div id="editor"></div>
-          <iframe id="preview" src="/app/{{ project_id }}/index.html"></iframe>
-        </div>
-      </div>
-    </div>
-
-  </section>
 </div>
 
 <script>
-  const PROJECT_ID = "{{ project_id }}";
-  const initialFile = "{{ file }}";
+const PROJECT_ID = "{{ project_id }}";
+let editorView = null;
+let currentFile = "index.html";
+let es = null;
 
-  let currentFile = initialFile || "index.html";
-  let currentContent = "";
-  let es = null; // EventSource
-  let editorView = null;
+const $ = id => document.getElementById(id);
+const chat = $("chat");
 
-  const $ = (id) => document.getElementById(id);
+/* ---------------- CHAT ---------------- */
 
-  function log(kind, text) {
-    const el = document.createElement("div");
-    el.className = "msg";
-    el.innerHTML = `<div class="k">${kind}</div><div class="v"></div>`;
-    el.querySelector(".v").textContent = text;
-    $("log").prepend(el);
+function addMessage(role, text) {
+  const el = document.createElement("div");
+  el.className = "msg " + role;
+  el.innerHTML = role === "system"
+    ? text
+    : `<div class="meta">${role}</div>${text}`;
+  chat.appendChild(el);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function setPhase(p) {
+  ["planner","coder","files"].forEach(x =>
+    $("phase-"+x).classList.toggle("active", x === p)
+  );
+}
+
+/* ---------------- TABS ---------------- */
+
+function switchTab(tab) {
+  if (tab === "preview") {
+    $("tabCode").classList.remove("active");
+    $("tabPreview").classList.add("active");
+    $("editor").style.display = "none";
+    $("preview").style.display = "block";
+    $("preview").src = `/app/${PROJECT_ID}/index.html?ts=${Date.now()}`;
+  } else {
+    $("tabPreview").classList.remove("active");
+    $("tabCode").classList.add("active");
+    $("preview").style.display = "none";
+    $("editor").style.display = "block";
   }
+}
 
-  function setSaveState(text) {
-    $("saveState").textContent = text;
-  }
+$("tabCode").onclick = () => switchTab("code");
+$("tabPreview").onclick = () => switchTab("preview");
 
-  function langFor(path) {
-    const p = (path || "").toLowerCase();
-    if (p.endsWith(".html")) return "html";
-    if (p.endsWith(".css")) return "css";
-    if (p.endsWith(".js")) return "js";
-    if (p.endsWith(".py")) return "py";
-    if (p.endsWith(".sql")) return "sql";
-    return "txt";
-  }
+/* ---------------- FILES ---------------- */
 
-  function buildEditor(value) {
-    const CM = window.__CM;
-    if (!CM) return;
+async function fetchJSON(url) {
+  const r = await fetch(url, { credentials: "include" });
+  return await r.json();
+}
 
-    let ext = [];
-    const l = langFor(currentFile);
-    if (l === "html") ext.push(CM.htmlLang());
-    if (l === "css") ext.push(CM.cssLang());
-    if (l === "js") ext.push(CM.javascript());
-    if (l === "py") ext.push(CM.python());
+async function refreshFiles() {
+  const data = await fetchJSON(`/api/project/${PROJECT_ID}/files`);
+  const list = $("filelist");
+  list.innerHTML = "";
+  (data.files || []).forEach(f => {
+    const d = document.createElement("div");
+    d.className = "file" + (f.path === currentFile ? " active" : "");
+    d.textContent = f.path;
+    d.onclick = () => loadFile(f.path);
+    list.appendChild(d);
+  });
+}
 
-    const state = CM.EditorState.create({
-      doc: value || "",
-      extensions: [
-        CM.basicSetup,
-        CM.oneDark,
-        ...ext,
-        CM.EditorView.updateListener.of((v) => {
-          if (v.docChanged) {
-            setSaveState("Unsaved changes");
-          }
-        }),
-      ],
-    });
+async function loadFile(path) {
+  currentFile = path;
+  const data = await fetchJSON(`/api/project/${PROJECT_ID}/file?path=${encodeURIComponent(path)}`);
+  buildEditor(data.content || "");
+  refreshFiles();
+}
 
-    const parent = $("editor");
-    parent.innerHTML = "";
-    editorView = new CM.EditorView({ state, parent });
-    setSaveState("Loaded");
-  }
+/* ---------------- EDITOR ---------------- */
 
-  async function fetchJSON(url) {
-    const r = await fetch(url, { credentials: "include" });
-    if (!r.ok) throw new Error(await r.text());
-    return await r.json();
-  }
+function buildEditor(content) {
+  const CM = window.__CM;
+  if (!CM) return;
 
-  async function postForm(url, body) {
-    const r = await fetch(url, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams(body),
-    });
-    if (!r.ok) throw new Error(await r.text());
-    return await r.json();
-  }
+  const state = CM.EditorState.create({
+    doc: content,
+    extensions: [
+      CM.basicSetup,
+      CM.oneDark,
+      CM.EditorView.updateListener.of(v => {
+        if (v.docChanged) {}
+      })
+    ]
+  });
 
-  async function refreshFiles() {
-    const data = await fetchJSON(`/api/project/${PROJECT_ID}/files`);
-    const files = data.files || [];
-    const list = $("filelist");
-    list.innerHTML = "";
-    files.forEach(f => {
-      const item = document.createElement("div");
-      item.className = "fileitem" + (f.path === currentFile ? " active" : "");
-      item.innerHTML = `<div class="p"></div><div class="m"></div>`;
-      item.querySelector(".p").textContent = f.path;
-      item.querySelector(".m").textContent = f.updated_at ? `Updated ${f.updated_at}` : "";
-      item.onclick = () => loadFile(f.path);
-      list.appendChild(item);
-    });
-  }
+  $("editor").innerHTML = "";
+  editorView = new CM.EditorView({ state, parent: $("editor") });
+}
 
-  async function loadFile(path) {
-    currentFile = path;
-    $("currentPath").textContent = path;
-    setSaveState("Loading…");
-    const data = await fetchJSON(`/api/project/${PROJECT_ID}/file?path=${encodeURIComponent(path)}`);
-    currentContent = data.content || "";
-    buildEditor(currentContent);
-    await refreshFiles();
-  }
+/* ---------------- AGENT STREAM ---------------- */
 
-  async function saveCurrent() {
-    if (!editorView) return;
-    const content = editorView.state.doc.toString();
-    setSaveState("Saving…");
-    await postForm(`/api/project/${PROJECT_ID}/save`, { file: currentFile, content });
-    setSaveState("Saved");
-    log("save", `Saved ${currentFile}`);
-    await refreshFiles();
-  }
+function startAgentStream() {
+  if (es) es.close();
+  es = new EventSource(`/api/project/${PROJECT_ID}/events`, { withCredentials: true });
 
-  function setTab(which) {
-    const code = $("tabCode");
-    const prev = $("tabPreview");
-    const iframe = $("preview");
-    const editor = $("editor");
-
-    if (which === "preview") {
-      code.classList.remove("active");
-      prev.classList.add("active");
-      editor.style.display = "none";
-      iframe.style.display = "block";
-      iframe.src = `/app/${PROJECT_ID}/index.html?ts=${Date.now()}`;
-    } else {
-      prev.classList.remove("active");
-      code.classList.add("active");
-      iframe.style.display = "none";
-      editor.style.display = "block";
+  es.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === "phase") setPhase(msg.value);
+    if (msg.type === "message") addMessage(msg.role || "agent", msg.text || "");
+    if (msg.type === "file_changed") {
+      addMessage("system", `Updated file: ${msg.path}`);
+      refreshFiles();
+      if (msg.path === currentFile) loadFile(currentFile);
     }
-  }
+  };
 
-  function startStream() {
-    if (es) es.close();
-    es = new EventSource(`/api/project/${PROJECT_ID}/events`, { withCredentials: true });
+  es.onerror = () => {
+    addMessage("system", "Agent stream disconnected");
+  };
+}
 
-    $("agentStatus").textContent = "Streaming…";
+$("runAgent").onclick = async () => {
+  const prompt = $("prompt").value.trim();
+  if (!prompt) return;
+  addMessage("user", prompt);
+  $("prompt").value = "";
+  await fetch(`/api/project/${PROJECT_ID}/agent/start`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ prompt })
+  });
+  startAgentStream();
+};
 
-    es.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data);
-        if (msg.type === "status") $("agentStatus").textContent = msg.text || "Working…";
-        if (msg.type === "log") log(msg.role || "agent", msg.text || "");
-        if (msg.type === "file_changed") {
-          log("files", `Updated: ${msg.path}`);
-          refreshFiles();
-          if (msg.path === currentFile) loadFile(currentFile);
-        }
-      } catch {
-        log("stream", ev.data);
-      }
-    };
-
-    es.onerror = () => {
-      $("agentStatus").textContent = "Stream disconnected";
-    };
-  }
-
-  async function runAgent() {
-    const prompt = $("agentPrompt").value.trim();
-    if (!prompt) {
-      log("ui", "Give the agent a clear build instruction.");
-      return;
-    }
-    log("you", prompt);
-    $("agentStatus").textContent = "Starting agent…";
-
-    // Starts planner→coder flow (backend will implement)
-    await postForm(`/api/project/${PROJECT_ID}/agent/start`, { prompt });
-    startStream();
-  }
-
-  $("saveBtn").onclick = saveCurrent;
-  $("refreshFiles").onclick = refreshFiles;
-  $("tabCode").onclick = () => setTab("code");
-  $("tabPreview").onclick = () => setTab("preview");
-  $("runAgent").onclick = runAgent;
-  $("stopStream").onclick = () => { if (es) es.close(); $("agentStatus").textContent = "Stopped"; };
-
-  // Boot
-  (async () => {
-    try {
-      await refreshFiles();
-      await loadFile(currentFile);
-      startStream();
-      setTab("code");
-    } catch (e) {
-      log("error", String(e));
-      $("agentStatus").textContent = "Error";
-    }
-  })();
+/* ---------------- BOOT ---------------- */
+(async () => {
+  await refreshFiles();
+  await loadFile(currentFile);
+  switchTab("code");
+})();
 </script>
 
 </body>
