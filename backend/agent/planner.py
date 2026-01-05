@@ -25,7 +25,7 @@ from groq import Groq
 # Configuration
 # -------------------------------------------------
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY","")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 PLANNER_MODEL = os.getenv("MODEL_PLANNER", "openai/gpt-oss-120b")
 
 if not GROQ_API_KEY:
