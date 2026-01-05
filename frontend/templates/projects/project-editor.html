@@ -5,185 +5,80 @@
 <title>Editor · {{ project_id }} · gor://a</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-<!-- CodeMirror 6 -->
+<!-- ================= CodeMirror (stable) ================= -->
 <script type="module">
-  import {EditorView, basicSetup} from "https://cdn.jsdelivr.net/npm/codemirror@6/dist/index.js";
-  import {EditorState} from "https://cdn.jsdelivr.net/npm/@codemirror/state@6/dist/index.js";
-  import {javascript} from "https://cdn.jsdelivr.net/npm/@codemirror/lang-javascript@6/dist/index.js";
-  import {html} from "https://cdn.jsdelivr.net/npm/@codemirror/lang-html@6/dist/index.js";
-  import {css} from "https://cdn.jsdelivr.net/npm/@codemirror/lang-css@6/dist/index.js";
-  import {python} from "https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6/dist/index.js";
-  import {oneDark} from "https://cdn.jsdelivr.net/npm/@codemirror/theme-one-dark@6/dist/index.js";
-  window.__CM = {EditorView, EditorState, basicSetup, javascript, html, css, python, oneDark};
+  import { EditorState } from "https://esm.sh/@codemirror/state";
+  import { EditorView, keymap, lineNumbers } from "https://esm.sh/@codemirror/view";
+  import { defaultKeymap, history, historyKeymap } from "https://esm.sh/@codemirror/commands";
+  import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark";
+
+  window.createEditor = (parent, content) => {
+    const fill = EditorView.theme({
+      "&": { height: "100%" },
+      ".cm-scroller": { overflow: "auto" }
+    });
+
+    const state = EditorState.create({
+      doc: content,
+      extensions: [
+        fill,
+        lineNumbers(),
+        history(),
+        keymap.of([...defaultKeymap, ...historyKeymap]),
+        oneDark,
+        EditorView.lineWrapping
+      ]
+    });
+
+    return new EditorView({ state, parent });
+  };
 </script>
 
 <style>
-@font-face{
-  font-family:'din-next-w01-light';
-  src:url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2');
-}
-*{box-sizing:border-box;font-family:'din-next-w01-light',system-ui}
-body{margin:0;background:#0b1020;color:#fff;height:100vh;overflow:hidden}
-
+body{margin:0;background:#0b1020;color:#fff;height:100vh;overflow:hidden;font-family:system-ui}
 .shell{display:flex;height:100vh}
 
-/* ================= LEFT: AGENT ================= */
-.left{
-  width:400px;
-  background:#0f1530;
-  border-right:1px solid rgba(255,255,255,.08);
-  display:flex;
-  flex-direction:column;
-}
+/* LEFT */
+.left{width:380px;background:#0f1530;border-right:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column}
+header{padding:16px;border-bottom:1px solid rgba(255,255,255,.08)}
+.phases{display:flex;gap:8px;padding:12px}
+.phase{padding:6px 12px;border-radius:999px;font-size:11px;border:1px solid rgba(255,255,255,.12);opacity:.3}
+.phase.active{border-color:#3b6cff;opacity:1}
 
-.left header{
-  padding:16px;
-  border-bottom:1px solid rgba(255,255,255,.08);
-}
-.left header .t{font-size:16px}
-.left header .id{font-size:12px;opacity:.55}
+.chat{flex:1;padding:14px;overflow:auto;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:85%;padding:10px 12px;border-radius:14px;font-size:13px}
+.msg.user{align-self:flex-end;background:#3b6cff}
+.msg.agent{align-self:flex-start;background:rgba(255,255,255,.06)}
+.msg.system{align-self:center;font-size:12px;opacity:.6}
 
-.phases{
-  display:flex;
-  gap:8px;
-  padding:12px 16px;
-  border-bottom:1px solid rgba(255,255,255,.08);
-}
-.phase{
-  padding:6px 10px;
-  border-radius:999px;
-  font-size:11px;
-  border:1px solid rgba(255,255,255,.1);
-  opacity:.4;
-}
-.phase.active{
-  border-color:#3b6cff;
-  opacity:1;
-}
+.agent-input{padding:12px;border-top:1px solid rgba(255,255,255,.08);display:flex;gap:8px}
+textarea{flex:1;height:70px;border-radius:12px;background:#0b1020;color:#fff;border:1px solid rgba(255,255,255,.12);padding:10px}
+button{background:#3b6cff;border:none;color:#fff;border-radius:12px;padding:14px 16px;cursor:pointer}
 
-.chat{
-  flex:1;
-  padding:16px;
-  overflow:auto;
-  display:flex;
-  flex-direction:column;
-  gap:12px;
-}
+/* MAIN */
+.main{flex:1;display:flex;flex-direction:column}
+.topbar{height:56px;display:flex;gap:8px;align-items:center;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.08)}
+.tab{padding:8px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.12);cursor:pointer;opacity:.7}
+.tab.active{border-color:#3b6cff;opacity:1}
 
-.msg{
-  max-width:90%;
-  padding:10px 12px;
-  border-radius:14px;
-  font-size:13px;
-  line-height:1.45;
-}
-.msg.user{
-  align-self:flex-end;
-  background:#3b6cff;
-}
-.msg.agent{
-  align-self:flex-start;
-  background:rgba(255,255,255,.06);
-  border:1px solid rgba(255,255,255,.08);
-}
-.msg.system{
-  align-self:center;
-  opacity:.6;
-  font-size:12px;
-}
-
-.msg .meta{
-  font-size:11px;
-  opacity:.5;
-  margin-bottom:4px;
-}
-
-.agent-input{
-  padding:14px;
-  border-top:1px solid rgba(255,255,255,.08);
-  display:flex;
-  gap:10px;
-}
-.agent-input textarea{
-  flex:1;
-  height:72px;
-  resize:none;
-  border-radius:12px;
-  border:1px solid rgba(255,255,255,.1);
-  background:#0b1020;
-  color:#fff;
-  padding:10px;
-  font-size:13px;
-}
-.agent-input button{
-  background:#3b6cff;
-  border:none;
-  color:#fff;
-  border-radius:12px;
-  padding:14px 16px;
-  cursor:pointer;
-}
-
-/* ================= MAIN ================= */
-.main{flex:1;display:flex;flex-direction:column;min-width:0}
-
-.topbar{
-  height:54px;
-  padding:0 14px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  border-bottom:1px solid rgba(255,255,255,.08);
-}
-.tabs{display:flex;gap:8px}
-.tab{
-  padding:8px 12px;
-  border-radius:12px;
-  border:1px solid rgba(255,255,255,.1);
-  cursor:pointer;
-  font-size:13px;
-}
-.tab.active{border-color:#3b6cff}
-
-.content{flex:1;display:flex;min-height:0}
-
-.files{
-  width:260px;
-  background:#0f1530;
-  border-right:1px solid rgba(255,255,255,.08);
-  padding:12px;
-  overflow:auto;
-}
-.file{
-  padding:10px;
-  border-radius:12px;
-  border:1px solid rgba(255,255,255,.06);
-  margin-bottom:8px;
-  cursor:pointer;
-  font-size:12px;
-}
+.content{flex:1;display:flex}
+.files{width:240px;background:#0f1530;border-right:1px solid rgba(255,255,255,.08);padding:12px}
+.file{padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.08);margin-bottom:6px;font-size:12px;cursor:pointer}
 .file.active{border-color:#3b6cff}
 
-.stage{flex:1;min-width:0}
+.stage{flex:1}
 #editor{height:100%}
-#preview{
-  width:100%;
-  height:100%;
-  border:0;
-  display:none;
-  background:#fff;
-}
+#preview{width:100%;height:100%;border:0;display:none;background:#fff}
 </style>
 </head>
 
 <body>
 <div class="shell">
 
-<!-- LEFT / AGENT -->
 <aside class="left">
   <header>
-    <div class="t">gor://a agent</div>
-    <div class="id">{{ project_id }}</div>
+    <div>gor://a agent</div>
+    <div style="font-size:12px;opacity:.6">{{ project_id }}</div>
   </header>
 
   <div class="phases">
@@ -195,22 +90,15 @@ body{margin:0;background:#0b1020;color:#fff;height:100vh;overflow:hidden}
   <div class="chat" id="chat"></div>
 
   <div class="agent-input">
-    <textarea id="prompt" placeholder="Describe what you want to build or change…"></textarea>
-    <button id="runAgent"><?xml version="1.0" encoding="utf-8"?><!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools -->
-<svg width="20px" height="30px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path d="M12.0004 18.5816V12.5M12.7976 18.754L15.8103 19.7625C17.4511 20.3118 18.2714 20.5864 18.7773 20.3893C19.2166 20.2182 19.5499 19.8505 19.6771 19.3965C19.8236 18.8737 19.4699 18.0843 18.7624 16.5053L14.2198 6.36709C13.5279 4.82299 13.182 4.05094 12.7001 3.81172C12.2814 3.60388 11.7898 3.60309 11.3705 3.80958C10.8878 4.04726 10.5394 4.8182 9.84259 6.36006L5.25633 16.5082C4.54325 18.086 4.18671 18.875 4.33169 19.3983C4.4576 19.8528 4.78992 20.2216 5.22888 20.394C5.73435 20.5926 6.55603 20.3198 8.19939 19.7744L11.2797 18.752C11.5614 18.6585 11.7023 18.6117 11.8464 18.5933C11.9742 18.5769 12.1036 18.5771 12.2314 18.5938C12.3754 18.6126 12.5162 18.6597 12.7976 18.754Z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-</svg></button>
+    <textarea id="prompt" placeholder="Describe what to build or change…"></textarea>
+    <button id="runAgent">▶</button>
   </div>
 </aside>
 
-<!-- MAIN -->
 <section class="main">
   <div class="topbar">
-    <div class="tabs">
-      <div class="tab active" id="tabCode">Code</div>
-      <div class="tab" id="tabPreview">Preview</div>
-    </div>
-    <a class="tab" href="/projects/{{ project_id }}/preview" target="_blank">Open</a>
+    <div class="tab active" id="tabCode">Code</div>
+    <div class="tab" id="tabPreview">Preview</div>
   </div>
 
   <div class="content">
@@ -226,142 +114,111 @@ body{margin:0;background:#0b1020;color:#fff;height:100vh;overflow:hidden}
 
 <script>
 const PROJECT_ID = "{{ project_id }}";
-let editorView = null;
-let currentFile = "index.html";
-let es = null;
+let editorView=null, currentFile="index.html", es=null;
 
-const $ = id => document.getElementById(id);
-const chat = $("chat");
+const $=id=>document.getElementById(id);
+const chat=$("chat");
 
-/* ---------------- CHAT ---------------- */
-
-function addMessage(role, text) {
-  const el = document.createElement("div");
-  el.className = "msg " + role;
-  el.innerHTML = role === "system"
-    ? text
-    : `<div class="meta">${role}</div>${text}`;
-  chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+function add(role,text){
+  const d=document.createElement("div");
+  d.className="msg "+role;
+  d.textContent=text;
+  chat.appendChild(d);
+  chat.scrollTop=chat.scrollHeight;
 }
 
-function setPhase(p) {
-  ["planner","coder","files"].forEach(x =>
-    $("phase-"+x).classList.toggle("active", x === p)
-  );
-}
-
-/* ---------------- TABS ---------------- */
-
-function switchTab(tab) {
-  if (tab === "preview") {
-    $("tabCode").classList.remove("active");
-    $("tabPreview").classList.add("active");
-    $("editor").style.display = "none";
-    $("preview").style.display = "block";
-    $("preview").src = `/app/${PROJECT_ID}/index.html?ts=${Date.now()}`;
-  } else {
-    $("tabPreview").classList.remove("active");
-    $("tabCode").classList.add("active");
-    $("preview").style.display = "none";
-    $("editor").style.display = "block";
-  }
-}
-
-$("tabCode").onclick = () => switchTab("code");
-$("tabPreview").onclick = () => switchTab("preview");
-
-/* ---------------- FILES ---------------- */
-
-async function fetchJSON(url) {
-  const r = await fetch(url, { credentials: "include" });
-  return await r.json();
-}
-
-async function refreshFiles() {
-  const data = await fetchJSON(`/api/project/${PROJECT_ID}/files`);
-  const list = $("filelist");
-  list.innerHTML = "";
-  (data.files || []).forEach(f => {
-    const d = document.createElement("div");
-    d.className = "file" + (f.path === currentFile ? " active" : "");
-    d.textContent = f.path;
-    d.onclick = () => loadFile(f.path);
-    list.appendChild(d);
+function setPhase(p){
+  ["planner","coder","files"].forEach(x=>{
+    $("phase-"+x).classList.toggle("active",x===p);
   });
 }
 
-async function loadFile(path) {
-  currentFile = path;
-  const data = await fetchJSON(`/api/project/${PROJECT_ID}/file?path=${encodeURIComponent(path)}`);
-  buildEditor(data.content || "");
+/* FILES */
+async function refreshFiles(){
+  const r=await fetch(`/api/project/${PROJECT_ID}/files`);
+  const d=await r.json();
+  $("filelist").innerHTML="";
+  (d.files||[]).forEach(f=>{
+    const el=document.createElement("div");
+    el.className="file"+(f.path===currentFile?" active":"");
+    el.textContent=f.path;
+    el.onclick=()=>loadFile(f.path);
+    $("filelist").appendChild(el);
+  });
+}
+
+async function loadFile(p){
+  currentFile=p;
+  const r=await fetch(`/api/project/${PROJECT_ID}/file?path=${encodeURIComponent(p)}`);
+  const d=await r.json();
+  $("editor").innerHTML="";
+  editorView=window.createEditor($("editor"), d.content||"");
   refreshFiles();
 }
 
-/* ---------------- EDITOR ---------------- */
+/* TABS */
+$("tabCode").onclick=()=>{
+  $("editor").style.display="block";
+  $("preview").style.display="none";
+  $("tabCode").classList.add("active");
+  $("tabPreview").classList.remove("active");
+};
+$("tabPreview").onclick=()=>{
+  $("editor").style.display="none";
+  $("preview").style.display="block";
+  $("preview").src=`/app/${PROJECT_ID}/index.html?ts=${Date.now()}`;
+  $("tabPreview").classList.add("active");
+  $("tabCode").classList.remove("active");
+};
 
-function buildEditor(content) {
-  const CM = window.__CM;
-  if (!CM) return;
+/* AGENT */
+function startStream(){
+  if(es) es.close();
+  es=new EventSource(`/api/project/${PROJECT_ID}/events`);
+  add("system","Agent connected");
 
-  const state = CM.EditorState.create({
-    doc: content,
-    extensions: [
-      CM.basicSetup,
-      CM.oneDark,
-      CM.EditorView.updateListener.of(v => {
-        if (v.docChanged) {}
-      })
-    ]
-  });
+  es.onmessage=e=>{
+    const m=JSON.parse(e.data);
 
-  $("editor").innerHTML = "";
-  editorView = new CM.EditorView({ state, parent: $("editor") });
-}
+    if(m.type==="status"){
+      add("system",m.text);
+      if(m.text.includes("Planning")) setPhase("planner");
+      if(m.text.includes("Coding")) setPhase("coder");
+      if(m.text.includes("Done")) setPhase("files");
+    }
 
-/* ---------------- AGENT STREAM ---------------- */
+    if(m.type==="log"){
+      add(m.role||"agent",m.text);
+    }
 
-function startAgentStream() {
-  if (es) es.close();
-  es = new EventSource(`/api/project/${PROJECT_ID}/events`, { withCredentials: true });
-
-  es.onmessage = e => {
-    const msg = JSON.parse(e.data);
-    if (msg.type === "phase") setPhase(msg.value);
-    if (msg.type === "message") addMessage(msg.role || "agent", msg.text || "");
-    if (msg.type === "file_changed") {
-      addMessage("system", `Updated file: ${msg.path}`);
+    if(m.type==="file_changed"){
+      add("system","Updated: "+m.path);
       refreshFiles();
-      if (msg.path === currentFile) loadFile(currentFile);
+      if(m.path===currentFile) loadFile(currentFile);
     }
   };
 
-  es.onerror = () => {
-    addMessage("system", "Agent stream disconnected");
-  };
+  es.onerror=()=>add("system","Agent stream disconnected");
 }
 
-$("runAgent").onclick = async () => {
-  const prompt = $("prompt").value.trim();
-  if (!prompt) return;
-  addMessage("user", prompt);
-  $("prompt").value = "";
-  await fetch(`/api/project/${PROJECT_ID}/agent/start`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ prompt })
+$("runAgent").onclick=async()=>{
+  const p=$("prompt").value.trim();
+  if(!p) return;
+  add("user",p);
+  $("prompt").value="";
+  await fetch(`/api/project/${PROJECT_ID}/agent/start`,{
+    method:"POST",
+    headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body:new URLSearchParams({prompt:p})
   });
-  startAgentStream();
+  startStream();
 };
 
-/* ---------------- BOOT ---------------- */
-(async () => {
+/* BOOT */
+(async()=>{
   await refreshFiles();
   await loadFile(currentFile);
-  switchTab("code");
 })();
 </script>
-
 </body>
 </html>
