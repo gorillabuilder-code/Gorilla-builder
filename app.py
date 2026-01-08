@@ -83,75 +83,69 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
 # ==========================================================================
-# TOKEN MANAGEMENT LOGIC (FIXED FK ERROR)
+# DATABASE HELPERS (Safe Access)
 # ==========================================================================
-def _month_key(dt: Optional[datetime] = None) -> str:
-    """Returns YYYY-MM string for current month (UTC)."""
-    dt = dt or datetime.now(timezone.utc)
-    return f"{dt.year:04d}-{dt.month:02d}"
-
-def get_monthly_tokens_used(user_id: str, month: Optional[str] = None) -> int:
-    """Fetches total tokens used by user for the given month."""
-    month = month or _month_key()
+def db_select_one(table: str, match: dict, select="*"):
+    """Safe wrapper to fetch a single row."""
+    if not supabase: return None
     try:
-        res = (
-            supabase.table("token_usage_monthly")
-            .select("tokens")
-            .eq("user_id", user_id)
-            .eq("month", month)
-            .maybe_single()
-            .execute()
-        )
-        row = res.data if res else None
-        if not row:
-            return 0
-        return int(row.get("tokens") or 0)
-    except Exception:
-        return 0
+        q = supabase.table(table).select(select)
+        for k, v in match.items(): q = q.eq(k, v)
+        res = q.maybe_single().execute()
+        return res.data if res else None
+    except Exception: return None
+
+def db_upsert(table: str, data: dict, on_conflict=None):
+    """Safe wrapper to upsert data."""
+    if not supabase: return None
+    try:
+        q = supabase.table(table).upsert(data, on_conflict=on_conflict)
+        res = q.execute()
+        return res.data
+    except Exception as e:
+        # Re-raise so specific error handling (like FK checks) can work
+        raise e
+
+
+# ==========================================================================
+# TOKEN MANAGEMENT LOGIC (Simplified: Single Table)
+# ==========================================================================
+def get_monthly_tokens_used(user_id: str, month: Optional[str] = None) -> int:
+    """Fetches tokens directly from the users table."""
+    # Note: 'month' param kept for compatibility but logic is now persistent per-user
+    user = db_select_one("users", {"id": user_id}, "tokens_used")
+    return int(user.get("tokens_used") or 0) if user else 0
 
 def add_monthly_tokens(user_id: str, tokens_to_add: int, month: Optional[str] = None) -> int:
-    """Adds tokens to the monthly counter and returns the NEW total."""
-    month = month or _month_key()
+    """Adds tokens. If user missing, creates them automatically (Upsert)."""
     if tokens_to_add <= 0:
-        return get_monthly_tokens_used(user_id, month)
+        return get_monthly_tokens_used(user_id)
     
     try:
-        current_used = get_monthly_tokens_used(user_id, month)
-        new_total = current_used + int(tokens_to_add)
+        current = get_monthly_tokens_used(user_id)
+        new_total = current + int(tokens_to_add)
         
-        supabase.table("token_usage_monthly").upsert(
+        # Single DB call: Update tokens OR create user if missing
+        # This prevents the Foreign Key error completely.
+        db_upsert(
+            "users",
             {
-                "user_id": user_id, 
-                "month": month, 
-                "tokens": new_total, 
+                "id": user_id, 
+                "tokens_used": new_total,
+                "email": "dev@local", # Default for dev mode; ignored if user exists
                 "updated_at": "now()"
-            },
-            on_conflict="user_id,month",
-        ).execute()
+            }, 
+            on_conflict="id"
+        )
         
         return new_total
     except Exception as e:
-        # --- FIX: FOREIGN KEY SELF-HEALING ---
-        err_msg = str(e)
-        if "23503" in err_msg or "violates foreign key constraint" in err_msg:
-            print(f"[Tokens] User {user_id} missing. Creating public user record...")
-            ensure_public_user(user_id, "dev@local")
-            # Retry once
-            try:
-                supabase.table("token_usage_monthly").upsert(
-                    {"user_id": user_id, "month": month, "tokens": new_total, "updated_at": "now()"},
-                    on_conflict="user_id,month"
-                ).execute()
-                return new_total
-            except:
-                pass
-        
-        print(f"Error saving tokens: {e}")
+        print(f"Token Update Error: {e}")
         return 0
 
 def enforce_token_limit_or_raise(user_id: str) -> Tuple[int, int]:
-    month = _month_key()
-    used = get_monthly_tokens_used(user_id, month)
+    """Checks limit using the new column."""
+    used = get_monthly_tokens_used(user_id)
     remaining = max(0, MONTHLY_TOKEN_LIMIT - used)
     
     if used >= MONTHLY_TOKEN_LIMIT:
@@ -175,15 +169,9 @@ def _stable_user_id_for_email(email: str) -> str:
     return str(uuid.uuid5(_DEV_NAMESPACE, e))
 
 def ensure_public_user(user_id: str, email: str) -> None:
-    """Ensures the user exists in the public.users table to satisfy FK constraints."""
+    """Ensures the user exists in the public.users table."""
     try:
-        # Check first to avoid unnecessary write
-        check = supabase.table("users").select("id").eq("id", user_id).maybe_single().execute()
-        if not check.data:
-            supabase.table("users").upsert(
-                {"id": user_id, "email": email, "plan": "free"}, 
-                on_conflict="id"
-            ).execute()
+        db_upsert("users", {"id": user_id, "email": email, "plan": "free"}, on_conflict="id")
     except Exception:
         pass
 
@@ -211,15 +199,15 @@ def _require_project_owner(user: Dict[str, Any], project_id: str) -> None:
     if DEV_MODE:
         # In strict dev mode, we might relax this, but checking existence is good
         try:
-            res = supabase.table("projects").select("id").eq("id", project_id).single().execute()
-            if not res.data: raise Exception("Not found")
+            res = db_select_one("projects", {"id": project_id}, "id")
+            if not res: raise Exception("Not found")
             return
         except Exception:
             raise HTTPException(status_code=404, detail="Project not found")
     
     # Production check
-    res = supabase.table("projects").select("id").eq("id", project_id).eq("owner_id", user["id"]).single().execute()
-    if not res.data:
+    res = db_select_one("projects", {"id": project_id, "owner_id": user["id"]}, "id")
+    if not res:
         raise HTTPException(status_code=404, detail="Project not found or access denied")
 
 
@@ -494,10 +482,11 @@ async def save_file(
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
-    supabase.table("files").upsert(
-        {"project_id": project_id, "path": file, "content": content},
+    db_upsert(
+        "files", 
+        {"project_id": project_id, "path": file, "content": content}, 
         on_conflict="project_id,path"
-    ).execute()
+    )
     
     # Update project timestamp
     supabase.table("projects").update({"updated_at": "now()"}).eq("id", project_id).execute()
@@ -709,10 +698,11 @@ async def agent_start(request: Request, project_id: str, prompt: str = Form(...)
                     content = op.get("content")
                     if path and content is not None:
                         # Upsert to DB
-                        supabase.table("files").upsert(
-                            {"project_id": project_id, "path": path, "content": content},
+                        db_upsert(
+                            "files", 
+                            {"project_id": project_id, "path": path, "content": content}, 
                             on_conflict="project_id,path"
-                        ).execute()
+                        )
                         emit_file_changed(project_id, path)
                 
                 # Refresh context for next step

@@ -20,7 +20,7 @@ import httpx
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 # Using a slightly different model to ensure availability or use your preferred one
-GROQ_MODEL = os.getenv("GROQ_MODEL_CODE", "meta-llama/llama-4-scout-17b-16e-instruct")
+GROQ_MODEL = os.getenv("GROQ_MODEL_CODE", "groq/compound")
 GROQ_URL = os.getenv("GROQ_URL", "https://api.groq.com/openai/v1/chat/completions")
 
 if not GROQ_API_KEY:

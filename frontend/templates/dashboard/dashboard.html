@@ -314,14 +314,14 @@
     <div class="stats">
       {% if user and user.tokens %}
         <div class="pill">
-          <span>Used:</span>
+          <span>🪙 Used:</span>
           <strong>{{ user.tokens.used }}</strong>
           <span style="opacity:0.4">/</span>
           <span>{{ user.tokens.limit }}</span>
         </div>
         <div class="pill" style="border-color: rgba(43, 217, 124, 0.3); color: #2bd97c;">
           <span>Remaining:</span>
-          <strong>{{ user.tokens.remaining }}</strong>
+          <strong>{{ user.tokens.remaining }}🪙</strong>
         </div>
       {% else %}
         <div class="pill">Tokens: Loading...</div>
