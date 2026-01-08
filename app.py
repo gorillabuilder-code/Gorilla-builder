@@ -1,19 +1,22 @@
-# app.py — gor://a (FastAPI + Supabase + Projects + CodeMirror + Agent SSE)
+# app.py
 from __future__ import annotations
 
 import os
 import json
 import time
+import uuid
 import asyncio
 import secrets
 import mimetypes
-from typing import Any, Dict, Optional, List, Callable
+import traceback
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
+import httpx
 from fastapi import FastAPI, Request, HTTPException, Form
 from fastapi.responses import (
     HTMLResponse,
     RedirectResponse,
-    JSONResponse,
     Response,
     StreamingResponse,
     FileResponse,
@@ -21,34 +24,40 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from supabase import create_client, Client
 from dotenv import load_dotenv
+from supabase import create_client, Client
 
 load_dotenv()
+# --------------------------------------------------------------------------
+# IMPORTS: Backend Modules
+# --------------------------------------------------------------------------
+from backend.run_manager import ProjectRunManager
+from backend.ai.planner import Planner
+from backend.ai.coder import Coder
 
 
-# ==========================================================
-# PATHS (supports running from repo root)
-# ==========================================================
-
+# ==========================================================================
+# CONSTANTS & PATHS
+# ==========================================================================
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 FRONTEND_DIR = os.path.join(ROOT_DIR, "frontend")
 FRONTEND_TEMPLATES_DIR = os.path.join(FRONTEND_DIR, "templates")
 FRONTEND_STYLES_DIR = os.path.join(FRONTEND_DIR, "styles")
 
-# If app.py is executed from backend/ (or frontend missing), try repo root parent
 if not os.path.isdir(FRONTEND_DIR):
     ROOT_DIR = os.path.dirname(ROOT_DIR)
     FRONTEND_DIR = os.path.join(ROOT_DIR, "frontend")
     FRONTEND_TEMPLATES_DIR = os.path.join(FRONTEND_DIR, "templates")
     FRONTEND_STYLES_DIR = os.path.join(FRONTEND_DIR, "styles")
 
+DEV_MODE = os.getenv("DEV_MODE", "1") == "1"
+MONTHLY_TOKEN_LIMIT = int(os.getenv("MONTHLY_TOKEN_LIMIT", "100000"))
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# ==========================================================
-# APP INIT
-# ==========================================================
-
+# ==========================================================================
+# APP INITIALIZATION
+# ==========================================================================
 app = FastAPI(title="GOR://A Backend ASGI")
 
 app.add_middleware(
@@ -60,87 +69,163 @@ if os.path.isdir(FRONTEND_STYLES_DIR):
     app.mount("/styles", StaticFiles(directory=FRONTEND_STYLES_DIR), name="styles")
 
 templates = Jinja2Templates(directory=FRONTEND_TEMPLATES_DIR)
-BASE_URL = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
 
-
-# ==========================================================
-# SUPABASE INIT (NO HARDCODED KEYS)
-# ==========================================================
-
+# ==========================================================================
+# SUPABASE CLIENT
+# ==========================================================================
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-    raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set.")
+    raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
-# ==========================================================
-# DEV MODE SWITCH
-# ==========================================================
-# In Codespaces you typically want DEV_MODE=1 so the UI works even if auth/RLS isn't ready.
-DEV_MODE = os.getenv("DEV_MODE", "1") == "1"
+# ==========================================================================
+# TOKEN MANAGEMENT LOGIC (FIXED FK ERROR)
+# ==========================================================================
+def _month_key(dt: Optional[datetime] = None) -> str:
+    """Returns YYYY-MM string for current month (UTC)."""
+    dt = dt or datetime.now(timezone.utc)
+    return f"{dt.year:04d}-{dt.month:02d}"
+
+def get_monthly_tokens_used(user_id: str, month: Optional[str] = None) -> int:
+    """Fetches total tokens used by user for the given month."""
+    month = month or _month_key()
+    try:
+        res = (
+            supabase.table("token_usage_monthly")
+            .select("tokens")
+            .eq("user_id", user_id)
+            .eq("month", month)
+            .maybe_single()
+            .execute()
+        )
+        row = res.data if res else None
+        if not row:
+            return 0
+        return int(row.get("tokens") or 0)
+    except Exception:
+        return 0
+
+def add_monthly_tokens(user_id: str, tokens_to_add: int, month: Optional[str] = None) -> int:
+    """Adds tokens to the monthly counter and returns the NEW total."""
+    month = month or _month_key()
+    if tokens_to_add <= 0:
+        return get_monthly_tokens_used(user_id, month)
+    
+    try:
+        current_used = get_monthly_tokens_used(user_id, month)
+        new_total = current_used + int(tokens_to_add)
+        
+        supabase.table("token_usage_monthly").upsert(
+            {
+                "user_id": user_id, 
+                "month": month, 
+                "tokens": new_total, 
+                "updated_at": "now()"
+            },
+            on_conflict="user_id,month",
+        ).execute()
+        
+        return new_total
+    except Exception as e:
+        # --- FIX: FOREIGN KEY SELF-HEALING ---
+        err_msg = str(e)
+        if "23503" in err_msg or "violates foreign key constraint" in err_msg:
+            print(f"[Tokens] User {user_id} missing. Creating public user record...")
+            ensure_public_user(user_id, "dev@local")
+            # Retry once
+            try:
+                supabase.table("token_usage_monthly").upsert(
+                    {"user_id": user_id, "month": month, "tokens": new_total, "updated_at": "now()"},
+                    on_conflict="user_id,month"
+                ).execute()
+                return new_total
+            except:
+                pass
+        
+        print(f"Error saving tokens: {e}")
+        return 0
+
+def enforce_token_limit_or_raise(user_id: str) -> Tuple[int, int]:
+    month = _month_key()
+    used = get_monthly_tokens_used(user_id, month)
+    remaining = max(0, MONTHLY_TOKEN_LIMIT - used)
+    
+    if used >= MONTHLY_TOKEN_LIMIT:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Monthly token limit reached ({MONTHLY_TOKEN_LIMIT}). Used={used}.",
+        )
+    return used, remaining
 
 
-# ==========================================================
-# AUTH HELPERS (session-based, dev-friendly)
-# ==========================================================
+# ==========================================================================
+# AUTHENTICATION & USER HELPERS
+# ==========================================================================
+_DEV_NAMESPACE = uuid.UUID("2b48c7cc-51c8-4b50-a5c6-2c4ac3f26cb1")
 
-def _dev_user() -> Dict[str, Any]:
-    """
-    Dev user (session fallback). IMPORTANT:
-    If your DB schema references auth.users(id), inserts will fail unless that user exists.
-    We'll create the auth user when you hit /auth/signup in dev mode.
-    """
-    return {
-        "id": os.getenv("DEV_USER_ID", "00000000-0000-0000-0000-000000000001"),
-        "email": os.getenv("DEV_USER_EMAIL", "dev@local"),
-    }
+def _stable_user_id_for_email(email: str) -> str:
+    """Generates a consistent UUIDv5 based on email for Dev Mode."""
+    e = (email or "").strip().lower()
+    if not e: 
+        return str(uuid.uuid4())
+    return str(uuid.uuid5(_DEV_NAMESPACE, e))
 
+def ensure_public_user(user_id: str, email: str) -> None:
+    """Ensures the user exists in the public.users table to satisfy FK constraints."""
+    try:
+        # Check first to avoid unnecessary write
+        check = supabase.table("users").select("id").eq("id", user_id).maybe_single().execute()
+        if not check.data:
+            supabase.table("users").upsert(
+                {"id": user_id, "email": email, "plan": "free"}, 
+                on_conflict="id"
+            ).execute()
+    except Exception:
+        pass
 
 def get_current_user(request: Request) -> Dict[str, Any]:
+    """Retrieves user from session or creates a Dev Mode user."""
     user = request.session.get("user")
-    if user:
+    
+    if user and user.get("id"):
+        # Refresh public record just in case
+        ensure_public_user(user["id"], user.get("email") or "unknown@local")
         return user
 
     if DEV_MODE:
-        user = _dev_user()
+        # Fallback for dev mode if session is empty
+        anon_id = str(uuid.uuid4())
+        user = {"id": anon_id, "email": "dev@local"}
         request.session["user"] = user
+        ensure_public_user(user["id"], user["email"])
         return user
 
     raise HTTPException(status_code=401, detail="Not authenticated")
 
-
-def _project_exists_for_user(user: Dict[str, Any], project_id: str) -> bool:
-    try:
-        supabase.table("projects").select("id").eq("id", project_id).eq("owner_id", user["id"]).single().execute()
-        return True
-    except Exception:
-        return False
-
-
 def _require_project_owner(user: Dict[str, Any], project_id: str) -> None:
-    """
-    In DEV_MODE we allow access if project exists (even if owner_id mismatch),
-    because service-role key bypasses RLS and you need UI to work.
-    """
+    """Verifies that the current user owns the project."""
     if DEV_MODE:
-        # allow if project exists at all (dev convenience)
+        # In strict dev mode, we might relax this, but checking existence is good
         try:
-            supabase.table("projects").select("id").eq("id", project_id).single().execute()
+            res = supabase.table("projects").select("id").eq("id", project_id).single().execute()
+            if not res.data: raise Exception("Not found")
             return
         except Exception:
             raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Production check
+    res = supabase.table("projects").select("id").eq("id", project_id).eq("owner_id", user["id"]).single().execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Project not found or access denied")
 
-    # strict owner check
-    supabase.table("projects").select("id").eq("id", project_id).eq("owner_id", user["id"]).single().execute()
 
-
-# ==========================================================
-# PUBLIC PAGES
-# ==========================================================
-
+# ==========================================================================
+# PUBLIC ROUTES (Templates)
+# ==========================================================================
 PUBLIC_PAGES = {
     "/": "index.html",
     "/login": "auth/login.html",
@@ -151,62 +236,60 @@ PUBLIC_PAGES = {
     "/about": "about.html",
 }
 
-def _page_handler(template_name: str):
-    async def handler(request: Request):
-        return templates.TemplateResponse(template_name, {"request": request})
-    return handler
-
-for route, template in PUBLIC_PAGES.items():
-    app.get(route, response_class=HTMLResponse)(_page_handler(template))
-
+for route, template_name in PUBLIC_PAGES.items():
+    # We use a closure here to bind the template name variable
+    def make_handler(t_name):
+        async def handler(request: Request):
+            return templates.TemplateResponse(t_name, {"request": request})
+        return handler
+        
+    app.get(route, response_class=HTMLResponse)(make_handler(template_name))
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     p = os.path.join(FRONTEND_DIR, "assets", "favicon.png")
-    if os.path.exists(p):
+    if os.path.exists(p): 
         return FileResponse(p)
     raise HTTPException(status_code=404)
 
 
-# ==========================================================
-# AUTH ROUTES (DEV-FRIENDLY)
-# ==========================================================
-# NOTE:
-# Your schema references auth.users(id). So in dev, we will create a Supabase Auth user.
-# This ensures owner_id inserts work.
-
+# ==========================================================================
+# AUTH API ROUTES
+# ==========================================================================
 @app.post("/auth/signup")
 async def auth_signup(request: Request, email: str = Form(...), password: str = Form(...)):
+    email = (email or "").strip().lower()
+    
     if DEV_MODE:
-        # Create actual supabase auth user so auth.users has the ID
         try:
-            created = supabase.auth.admin.create_user(
-                {"email": email, "password": password, "email_confirm": True}
-            )
+            # Try creating real supabase auth user first
+            created = supabase.auth.admin.create_user({
+                "email": email, 
+                "password": password, 
+                "email_confirm": True
+            })
             user_id = created.user.id
-            request.session["user"] = {"id": user_id, "email": email}
-            return RedirectResponse("/dashboard", status_code=303)
-        except Exception as e:
-            # If user already exists, try to find it by logging in (still dev)
-            request.session["user"] = _dev_user()
-            request.session["user"]["email"] = email
-            return RedirectResponse("/dashboard", status_code=303)
-
-    raise HTTPException(400, detail="Real signup not wired yet (set DEV_MODE=1 for dev).")
-
+        except Exception:
+            # Fallback to deterministic ID
+            user_id = _stable_user_id_for_email(email)
+        
+        request.session["user"] = {"id": user_id, "email": email}
+        ensure_public_user(user_id, email)
+        return RedirectResponse("/dashboard", status_code=303)
+        
+    raise HTTPException(400, detail="Signup requires DEV_MODE=1 or Supabase Auth setup.")
 
 @app.post("/auth/login")
 async def auth_login(request: Request, email: str = Form(...), password: str = Form(...)):
+    email = (email or "").strip().lower()
+    
     if DEV_MODE:
-        # In dev, we just ensure session exists. You can wire real supabase sign-in later.
-        # If you created user via /auth/signup, the session has real auth.users id already.
-        user = request.session.get("user") or _dev_user()
-        user["email"] = email
-        request.session["user"] = user
+        user_id = _stable_user_id_for_email(email)
+        request.session["user"] = {"id": user_id, "email": email}
+        ensure_public_user(user_id, email)
         return RedirectResponse("/dashboard", status_code=303)
-
-    raise HTTPException(400, detail="Real login not wired yet (set DEV_MODE=1 for dev).")
-
+        
+    raise HTTPException(400, detail="Login requires DEV_MODE=1 or Supabase Auth setup.")
 
 @app.get("/auth/logout")
 async def auth_logout(request: Request):
@@ -214,284 +297,270 @@ async def auth_logout(request: Request):
     return RedirectResponse("/", status_code=303)
 
 
-# ==========================================================
-# DASHBOARD & WORKSPACE
-# ==========================================================
-
+# ==========================================================================
+# DASHBOARD & WORKSPACE (FIXED 500)
+# ==========================================================================
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
     user = get_current_user(request)
-
-    # In DEV_MODE, if owner_id doesn't exist yet, you may see empty.
-    projects = (
-        supabase.table("projects")
-        .select("*")
-        .eq("owner_id", user["id"])
-        .order("updated_at", desc=True)
-        .execute()
-        .data
-    )
+    
+    # Token Data
+    used = get_monthly_tokens_used(user["id"])
+    user["tokens"] = {
+        "used": used, 
+        "limit": MONTHLY_TOKEN_LIMIT, 
+        "remaining": max(0, MONTHLY_TOKEN_LIMIT - used)
+    }
+    
+    # Project Data
+    try:
+        res = (
+            supabase.table("projects")
+            .select("*")
+            .eq("owner_id", user["id"])
+            .order("updated_at", desc=True)
+            .execute()
+        )
+        # --- FIX: CHECK IF DATA EXISTS ---
+        projects = res.data if res and res.data else []
+    except Exception:
+        projects = []
 
     return templates.TemplateResponse(
-        "dashboard/dashboard.html",
-        {"request": request, "projects": projects, "user": user},
+        "dashboard/dashboard.html", 
+        {"request": request, "projects": projects, "user": user}
     )
-
 
 @app.get("/workspace", response_class=HTMLResponse)
 async def workspace(request: Request):
     user = get_current_user(request)
+    used = get_monthly_tokens_used(user["id"])
+    user["tokens"] = {"used": used, "limit": MONTHLY_TOKEN_LIMIT}
 
-    projects = (
-        supabase.table("projects")
-        .select("id,name,updated_at")
-        .eq("owner_id", user["id"])
-        .order("updated_at", desc=True)
-        .execute()
-        .data
-    )
-
+    try:
+        res = (
+            supabase.table("projects")
+            .select("id,name,updated_at")
+            .eq("owner_id", user["id"])
+            .order("updated_at", desc=True)
+            .execute()
+        )
+        # --- FIX: CHECK IF DATA EXISTS ---
+        projects = res.data if res and res.data else []
+    except Exception:
+        projects = []
+        
     return templates.TemplateResponse(
         "dashboard/workspace.html",
-        {"request": request, "projects": projects, "user": user},
+        {"request": request, "projects": projects, "user": user}
     )
 
 
-# ==========================================================
-# PROJECTS
-# ==========================================================
-
-@app.get("/projects", response_class=HTMLResponse)
-async def projects_list(request: Request):
-    user = get_current_user(request)
-
-    projects = (
-        supabase.table("projects")
-        .select("*")
-        .eq("owner_id", user["id"])
-        .order("updated_at", desc=True)
-        .execute()
-        .data
-    )
-
-    return templates.TemplateResponse(
-        "projects/projects-list.html",
-        {"request": request, "projects": projects, "user": user},
-    )
-
-
-@app.get("/projects/create", response_class=HTMLResponse)
-async def project_create(request: Request):
-    user = get_current_user(request)
-    return templates.TemplateResponse("projects/project-create.html", {"request": request, "user": user})
-
-
+# ==========================================================================
+# PROJECT ROUTES (FIXED 500)
+# ==========================================================================
 @app.post("/projects/create")
 async def create_project(request: Request, name: str = Form(...), description: str = Form("")):
     user = get_current_user(request)
-
-    # IMPORTANT FIX:
-    # If auth.users row doesn't exist for this user ID, the FK will fail.
-    # Solution: In DEV_MODE, if user id is dev placeholder, store projects under a "dev owner"
-    # by forcing a valid owner_id from session or creating one via /auth/signup.
-    if DEV_MODE and user["id"].startswith("00000000-0000-0000-0000-"):
-        raise HTTPException(
-            400,
-            detail="Dev user ID is placeholder and not in auth.users. Use /signup once to create a real auth user.",
-        )
+    ensure_public_user(user["id"], user.get("email") or "unknown@local")
 
     try:
-        project = (
+        res = (
             supabase.table("projects")
             .insert({"owner_id": user["id"], "name": name, "description": description})
             .execute()
-            .data[0]
         )
+        # --- FIX: CHECK IF DATA EXISTS ---
+        if not res or not res.data:
+            raise Exception("No data returned from insert")
+            
+        project = res.data[0]
+        return RedirectResponse(f"/projects/{project['id']}/editor", status_code=303)
     except Exception as e:
-        # Return readable error for debugging
-        raise HTTPException(status_code=500, detail=f"Project create failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Create failed: {e}")
 
-    # Seed index.html
-    supabase.table("files").upsert(
-        {
-            "project_id": project["id"],
-            "path": "index.html",
-            "content": (
-                "<!doctype html><html><head><meta charset='utf-8'>"
-                "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                "<title>New App</title></head>"
-                "<body style='font-family:system-ui;padding:24px'>"
-                "<h1>New gor://a app</h1><p>Edit me in the builder.</p>"
-                "</body></html>"
-            ),
-        },
-        on_conflict="project_id,path",
-    ).execute()
-
-    return RedirectResponse(f"/projects/{project['id']}/editor", status_code=303)
-
-
-@app.get("/projects/{project_id}", response_class=HTMLResponse)
-async def project_detail(request: Request, project_id: str):
+@app.get("/projects/createit", response_class=HTMLResponse)
+async def project_create(request: Request):
     user = get_current_user(request)
-    _require_project_owner(user, project_id)
-
-    project = (
-        supabase.table("projects")
-        .select("*")
-        .eq("id", project_id)
-        .single()
-        .execute()
-        .data
-    )
-
-    files = (
-        supabase.table("files")
-        .select("path,updated_at")
-        .eq("project_id", project_id)
-        .order("updated_at", desc=True)
-        .execute()
-        .data
-    )
-
     return templates.TemplateResponse(
-        "projects/project-detail.html",
-        {"request": request, "project": project, "files": files, "user": user},
+        "projects/project-create.html", 
+        {"request": request, "user": user}
     )
-
-
-# ==========================================================
-# BUILDER / EDITOR / PREVIEW
-# ==========================================================
-
+    
 @app.get("/projects/{project_id}/editor", response_class=HTMLResponse)
 async def project_editor(request: Request, project_id: str, file: str = "index.html"):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
+    
+    used = get_monthly_tokens_used(user["id"])
+    user["tokens"] = {"used": used, "limit": MONTHLY_TOKEN_LIMIT}
 
     return templates.TemplateResponse(
         "projects/project-editor.html",
-        {"request": request, "project_id": project_id, "file": file, "user": user},
+        {"request": request, "project_id": project_id, "file": file, "user": user}
     )
-
 
 @app.get("/projects/{project_id}/preview", response_class=HTMLResponse)
 async def project_preview(request: Request, project_id: str):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
-
     return templates.TemplateResponse(
         "projects/project-preview.html",
-        {"request": request, "project_id": project_id, "user": user},
+        {"request": request, "project_id": project_id, "user": user}
     )
 
+@app.get("/projects/{project_id}/settings", response_class=HTMLResponse)
+async def project_settings(request: Request, project_id: str):
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+    
+    try:
+        res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
+        # --- FIX: CHECK IF DATA EXISTS ---
+        project = res.data if res else None
+    except Exception as e:
+        return templates.TemplateResponse(
+            "projects/project-settings.html",
+            {"request": request, "project_id": project_id, "error": str(e), "user": user}
+        )
+        
+    return templates.TemplateResponse(
+        "projects/project-settings.html",
+        {"request": request, "project_id": project_id, "project": project, "user": user}
+    )
 
-# ==========================================================
-# FILE API — SUPABASE (CodeMirror)
-# ==========================================================
+@app.post("/projects/{project_id}/settings")
+async def project_settings_save(
+    request: Request, 
+    project_id: str, 
+    name: str = Form(...), 
+    description: str = Form("")
+):
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+    
+    supabase.table("projects").update(
+        {"name": name, "description": description}
+    ).eq("id", project_id).execute()
+    
+    return RedirectResponse(f"/projects/{project_id}/settings", status_code=303)
 
+
+# ==========================================================================
+# FILE API ROUTES (FIXED 500)
+# ==========================================================================
 @app.get("/api/project/{project_id}/files")
 async def list_files(request: Request, project_id: str):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
-
-    files = (
+    
+    res = (
         supabase.table("files")
         .select("path,updated_at")
         .eq("project_id", project_id)
         .order("updated_at", desc=True)
         .execute()
-        .data
     )
-    return {"files": files}
-
+    # --- FIX: CHECK IF DATA EXISTS ---
+    return {"files": res.data if res and res.data else []}
 
 @app.get("/api/project/{project_id}/file")
 async def get_file(request: Request, project_id: str, path: str):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
-
-    row = (
+    
+    res = (
         supabase.table("files")
-        .select("path,content,updated_at")
+        .select("path,content")
         .eq("project_id", project_id)
         .eq("path", path)
         .maybe_single()
         .execute()
-        .data
     )
-
+    
+    # --- FIX: CHECK IF DATA EXISTS ---
+    row = res.data if res else None
     if not row:
-        return {"path": path, "content": "", "updated_at": None}
-
-    return {"path": row["path"], "content": row.get("content", ""), "updated_at": row.get("updated_at")}
-
+        return {"path": path, "content": ""}
+    return row
 
 @app.post("/api/project/{project_id}/save")
-async def save_file(request: Request, project_id: str, file: str = Form(...), content: str = Form(...)):
+async def save_file(
+    request: Request, 
+    project_id: str, 
+    file: str = Form(...), 
+    content: str = Form(...)
+):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
-
+    
     supabase.table("files").upsert(
         {"project_id": project_id, "path": file, "content": content},
-        on_conflict="project_id,path",
+        on_conflict="project_id,path"
     ).execute()
-
+    
+    # Update project timestamp
     supabase.table("projects").update({"updated_at": "now()"}).eq("id", project_id).execute()
+    
     return {"success": True}
 
+@app.get("/api/project/{project_id}/tokens")
+async def check_tokens(request: Request, project_id: str):
+    """Endpoint to get live token usage via polling if needed."""
+    user = get_current_user(request)
+    used = get_monthly_tokens_used(user["id"])
+    return {"used": used, "limit": MONTHLY_TOKEN_LIMIT}
 
-# ==========================================================
-# DEPLOYED APP (SERVE FROM SUPABASE "files" TABLE)
-# ==========================================================
 
+# ==========================================================================
+# STATIC FILE SERVING (PREVIEW) (FIXED 500)
+# ==========================================================================
 def _guess_media_type(path: str) -> str:
     mt, _ = mimetypes.guess_type(path)
-    if mt:
-        return mt
-    if path.endswith(".js"):
-        return "application/javascript"
-    if path.endswith(".css"):
-        return "text/css"
-    if path.endswith(".html"):
-        return "text/html"
+    if mt: return mt
+    if path.endswith(".js"): return "application/javascript"
+    if path.endswith(".css"): return "text/css"
+    if path.endswith(".html"): return "text/html"
     return "text/plain"
-
 
 @app.get("/app/{project_id}/{path:path}")
 async def serve_project_file(request: Request, project_id: str, path: str):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
-
-    if not path or path.endswith("/"):
+    
+    if not path or path.endswith("/"): 
         path = (path or "") + "index.html"
-
-    row = (
+        
+    res = (
         supabase.table("files")
         .select("content")
         .eq("project_id", project_id)
         .eq("path", path)
         .maybe_single()
         .execute()
-        .data
     )
-
+    
+    # --- FIX: CHECK IF DATA EXISTS ---
+    row = res.data if res else None
+    
     if not row:
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
+        
+    return Response(
+        content=row.get("content", ""), 
+        media_type=_guess_media_type(path)
+    )
 
-    return Response(content=row.get("content", ""), media_type=_guess_media_type(path))
 
-
-# ==========================================================
-# AGENT SSE BUS
-# ==========================================================
-
+# ==========================================================================
+# SSE EVENT BUS
+# ==========================================================================
 class _ProgressBus:
     def __init__(self):
         self._queues: Dict[str, List[asyncio.Queue]] = {}
 
     def subscribe(self, project_id: str) -> asyncio.Queue:
-        q: asyncio.Queue = asyncio.Queue()
+        q = asyncio.Queue()
         self._queues.setdefault(project_id, []).append(q)
         return q
 
@@ -501,149 +570,284 @@ class _ProgressBus:
 
     def emit(self, project_id: str, event: Dict[str, Any]) -> None:
         for q in self._queues.get(project_id, []):
-            try:
+            try: 
                 q.put_nowait(event)
-            except Exception:
+            except Exception: 
                 pass
 
 progress_bus = _ProgressBus()
 
+# Helper Emitters
+def emit_log(pid: str, role: str, text: str) -> None:
+    progress_bus.emit(pid, {"type": "log", "role": role, "text": text})
 
-def _emit_agent_event(pid: str, event: Any) -> None:
-    if isinstance(event, dict):
-        if "type" in event:
-            progress_bus.emit(pid, event)
-            if event.get("type") == "file_changed":
-                supabase.table("projects").update({"updated_at": "now()"}).eq("id", pid).execute()
-            return
+def emit_status(pid: str, text: str) -> None:
+    progress_bus.emit(pid, {"type": "status", "text": text})
 
-        if "path" in event and ("content" in event or "action" in event):
-            progress_bus.emit(pid, {"type": "file_changed", "path": event["path"], "action": event.get("action", "upsert")})
-            return
+def emit_phase(pid: str, value: str) -> None:
+    progress_bus.emit(pid, {"type": "phase", "value": value})
 
-        progress_bus.emit(pid, {"type": "log", "role": "agent", "text": json.dumps(event)})
-        return
+def emit_progress(pid: str, text: str, pct: float) -> None:
+    progress_bus.emit(pid, {"type": "progress", "text": text, "pct": pct})
 
-    progress_bus.emit(pid, {"type": "log", "role": "agent", "text": str(event)})
+def emit_file_changed(pid: str, path: str) -> None:
+    progress_bus.emit(pid, {"type": "file_changed", "path": path})
+
+def emit_token_update(pid: str, used: int) -> None:
+    progress_bus.emit(pid, {"type": "token_usage", "used": used})
 
 
-# ---- Agent imports (matches your tree) ----
-Planner = None
-Coder = None
-
-try:
-    from backend.agent.planner import Planner as _Planner  # type: ignore
-    Planner = _Planner
-except Exception as e:
-    Planner = None
-
-try:
-    from backend.agent.coder import Coder as _Coder  # type: ignore
-    Coder = _Coder
-except Exception as e:
-    Coder = None
-
+# ==========================================================================
+# AI AGENT WORKFLOW (FIXED SILENT MESSAGES)
+# ==========================================================================
+async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
+    """Downloads all project files to memory for the agent context."""
+    res = (
+        supabase.table("files")
+        .select("path,content")
+        .eq("project_id", project_id)
+        .execute()
+    )
+    # --- FIX: CHECK IF DATA EXISTS ---
+    rows = res.data if res and res.data else []
+    return {r["path"]: (r.get("content") or "") for r in rows}
 
 @app.post("/api/project/{project_id}/agent/start")
 async def agent_start(request: Request, project_id: str, prompt: str = Form(...)):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
-
-    if Planner is None or Coder is None:
-        progress_bus.emit(project_id, {"type": "status", "text": "Agent unavailable"})
-        progress_bus.emit(project_id, {"type": "log", "role": "system", "text": "Planner/Coder import failed. Check backend/agent/*.py"})
-        return {"started": False, "error": "agent_import_failed"}
+    
+    # 1. Enforce Token Limit
+    enforce_token_limit_or_raise(user["id"])
+    
+    emit_status(project_id, "Agent received prompt")
+    emit_log(project_id, "user", prompt)
 
     async def _run():
+        total_run_tokens = 0
         try:
-            progress_bus.emit(project_id, {"type": "status", "text": "🚀 Agent task started"})
-            progress_bus.emit(project_id, {"type": "log", "role": "you", "text": prompt})
-
-            ctx_files = (
-                supabase.table("files")
-                .select("path,updated_at")
-                .eq("project_id", project_id)
-                .order("updated_at", desc=True)
-                .execute()
-                .data
-            )
-
-            progress_bus.emit(project_id, {"type": "status", "text": "Planning…"})
+            # --- FIX: DELAY FOR FRONTEND CONNECTION ---
+            await asyncio.sleep(0.5)
+            
+            emit_progress(project_id, "Reading project files...", 5)
+            file_tree = await _fetch_file_tree(project_id)
+            
             planner = Planner()
-            plan = await planner.generate_plan(
-                user_request=prompt,
-                project_context={"project_id": project_id, "files": ctx_files},
+            coder = Coder()
+            
+            # --- PHASE 1: PLANNER ---
+            emit_phase(project_id, "planner")
+            emit_progress(project_id, "Planning...", 10)
+            
+            # Generate Plan
+            plan_res = planner.generate_plan(
+                user_request=prompt, 
+                project_context={"project_id": project_id, "files": list(file_tree.keys())}
             )
+            
+            # Track Planner Tokens
+            ptokens = plan_res.get("usage", {}).get("total_tokens", 0)
+            if ptokens > 0:
+                total_run_tokens += ptokens
+                new_total = add_monthly_tokens(user["id"], ptokens)
+                emit_token_update(project_id, new_total)
+            
+            # Show Assistant Message
+            assistant_msg = plan_res.get("assistant_message")
+            if assistant_msg:
+                emit_log(project_id, "assistant", assistant_msg)
+            
+            # Show Tasks (Internal Log)
+            tasks = plan_res["plan"].get("todo", [])
+            todo_md = plan_res.get("todo_md", "")
+            if todo_md:
+                emit_log(project_id, "planner", todo_md[:5000])
 
-            progress_bus.emit(project_id, {"type": "log", "role": "planner", "text": plan.get("raw", "")})
-            progress_bus.emit(project_id, {"type": "status", "text": "Coding…"})
-            coder = Coder(project_id=project_id, supabase=supabase)
+            if not tasks:
+                emit_status(project_id, "Response Complete")
+                emit_progress(project_id, "Done", 100)
+                return
 
-            apply_fn = getattr(coder, "apply_plan", None)
-            if not apply_fn:
-                raise RuntimeError("Coder missing apply_plan(plan)")
+            # --- PHASE 2: CODER ---
+            emit_phase(project_id, "coder")
+            total = len(tasks)
+            
+            for i, task in enumerate(tasks, 1):
+                # Check limit before every heavy operation
+                enforce_token_limit_or_raise(user["id"])
+                
+                pct = 10 + (90 * (i / total))
+                emit_progress(project_id, f"Building step {i}/{total}...", pct)
+                emit_status(project_id, f"Implementing task {i}/{total}...")
+                
+                # Generate Code
+                code_res = await coder.generate_code(
+                    plan_section="Implementation",
+                    plan_text=task,
+                    file_tree=file_tree,
+                    project_name=f"proj-{project_id[:4]}"
+                )
+                
+                # Track Coder Tokens
+                ctokens = code_res.get("usage", {}).get("total_tokens", 0)
+                if ctokens > 0:
+                    total_run_tokens += ctokens
+                    new_total = add_monthly_tokens(user["id"], ctokens)
+                    emit_token_update(project_id, new_total)
 
-            result = apply_fn(plan)
+                # Show Coder Logic
+                coder_msg = code_res.get("message")
+                if coder_msg:
+                    emit_log(project_id, "coder", coder_msg)
 
-            if hasattr(result, "__aiter__"):
-                async for ev in result:
-                    _emit_agent_event(project_id, ev)
-            elif asyncio.iscoroutine(result):
-                events = await result
-                if isinstance(events, list):
-                    for ev in events:
-                        _emit_agent_event(project_id, ev)
-            else:
-                for ev in result:
-                    _emit_agent_event(project_id, ev)
-
-            progress_bus.emit(project_id, {"type": "status", "text": "Done"})
-        except Exception as exc:
-            progress_bus.emit(project_id, {"type": "status", "text": "Agent error"})
-            progress_bus.emit(project_id, {"type": "log", "role": "system", "text": str(exc)})
+                # Apply Changes
+                ops = code_res.get("operations", [])
+                emit_phase(project_id, "files")
+                
+                for op in ops:
+                    path = op.get("path")
+                    content = op.get("content")
+                    if path and content is not None:
+                        # Upsert to DB
+                        supabase.table("files").upsert(
+                            {"project_id": project_id, "path": path, "content": content},
+                            on_conflict="project_id,path"
+                        ).execute()
+                        emit_file_changed(project_id, path)
+                
+                # Refresh context for next step
+                file_tree = await _fetch_file_tree(project_id)
+            
+            # --- FINISH ---
+            emit_status(project_id, "All tasks completed.")
+            emit_progress(project_id, "Done", 100)
+            
+        except Exception as e:
+            # Save any pending tokens if crash happened
+            if total_run_tokens > 0:
+                add_monthly_tokens(user["id"], 0) # Just ensures sync if logic differed
+            
+            emit_status(project_id, "Error")
+            emit_log(project_id, "system", f"Workflow failed: {e}")
+            print(traceback.format_exc())
 
     asyncio.create_task(_run())
     return {"started": True}
 
-
-@app.post("/api/project/{project_id}/agent/ping")
-async def agent_ping(request: Request, project_id: str):
-    # quick SSE test
-    progress_bus.emit(project_id, {"type": "log", "role": "system", "text": "🔥 ping from backend"})
-    return {"ok": True}
-
-
 @app.get("/api/project/{project_id}/events")
 async def agent_events(request: Request, project_id: str):
-    """
-    SSE must yield immediately or the browser says "stream disconnected".
-    Also, don't hard-fail before first yield in dev mode.
-    """
+    """SSE endpoint for streaming agent logs and status."""
     if not DEV_MODE:
         user = get_current_user(request)
         _require_project_owner(user, project_id)
 
     async def _gen():
         q = progress_bus.subscribe(project_id)
-        yield f"data: {json.dumps({'type':'status','text':'Connected'})}\n\n"
         try:
+            # Initial connection ping
+            yield f"data: {json.dumps({'type':'status', 'text':'Connected'})}\n\n"
             while True:
-                ev = await q.get()
-                yield f"data: {json.dumps(ev)}\n\n"
+                try:
+                    ev = await asyncio.wait_for(q.get(), timeout=15)
+                    yield f"data: {json.dumps(ev)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
         finally:
             progress_bus.unsubscribe(project_id, q)
 
     return StreamingResponse(
-        _gen(),
+        _gen(), 
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        headers={
+            "Cache-Control": "no-cache", 
+            "Connection": "keep-alive", 
+            "X-Accel-Buffering": "no"
+        }
     )
 
 
-# ==========================================================
-# HEALTH
-# ==========================================================
+# ==========================================================================
+# SERVER PREVIEW RUNNER
+# ==========================================================================
+run_manager = ProjectRunManager()
 
+@app.post("/api/project/{project_id}/run/start")
+async def run_start(request: Request, project_id: str):
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+    
+    if not DEV_MODE: 
+        raise HTTPException(403, "Server preview is DEV_MODE only.")
+        
+    try:
+        emit_status(project_id, "Booting server...")
+        file_tree = await _fetch_file_tree(project_id)
+        info = await run_manager.start(project_id, file_tree)
+        emit_log(project_id, "system", f"Server running on port {info.port}")
+        return {"ok": True, "port": info.port}
+    except Exception as e:
+        emit_log(project_id, "system", f"Server start failed: {e}")
+        raise HTTPException(400, f"Start failed: {e}")
+
+@app.post("/api/project/{project_id}/run/stop")
+async def run_stop(request: Request, project_id: str):
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+    
+    await run_manager.stop(project_id)
+    emit_log(project_id, "system", "Server stopped.")
+    return {"ok": True}
+
+@app.get("/api/project/{project_id}/run/status")
+async def run_status(request: Request, project_id: str):
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+    
+    running, port = run_manager.is_running(project_id)
+    return {"running": running, "port": port}
+
+@app.api_route("/run/{project_id}/{path:path}", methods=["GET","POST","PUT","DELETE","OPTIONS","PATCH"])
+async def run_proxy(request: Request, project_id: str, path: str):
+    """Proxies requests to the running uvicorn instance for the project."""
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+    
+    if not DEV_MODE: 
+        raise HTTPException(403, "Dev mode only.")
+        
+    body = await request.body()
+    try:
+        r = await run_manager.proxy(
+            project_id=project_id,
+            path=path or "",
+            method=request.method,
+            headers=dict(request.headers),
+            body=body,
+            query=request.url.query
+        )
+        # Forward response
+        return Response(
+            content=r.content,
+            status_code=r.status_code,
+            headers={k: v for k, v in r.headers.items() if k.lower() not in ("content-encoding", "transfer-encoding", "connection")},
+            media_type=r.headers.get("content-type")
+        )
+    except Exception as e:
+        raise HTTPException(502, f"Proxy failed: {e}")
+
+
+# ==========================================================================
+# HEALTH CHECK
+# ==========================================================================
 @app.get("/health")
 async def health():
-    return {"ok": True, "ts": int(time.time()), "dev_mode": DEV_MODE}
+    return {
+        "ok": True, 
+        "ts": int(time.time()), 
+        "dev_mode": DEV_MODE
+    }
+
+@app.post("/api/project/{project_id}/agent/ping")
+async def agent_ping(request: Request, project_id: str):
+    emit_log(project_id, "system", "🔥 Pong from backend")
+    return {"ok": True}

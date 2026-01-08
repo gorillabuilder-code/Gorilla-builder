@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Project Settings · {{ project.name if project else project_id }} · gor://a</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<style>
+@font-face{
+  font-family:'din-next-w01-light';
+  src:url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2');
+  font-display:swap;
+}
+:root{
+  --bg:#0b1020; --panel:#0f1530; --border:rgba(255,255,255,.10);
+  --text:#fff; --muted:rgba(255,255,255,.65); --brand:#3b6cff;
+}
+*{box-sizing:border-box;font-family:'din-next-w01-light',system-ui,-apple-system,BlinkMacSystemFont,sans-serif}
+body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
+.wrap{max-width:980px;margin:0 auto;padding:22px}
+.top{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:14px 16px;border:1px solid var(--border);border-radius:16px;
+  background:rgba(255,255,255,.03);
+}
+.title{display:flex;flex-direction:column;gap:4px}
+.title h1{font-size:16px;margin:0}
+.title .sub{font-size:12px;color:var(--muted)}
+.btn{
+  border:1px solid var(--border);
+  background:rgba(255,255,255,.04);
+  color:#fff;
+  border-radius:12px;
+  padding:10px 12px;
+  cursor:pointer;
+  text-decoration:none;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  font-size:12px;
+}
+.btn.primary{border-color:rgba(59,108,255,.6);background:rgba(59,108,255,.14)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+.card{
+  border:1px solid var(--border);
+  background:rgba(255,255,255,.03);
+  border-radius:16px;
+  padding:16px;
+}
+.card h2{font-size:13px;margin:0 0 10px 0;color:rgba(255,255,255,.85)}
+label{font-size:12px;color:var(--muted);display:block;margin:10px 0 6px}
+input, textarea, select{
+  width:100%;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.04);
+  color:#fff;
+  border-radius:12px;
+  padding:10px 12px;
+  outline:none;
+  font-size:13px;
+}
+textarea{min-height:110px;resize:vertical}
+.row{display:flex;gap:10px}
+.row > div{flex:1}
+.note{font-size:12px;color:rgba(255,255,255,.55);margin-top:10px;line-height:1.4}
+hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:14px 0}
+.footer{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}
+.small{font-size:12px;color:rgba(255,255,255,.55)}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="top">
+    <div class="title">
+      <h1>Project Settings</h1>
+      <div class="sub">{{ project_id }}</div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <a class="btn" href="/projects/{{ project_id }}/editor">← Back to editor</a>
+      <a class="btn primary" href="/projects/{{ project_id }}/preview" target="_blank">Open preview ↗</a>
+    </div>
+  </div>
+
+  {% if error %}
+  <div class="card" style="margin-top:14px;border-color:rgba(255,77,109,.45)">
+    <h2 style="color:rgba(255,77,109,.95)">Error</h2>
+    <div class="small">{{ error }}</div>
+  </div>
+  {% endif %}
+
+  <div class="grid">
+    <div class="card">
+      <h2>Basics</h2>
+
+      <form method="post" action="/projects/{{ project_id }}/settings">
+        <label>Name</label>
+        <input name="name" value="{{ project.name if project else '' }}" placeholder="Project name" required />
+
+        <label>Description</label>
+        <textarea name="description" placeholder="Short description">{{ project.description if project else '' }}</textarea>
+
+        <div class="footer">
+          <button class="btn primary" type="submit">Save changes</button>
+        </div>
+      </form>
+
+      <div class="note">
+        Next: branding, environment variables, build targets, and deploy settings will live here.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Future controls (placeholders)</h2>
+
+      <label>Token budget (per project)</label>
+      <input disabled value="Coming soon" />
+
+      <label>Pricing mode</label>
+      <select disabled>
+        <option>Coming soon</option>
+      </select>
+
+      <label>Rate limits</label>
+      <input disabled value="Coming soon" />
+
+      <hr/>
+
+      <h2>Domains & Deploy (later)</h2>
+      <div class="small">
+        This will eventually support custom domains/subdomains via DNS once you add:
+        (1) a deploy target (container/serverless), and
+        (2) a router/proxy for hostnames.
+      </div>
+
+      <label>Primary domain</label>
+      <input disabled value="Coming soon" />
+
+      <label>Subdomain</label>
+      <input disabled value="Coming soon" />
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

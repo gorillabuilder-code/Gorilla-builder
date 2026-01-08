@@ -14,69 +14,152 @@
       font-display: swap;
     }
 
-    * {
-      box-sizing: border-box;
-      font-family: 'din-next-w01-light', system-ui, sans-serif;
+    :root {
+      --bg: #050810;
+      --panel: #0e1324;
+      --border: rgba(255, 255, 255, 0.08);
+      --accent: #3b6cff;
+      --accent-glow: rgba(59, 108, 255, 0.3);
+      --text: #ffffff;
+      --text-muted: rgba(255, 255, 255, 0.5);
     }
+
+    * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; }
 
     body {
       margin: 0;
-      background: #0b1020;
-      color: #ffffff;
+      background: var(--bg);
+      color: var(--text);
       min-height: 100vh;
+      /* Subtle mesh gradient background */
+      background-image: 
+        radial-gradient(circle at 15% 10%, rgba(59, 108, 255, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 85% 90%, rgba(157, 0, 255, 0.08) 0%, transparent 40%);
+    }
+
+    /* Animation */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
     }
 
     header {
-      padding: 26px 40px;
+      padding: 22px 40px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 1px solid rgba(255,255,255,0.08);
+      border-bottom: 1px solid var(--border);
+      background: rgba(5, 8, 16, 0.7);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
     }
 
-    .logo {
-      font-size: 22px;
-      letter-spacing: 0.4px;
+    .logo { 
+      font-size: 24px; 
+      letter-spacing: -0.5px; 
+      font-weight: 700;
+      background: #ffffff;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    header nav {
+      display:flex;
+      align-items:center;
+      gap: 24px;
     }
 
     header nav a {
-      color: #6ea0ff;
+      color: #94a3b8;
       text-decoration: none;
-      margin-left: 24px;
       font-size: 14px;
+      transition: color 0.2s;
     }
+    header nav a:hover { color: #fff; }
 
     main {
       max-width: 1200px;
       margin: 0 auto;
-      padding: 48px 40px;
+      padding: 44px 40px;
+      animation: fadeIn 0.6s ease-out;
     }
+
+    /* TOP SECTION */
+    .top {
+      display:flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 24px;
+      margin-bottom: 40px;
+    }
+
+    .who {
+      display:flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .who .hi { 
+      font-size: 32px; 
+      font-weight: 400; 
+      margin: 0;
+      background: linear-gradient(90deg, #ffffff, #c4d6ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent; 
+    }
+    .who .sub { font-size: 15px; color: var(--text-muted); margin: 0; }
+
+    .stats {
+      display:flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .pill {
+      padding: 8px 14px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      font-size: 12px;
+      color: #cbd5e1;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .pill strong { color: #fff; }
 
     /* ---------- BUILDER PROMPT ---------- */
+    .builder { margin-top: 30px; margin-bottom: 60px; }
 
-    .builder {
-      margin-bottom: 64px;
+    .builder h1 { 
+      font-size: 38px; 
+      font-weight: 400; 
+      margin: 0 0 12px; 
+      letter-spacing: -0.5px;
     }
-
-    .builder h1 {
-      font-size: 34px;
-      font-weight: 400;
-      margin: 0 0 10px;
-    }
-
-    .builder p {
-      font-size: 16px;
-      opacity: 0.6;
-      margin-bottom: 28px;
-    }
+    .builder p { font-size: 16px; color: var(--text-muted); margin-bottom: 24px; }
 
     .builder-box {
-      background: #0f1530;
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 22px;
-      padding: 22px;
+      background: linear-gradient(145deg, #131a2e, #0e1324);
+      border: 1px solid rgba(59, 108, 255, 0.2);
+      border-radius: 20px;
+      padding: 6px; /* spacing for inner content */
       display: flex;
-      gap: 16px;
+      flex-direction: column;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2), 0 0 0 1px rgba(59, 108, 255, 0.1);
+      transition: box-shadow 0.3s ease;
+    }
+
+    .builder-box:focus-within {
+      box-shadow: 0 8px 30px rgba(59, 108, 255, 0.15), 0 0 0 1px var(--accent);
+    }
+
+    .input-wrapper {
+      display: flex;
+      gap: 14px;
+      padding: 14px 18px;
       align-items: flex-start;
     }
 
@@ -85,91 +168,128 @@
       background: transparent;
       border: none;
       color: #fff;
-      font-size: 15px;
+      font-size: 16px;
       resize: none;
-      min-height: 88px;
+      min-height: 70px;
       outline: none;
+      line-height: 1.5;
     }
+    .builder-box textarea::placeholder { color: rgba(255,255,255,0.3); }
 
     .builder-box button {
-      background: #3b6cff;
+      background: var(--accent);
       border: none;
       color: white;
-      border-radius: 14px;
-      padding: 16px 18px;
+      border-radius: 12px;
+      width: 48px;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       cursor: pointer;
-      font-size: 16px;
-      align-self: flex-end;
+      transition: all 0.2s;
+      box-shadow: 0 4px 12px var(--accent-glow);
+    }
+    .builder-box button:hover {
+      transform: scale(1.05);
+      background: #4f7aff;
     }
 
-    .ideas {
-      margin-top: 18px;
-      display: flex;
-      gap: 10px;
+    .row {
+      padding: 0 18px 18px 18px;
+      margin-top: 0;
+      display:flex;
+      justify-content: flex-start;
+      align-items:center;
+      gap: 12px;
       flex-wrap: wrap;
     }
 
+    .ideas { display: flex; gap: 8px; flex-wrap: wrap; }
     .idea {
-      padding: 8px 14px;
+      padding: 6px 12px;
       border-radius: 999px;
-      background: rgba(255,255,255,0.06);
-      font-size: 13px;
+      background: rgba(255,255,255,0.04);
+      font-size: 12px;
       cursor: pointer;
-      opacity: 0.75;
+      color: #94a3b8;
+      border: 1px solid transparent;
+      transition: all 0.2s;
+    }
+    .idea:hover { 
+      background: rgba(59, 108, 255, 0.1); 
+      color: var(--accent);
+      border-color: rgba(59, 108, 255, 0.2);
     }
 
-    .idea:hover {
-      opacity: 1;
-    }
-
-    /* ---------- PROJECTS ---------- */
-
-    .section {
-      margin-top: 60px;
-    }
+    /* ---------- RECENT ---------- */
+    .section { margin-top: 22px; }
 
     .section h2 {
-      font-size: 20px;
-      font-weight: 400;
+      font-size: 18px;
+      font-weight: 500;
       margin-bottom: 18px;
-      opacity: 0.9;
+      color: #fff;
+      display:flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .section h2::before {
+      content:''; display:block; width:4px; height:18px; background:var(--accent); border-radius:2px;
     }
 
     .projects {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 22px;
+      gap: 20px;
     }
 
     .project {
-      background: #0f1530;
-      border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 18px;
-      padding: 24px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px;
       cursor: pointer;
-      transition: transform 0.15s ease, border 0.15s ease;
+      transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+      position: relative;
+      overflow: hidden;
     }
 
-    .project:hover {
-      transform: translateY(-2px);
-      border-color: #3b6cff;
+    /* Hover effect for cards */
+    .project:hover { 
+      transform: translateY(-4px); 
+      border-color: rgba(59, 108, 255, 0.4);
+      box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
+    }
+    .project:hover::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 4px;
+      background: var(--accent);
     }
 
-    .project h3 {
-      margin: 0 0 6px;
-      font-size: 18px;
-      font-weight: 400;
+    .project h3 { 
+      margin: 0 0 8px; 
+      font-size: 17px; 
+      font-weight: 500; 
+      color: #fff;
+    }
+    .project p { 
+      font-size: 13px; 
+      color: var(--text-muted); 
+      margin: 0; 
     }
 
-    .project p {
+    .empty { opacity: 0.6; font-size: 14px; padding: 20px; border: 1px dashed var(--border); border-radius: 12px; text-align: center;}
+
+    .error {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,80,80,.25);
+      background: rgba(255,80,80,.08);
+      color: #ffaaaa;
       font-size: 13px;
-      opacity: 0.6;
-      margin: 0;
-    }
-
-    .empty {
-      opacity: 0.6;
-      font-size: 14px;
     }
   </style>
 </head>
@@ -179,54 +299,98 @@
   <div class="logo">Gor://a</div>
   <nav>
     <a href="/workspace">Workspace</a>
-    <a href="/settings">Settings</a>
+    <a href="/auth/logout">Logout</a>
   </nav>
 </header>
 
 <main>
 
-  <!-- AI BUILDER PROMPT -->
+  <div class="top">
+    <div class="who">
+      <p class="hi">Welcome back{% if user and user.email %}, {{ user.email.split('@')[0] }}{% endif %}</p>
+      <p class="sub">Build apps, iterate fast, and track usage.</p>
+    </div>
+
+    <div class="stats">
+      {% if user and user.tokens %}
+        <div class="pill">
+          <span>Used:</span>
+          <strong>{{ user.tokens.used }}</strong>
+          <span style="opacity:0.4">/</span>
+          <span>{{ user.tokens.limit }}</span>
+        </div>
+        <div class="pill" style="border-color: rgba(43, 217, 124, 0.3); color: #2bd97c;">
+          <span>Remaining:</span>
+          <strong>{{ user.tokens.remaining }}</strong>
+        </div>
+      {% else %}
+        <div class="pill">Tokens: Loading...</div>
+      {% endif %}
+    </div>
+  </div>
+
   <section class="builder">
     <h1>What would you build today?</h1>
-    <p>Describe your AI app idea and let gor://a handle the rest.</p>
+    <p>Describe your app idea. Create the project structure, then open the editor to refine it.</p>
 
-    <form method="post" action="/projects/create">
-      <div class="builder-box">
-        <textarea name="name" placeholder="Describe the app you want to create…" required></textarea>
-        <button type="submit"><svg width="40px" height="40px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path d="M11.5003 12H5.41872M5.24634 12.7972L4.24158 15.7986C3.69128 17.4424 3.41613 18.2643 3.61359 18.7704C3.78506 19.21 4.15335 19.5432 4.6078 19.6701C5.13111 19.8161 5.92151 19.4604 7.50231 18.7491L17.6367 14.1886C19.1797 13.4942 19.9512 13.1471 20.1896 12.6648C20.3968 12.2458 20.3968 11.7541 20.1896 11.3351C19.9512 10.8529 19.1797 10.5057 17.6367 9.81135L7.48483 5.24303C5.90879 4.53382 5.12078 4.17921 4.59799 4.32468C4.14397 4.45101 3.77572 4.78336 3.60365 5.22209C3.40551 5.72728 3.67772 6.54741 4.22215 8.18767L5.24829 11.2793C5.34179 11.561 5.38855 11.7019 5.407 11.8459C5.42338 11.9738 5.42321 12.1032 5.40651 12.231C5.38768 12.375 5.34057 12.5157 5.24634 12.7972Z" stroke="#fff" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
-</svg></button>
+    <div class="builder-box">
+      <div class="input-wrapper">
+        <textarea name="name" placeholder="E.g. A modern landing page for a coffee shop with a dark theme and a contact form..."></textarea>
+        <button title="Create project" onclick="window.location.href='/projects/createit'"> 
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576zm6.787-8.201L1.591 6.602l4.339 2.76z"/>
+          </svg>
+        </button>
       </div>
-    </form>
 
-    <div class="ideas">
-      <div class="idea">AI chatbot</div>
-      <div class="idea">Document analyzer</div>
-      <div class="idea">Voice assistant</div>
-      <div class="idea">Internal dashboard</div>
-      <div class="idea">Knowledge base</div>
+      <div class="row">
+        <div class="ideas" id="ideas">
+          <div class="idea">AI Chatbot Interface</div>
+          <div class="idea">SaaS Dashboard</div>
+          <div class="idea">Voice Assistant</div>
+          <div class="idea">Personal Portfolio</div>
+          <div class="idea">Documentation Site</div>
+        </div>
+      </div>
     </div>
+
+    {% if error %}
+      <div class="error">{{ error }}</div>
+    {% endif %}
   </section>
 
-  <!-- RECENT PROJECTS -->
   <section class="section">
-    <h2>Recent projects</h2>
+    <h2>Recent Projects</h2>
 
     <div class="projects">
       {% for project in projects %}
         <div class="project" onclick="location.href='/projects/{{ project.id }}/editor'">
           <h3>{{ project.name }}</h3>
-          <p>Updated {{ project.updated_at }}</p>
+          <p>Edited {{ project.updated_at }}</p>
         </div>
       {% else %}
         <div class="empty">
-          No projects yet. Start by describing what you want to build.
+          No projects yet. Start by describing what you want to build above.
         </div>
       {% endfor %}
     </div>
   </section>
 
 </main>
+
+<script>
+  // idea chips -> fill textarea
+  const ideas = document.getElementById("ideas");
+  const ta = document.querySelector("textarea[name='name']");
+  if (ideas && ta) {
+    ideas.addEventListener("click", (e) => {
+      const el = e.target.closest(".idea");
+      if (!el) return;
+      ta.value = el.textContent.trim();
+      ta.focus();
+    });
+  }
+</script>
 
 </body>
 </html>
