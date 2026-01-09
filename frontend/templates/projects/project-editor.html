@@ -497,9 +497,12 @@ body {
 
     <div style="display:flex; gap:12px; align-items:center;">
       {% if user and user.tokens %}
-      <span class="badge" title="Tokens used this month">
-        🪙 <span id="tokenDisplay">{{ user.tokens.used }} tokens used this month</span>
-      </span>
+      <div style="display:flex; gap:10px; align-items:center">
+         <span class="badge" title="Tokens used this month">
+           🪙 <span id="tokenDisplay">{{ user.tokens.used }} used</span>
+         </span>
+         <a href="/pricing" class="badge link" style="color:var(--accent); border:1px solid var(--border); padding:4px 8px; border-radius:4px; text-decoration:none;">Upgrade ↗</a>
+      </div>
       {% endif %}
       
       <span class="badge" id="saveStatus">Saved</span>
@@ -610,9 +613,15 @@ function setSaveStatus(){
 function updateTokens(newTotal) {
   const el = $("tokenDisplay");
   if(el) {
-    el.textContent = newTotal;
-    el.style.color = "var(--ok)";
-    setTimeout(() => el.style.color = "", 1000); 
+    // Check if message implies an error or limit reached
+    const isError = String(newTotal).toLowerCase().includes("error") || String(newTotal).toLowerCase().includes("limit");
+    el.textContent = isError ? "Limit Reached" : (newTotal + " used");
+    el.style.color = isError ? "var(--danger)" : "var(--ok)";
+    
+    // Only fade color back if it's NOT an error
+    if(!isError) {
+       setTimeout(() => el.style.color = "", 1000); 
+    }
   }
 }
 
@@ -671,7 +680,9 @@ function renderTree(container, nodeObj, depth){
 
     const row = document.createElement("div");
     row.className = "node" + ((isFile && meta.__path === currentFile) ? " active" : "");
-    if(depth > 0) row.classList.add("indent");
+    
+    // Dynamic Indentation: 10px base padding + 20px per depth level
+    row.style.paddingLeft = (10 + (depth * 20)) + "px";
 
     const ico = document.createElement("span");
     ico.className = "ico";

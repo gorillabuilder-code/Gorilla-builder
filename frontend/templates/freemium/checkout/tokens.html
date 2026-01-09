@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Checkout · Tokens · gor://a</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    @font-face { font-family: 'din-next-w01-light'; src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2'); font-display: swap; }
+    :root { --bg: #050810; --panel: #0e1324; --border: rgba(255, 255, 255, 0.08); --accent: #3b6cff; --accent-glow: rgba(59, 108, 255, 0.3); --text: #ffffff; --text-muted: rgba(255, 255, 255, 0.5); }
+    * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; }
+    
+    body { 
+      margin: 0; background: var(--bg); color: var(--text); min-height: 100vh; 
+      display: flex; align-items: center; justify-content: center; 
+      padding: 20px;
+      background-image: radial-gradient(circle at 80% 90%, rgba(157, 0, 255, 0.08) 0%, transparent 40%); 
+    }
+
+    .container {
+      width: 100%; max-width: 520px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 24px; padding: 36px;
+      box-shadow: 0 20px 50px -10px rgba(0,0,0,0.6);
+      animation: fadeIn 0.4s ease-out;
+    }
+
+    @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .logo { font-size: 20px; font-weight: 700; color: #fff; text-decoration: none; }
+    .close { color: var(--text-muted); text-decoration: none; font-size: 24px; line-height: 1; transition: color 0.2s; }
+    .close:hover { color: #fff; }
+
+    /* Calculator Section */
+    .calc-box {
+      background: rgba(255,255,255,0.02); border: 1px solid var(--border);
+      padding: 20px 24px; border-radius: 16px; margin-bottom: 30px;
+    }
+
+    .slider-container { margin-bottom: 16px; padding: 0 4px; }
+    
+    input[type=range] { width: 100%; -webkit-appearance: none; background: transparent; }
+    input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%;
+      background: var(--accent); margin-top: -6px; cursor: pointer;
+      box-shadow: 0 0 10px var(--accent-glow); transition: transform 0.1s;
+    }
+    input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+    .amounts { display: flex; justify-content: space-between; align-items: flex-end; }
+    
+    .token-input-wrap { display: flex; flex-direction: column; }
+    .token-input {
+      background: transparent; border: none; color: var(--accent); font-size: 28px; font-weight: 700;
+      width: 180px; outline: none; border-bottom: 1px dashed rgba(59, 108, 255, 0.3); padding-bottom: 2px;
+    }
+    .token-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .price-display { font-size: 28px; color: #fff; font-weight: 700; text-align: right; }
+    .rate { font-size: 11px; color: var(--text-muted); text-align: right; margin-top: 4px; }
+
+    /* Form Layout */
+    .section-title { font-size: 12px; color: #fff; font-weight: 600; text-transform: uppercase; margin: 24px 0 12px 0; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    .section-title:first-of-type { margin-top: 0; }
+
+    .form-row { display: flex; gap: 12px; margin-bottom: 12px; }
+    .col { flex: 1; }
+    .col.small { flex: 0.4; }
+
+    .form-group { margin-bottom: 12px; }
+    .label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
+    
+    input[type=text], select {
+      width: 100%; background: #080c16; border: 1px solid var(--border);
+      color: #fff; padding: 10px 14px; border-radius: 8px; font-size: 13px; outline: none; transition: border-color 0.2s, background 0.2s;
+    }
+    input[type=text]:focus, select:focus { border-color: var(--accent); background: #0b101e; }
+    
+    /* Input Icons mockup */
+    .input-icon { position: relative; }
+    .input-icon svg { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
+
+    .btn {
+      width: 100%; background: #fff; color: #000; border: none;
+      padding: 14px; border-radius: 10px; font-size: 14px; font-weight: 700;
+      cursor: pointer; margin-top: 24px; transition: all 0.2s;
+      box-shadow: 0 4px 20px rgba(255,255,255,0.1);
+    }
+    .btn:hover { background: #e2e8f0; transform: translateY(-1px); }
+
+    .secure-note { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 16px; font-size: 11px; color: var(--text-muted); opacity: 0.7; }
+
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <div class="logo">Token Top-up</div>
+    <a href="/pricing" class="close">×</a>
+  </div>
+
+  <form action="/billing/process-tokens" method="POST">
+    
+    <div class="calc-box">
+      <div class="slider-container">
+        <input type="range" id="tokenRange" min="100000" max="5000000" step="100000" value="100000">
+      </div>
+      <div class="amounts">
+        <div class="token-input-wrap">
+          <input type="number" name="amount" id="tokenInput" class="token-input" value="100000" min="100000" step="100000">
+          <div class="token-label">Tokens to add</div>
+        </div>
+        <div>
+          <div class="price-display" id="priceDisplay">$1.00</div>
+          <div class="rate">$1.00 / 100k</div>
+        </div>
+      </div>
+      <input type="hidden" name="total_price" id="hiddenPrice" value="1.00">
+    </div>
+
+    <div class="section-title">Payment Method</div>
+    
+    <div class="form-group">
+      <label class="label">Name on Card</label>
+      <input type="text" name="card_name" placeholder="J. Smith" required>
+    </div>
+
+    <div class="form-group">
+      <label class="label">Card Number</label>
+      <div class="input-icon">
+        <input type="text" name="card_number" placeholder="0000 0000 0000 0000" maxlength="19" required>
+        <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4zm2-1a1 1 0 0 0-1 1v1h14V4a1 1 0 0 0-1-1H2zm13 4H1v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7z"/></svg>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="col">
+        <label class="label">Expiry Date</label>
+        <input type="text" name="card_expiry" placeholder="MM / YY" maxlength="5" required>
+      </div>
+      <div class="col">
+        <label class="label">CVC / CVV</label>
+        <div class="input-icon">
+          <input type="text" name="card_cvc" placeholder="123" maxlength="4" required>
+          <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/></svg>
+        </div>
+      </div>
+    </div>
+
+
+
+
+
+<script>
+  const range = document.getElementById('tokenRange');
+  const input = document.getElementById('tokenInput');
+  const display = document.getElementById('priceDisplay');
+  const hiddenPrice = document.getElementById('hiddenPrice');
+  const btn = document.getElementById('payBtn');
+
+  const RATE_PER_100K = 1.00;
+
+  function update(val) {
+    // Ensure value is at least 100k
+    let v = parseInt(val);
+    if(isNaN(v) || v < 100000) v = 100000;
+    
+    // Calculate price
+    const units = v / 100000;
+    const price = (units * RATE_PER_100K).toFixed(2);
+    
+    // Update UI elements
+    range.value = v;
+    // Don't fight user typing in input box, only update if range changed
+    if(document.activeElement !== input) {
+      input.value = v;
+    }
+    
+    display.textContent = `$${price}`;
+    btn.textContent = `Pay $${price}`;
+    hiddenPrice.value = price;
+  }
+
+  // Listeners
+  range.addEventListener('input', (e) => update(e.target.value));
+  
+  input.addEventListener('change', (e) => update(e.target.value));
+  input.addEventListener('keyup', (e) => update(e.target.value));
+
+  // Init
+  update(100000);
+</script>
+
+</body>
+</html>

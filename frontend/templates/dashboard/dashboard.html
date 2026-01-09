@@ -115,6 +115,7 @@
       gap: 12px;
       flex-wrap: wrap;
       justify-content: flex-end;
+      align-items: center;
     }
 
     .pill {
@@ -129,6 +130,29 @@
       gap: 6px;
     }
     .pill strong { color: #fff; }
+
+    /* New Upgrade Button Style */
+    .upgrade-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 15px var(--accent-glow);
+      transition: all 0.2s;
+      height: 38px; /* Match height of pills roughly */
+    }
+    .upgrade-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px var(--accent-glow);
+      filter: brightness(1.1);
+    }
 
     /* ---------- BUILDER PROMPT ---------- */
     .builder { margin-top: 30px; margin-bottom: 60px; }
@@ -326,6 +350,10 @@
       {% else %}
         <div class="pill">Tokens: Loading...</div>
       {% endif %}
+      
+      <a href="/pricing" class="upgrade-btn">
+        Upgrade ↗
+      </a>
     </div>
   </div>
 

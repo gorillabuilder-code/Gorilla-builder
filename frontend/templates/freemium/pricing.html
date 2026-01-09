@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Pricing · gor://a</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <style>
+    @font-face {
+      font-family: 'din-next-w01-light';
+      font-style: normal;
+      font-weight: 400;
+      src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2');
+      font-display: swap;
+    }
+
+    :root {
+      --bg: #050810;
+      --panel: #0e1324;
+      --border: rgba(255, 255, 255, 0.08);
+      --accent: #3b6cff;
+      --accent-glow: rgba(59, 108, 255, 0.3);
+      --text: #ffffff;
+      --text-muted: rgba(255, 255, 255, 0.5);
+      --success: #2bd97c;
+    }
+
+    * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      background-image: 
+        radial-gradient(circle at 50% 0%, rgba(59, 108, 255, 0.1) 0%, transparent 50%),
+        radial-gradient(circle at 10% 90%, rgba(157, 0, 255, 0.05) 0%, transparent 40%);
+    }
+
+    /* Header */
+    header {
+      padding: 22px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      background: rgba(5, 8, 16, 0.7);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .logo { 
+      font-size: 24px; font-weight: 700; letter-spacing: -0.5px; color: #fff;
+    }
+
+    header nav { display:flex; align-items:center; gap: 24px; }
+    header nav a { color: #94a3b8; text-decoration: none; font-size: 14px; transition: color 0.2s; }
+    header nav a:hover { color: #fff; }
+
+    /* Main Layout */
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 60px 20px;
+      text-align: center;
+    }
+
+    h1 { font-size: 42px; margin: 0 0 16px; font-weight: 400; letter-spacing: -1px; }
+    .subtitle { color: var(--text-muted); font-size: 18px; margin-bottom: 60px; max-width: 600px; margin-left: auto; margin-right: auto; }
+
+    /* Pricing Grid */
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+      align-items: start;
+    }
+
+    /* Cards */
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 32px;
+      text-align: left;
+      position: relative;
+      transition: transform 0.2s;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .card:hover { transform: translateY(-5px); }
+
+    /* Specific Card Styles */
+    .card.premium {
+      border-color: var(--accent);
+      box-shadow: 0 0 30px rgba(59, 108, 255, 0.15);
+      background: linear-gradient(180deg, rgba(59,108,255,0.05) 0%, var(--panel) 100%);
+    }
+
+    .badge {
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--accent);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 99px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      box-shadow: 0 4px 12px var(--accent-glow);
+    }
+
+    .plan-name { font-size: 18px; color: var(--text-muted); margin-bottom: 8px; font-weight: 500; }
+    
+    .price { font-size: 42px; font-weight: 600; color: #fff; margin-bottom: 24px; letter-spacing: -1px; display: flex; align-items: baseline; gap: 4px; }
+    .price span { font-size: 16px; color: var(--text-muted); font-weight: 400; }
+
+    .features { list-style: none; padding: 0; margin: 0 0 32px 0; flex: 1; }
+    .features li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+      color: #cbd5e1;
+      font-size: 14px;
+    }
+    .features li svg { width: 16px; height: 16px; color: var(--success); flex-shrink: 0; }
+    
+    .features li.dim { opacity: 0.5; }
+
+    /* Buttons */
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.2s;
+      background: rgba(255,255,255,0.05);
+      color: #fff;
+    }
+    .btn:hover { background: rgba(255,255,255,0.1); }
+
+    .btn.primary {
+      background: var(--accent);
+      box-shadow: 0 4px 20px var(--accent-glow);
+    }
+    .btn.primary:hover { background: #4f7aff; transform: scale(1.02); }
+
+    /* Token Card Specifics */
+    .token-icon { font-size: 24px; margin-bottom: 12px; display: block; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Gor://a</div>
+  <nav>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/auth/logout">Logout</a>
+  </nav>
+</header>
+
+<main>
+  <h1>Upgrade your stack</h1>
+  <p class="subtitle">Scale your applications with faster models, custom domains, and more tokens.</p>
+
+  <div class="pricing-grid">
+    
+    <div class="card">
+      <div class="plan-name">Token Top-up</div>
+      <div class="price">$1 <span>/ 100k</span></div>
+      <p style="font-size:14px; color:#94a3b8; margin-top:-10px; margin-bottom:24px;">One-time purchase. Never expires.</p>
+      
+      <ul class="features">
+        <li>
+          <svg fill="currentColor" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/></svg>
+          Add 100,000 Tokens
+        </li>
+        <li>
+          <svg fill="currentColor" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/></svg>
+          Instant Availability
+        </li>
+      </ul>
+      
+      <div>
+        <button onclick="window.location.href='/checkout/tokens'" class="btn">Buy Tokens</button>
+      </div>
+    </div>
+
+    <div class="card premium">
+      <div class="badge">Most Popular</div>
+      <div class="plan-name">Premium</div>
+      <div class="price">$12.99 <span>/ month</span></div>
+      
+      <ul class="features">
+        <li>
+          <svg fill="currentColor" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/></svg>
+          <strong> 🪙 5 Million Monthly Tokens</strong>
+        </li>
+        <li>
+          <svg fill="currentColor" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/></svg>
+          Unlimited Hosting
+        </li>
+        <li>
+          <svg fill="currentColor" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/></svg>
+          Custom Domains
+        </li>
+        <li>
+          <svg fill="currentColor" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/></svg>
+          GitHub Connections
+        </li>
+        <li>
+          <svg fill="currentColor" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/></svg>
+          Faster Inference Models
+        </li>
+      </ul>
+      
+      <div>
+        <button onclick="window.location.href='/checkout/premium'" class="btn">Buy Tokens</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="plan-name">Enterprise</div>
+      <div class="price">Custom</div>
+      
+      <ul class="features">
+        <li>
+          <svg fill="currentColor" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/></svg>
+          SSO & Advanced Security
+        </li>
+        <li>
+          <svg fill="currentColor" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/></svg>
+          Dedicated Support
+        </li>
+        <li>
+          <svg fill="currentColor" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/></svg>
+          Custom SLAs
+        </li>
+        <li>
+          <svg fill="currentColor" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/></svg>
+          On-Premise Deployment
+        </li>
+      </ul>
+      
+      <a href="mailto:gorillabuilder.dev@gmail.com" class="btn" style="text-align:center; text-decoration:none; display:block; box-sizing:border-box;">Contact Sales</a>
+    </div>
+
+  </div>
+</main>
+
+</body>
+</html>

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Checkout · Premium · gor://a</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    @font-face { font-family: 'din-next-w01-light'; src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2'); font-display: swap; }
+    :root { --bg: #050810; --panel: #0e1324; --border: rgba(255, 255, 255, 0.08); --accent: #3b6cff; --accent-glow: rgba(59, 108, 255, 0.3); --text: #ffffff; --text-muted: rgba(255, 255, 255, 0.5); }
+    * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; }
+    body { margin: 0; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; align-items: center; justify-content: center; background-image: radial-gradient(circle at 50% 10%, rgba(59, 108, 255, 0.08) 0%, transparent 40%); }
+
+    .container {
+      width: 100%; max-width: 900px;
+      display: grid; grid-template-columns: 1fr 1.2fr;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 24px; overflow: hidden;
+      box-shadow: 0 20px 50px -10px rgba(0,0,0,0.5);
+    }
+
+    /* Left Side: Summary */
+    .summary { padding: 40px; background: rgba(59, 108, 255, 0.03); border-right: 1px solid var(--border); position: relative; }
+    .logo { font-size: 20px; font-weight: 700; color: #fff; margin-bottom: 40px; display: block; text-decoration: none; }
+    .plan-tag { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); font-weight: 600; margin-bottom: 8px; }
+    .plan-name { font-size: 32px; margin: 0 0 10px 0; font-weight: 400; }
+    .plan-price { font-size: 24px; color: #fff; margin-bottom: 30px; }
+    .plan-price span { font-size: 14px; color: var(--text-muted); }
+    
+    .features { list-style: none; padding: 0; margin: 0; }
+    .features li { display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: 14px; margin-bottom: 12px; }
+    .features li svg { color: #2bd97c; width: 16px; height: 16px; }
+
+    /* Right Side: Payment */
+    .payment { padding: 40px; }
+    h2 { margin: 0 0 24px 0; font-size: 20px; font-weight: 500; }
+    
+    .form-group { margin-bottom: 18px; }
+    .label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
+    
+    input {
+      width: 100%; background: #050810; border: 1px solid var(--border);
+      color: #fff; padding: 12px 16px; border-radius: 8px; font-size: 14px; outline: none; transition: border-color 0.2s;
+    }
+    input:focus { border-color: var(--accent); }
+
+    .row { display: flex; gap: 16px; }
+    .row .form-group { flex: 1; }
+
+    .btn {
+      width: 100%; background: var(--accent); color: #fff; border: none;
+      padding: 14px; border-radius: 8px; font-size: 14px; font-weight: 600;
+      cursor: pointer; margin-top: 12px; box-shadow: 0 4px 15px var(--accent-glow);
+      transition: transform 0.2s;
+    }
+    .btn:hover { transform: scale(1.02); }
+
+    .secure { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); margin-top: 20px; justify-content: center; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="summary">
+    <a href="/pricing" class="logo">← Back</a>
+    <div class="plan-tag">Subscription</div>
+    <h1 class="plan-name">Premium Plan</h1>
+    <div class="plan-price">$12.99 <span>/ month</span></div>
+
+
+  </div>
+
+  <div class="payment">
+    <h2>Payment Details</h2>
+    <form action="/billing/process-premium" method="POST">
+      <div class="form-group">
+        <label class="label">Cardholder Name</label>
+        <input type="text" placeholder="John Doe" required>
+      </div>
+      <div class="form-group">
+        <label class="label">Card Number</label>
+        <input type="text" placeholder="0000 0000 0000 0000" required>
+      </div>
+      <div class="row">
+        <div class="form-group">
+          <label class="label">Expiry</label>
+          <input type="text" placeholder="MM/YY" required>
+        </div>
+        <div class="form-group">
+          <label class="label">CVC</label>
+          <input type="text" placeholder="123" required>
+        </div>
+      </div>
+      <button type="submit" class="btn">Subscribe & Pay $12.99</button>
+      
+      <div class="secure">
+        <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16"><path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/></svg>
+        Secured by Stripe
+      </div>
+    </form>
+  </div>
+</div>
+
+</body>
+</html>

@@ -219,7 +219,9 @@ PUBLIC_PAGES = {
     "/login": "auth/login.html",
     "/signup": "auth/signup.html",
     "/forgot-password": "forgot.html",
-    "/pricing": "pricing.html",
+    "/pricing": "freemium/pricing.html",
+    "/checkout/tokens": "freemium/checkout/tokens.html",
+    "/checkout/premium": "freemium/checkout/premium.html",
     "/help": "help.html",
     "/about": "about.html",
 }
@@ -342,6 +344,7 @@ async def workspace(request: Request):
         "dashboard/workspace.html",
         {"request": request, "projects": projects, "user": user}
     )
+
 
 
 # ==========================================================================
@@ -674,7 +677,7 @@ async def agent_start(request: Request, project_id: str, prompt: str = Form(...)
                     plan_section="Implementation",
                     plan_text=task,
                     file_tree=file_tree,
-                    project_name=f"proj-{project_id[:4]}"
+                    project_name=project_id
                 )
                 
                 # Track Coder Tokens
