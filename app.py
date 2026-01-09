@@ -55,6 +55,11 @@ DEV_MODE = os.getenv("DEV_MODE", "1") == "1"
 MONTHLY_TOKEN_LIMIT = int(os.getenv("MONTHLY_TOKEN_LIMIT", "100000"))
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
+# GOOGLE AUTH
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback")
+
 # ==========================================================================
 # APP INITIALIZATION
 # ==========================================================================
@@ -280,6 +285,68 @@ async def auth_login(request: Request, email: str = Form(...), password: str = F
         return RedirectResponse("/dashboard", status_code=303)
         
     raise HTTPException(400, detail="Login requires DEV_MODE=1 or Supabase Auth setup.")
+
+@app.get("/auth/google")
+async def auth_google(request: Request):
+    """Initiates Google OAuth flow."""
+    if not GOOGLE_CLIENT_ID or not GOOGLE_REDIRECT_URI:
+        raise HTTPException(500, "Google Auth not configured (GOOGLE_CLIENT_ID/GOOGLE_REDIRECT_URI missing).")
+        
+    scope = "openid email profile"
+    auth_url = (
+        f"https://accounts.google.com/o/oauth2/v2/auth?"
+        f"response_type=code&client_id={GOOGLE_CLIENT_ID}&redirect_uri={GOOGLE_REDIRECT_URI}&scope={scope}"
+    )
+    return RedirectResponse(auth_url)
+
+@app.get("/auth/google/callback")
+async def auth_google_callback(request: Request, code: str):
+    """Handles Google OAuth callback."""
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not GOOGLE_REDIRECT_URI:
+        raise HTTPException(500, "Google Auth not configured.")
+        
+    # Exchange code for token
+    token_url = "https://oauth2.googleapis.com/token"
+    data = {
+        "code": code,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "grant_type": "authorization_code",
+    }
+    
+    async with httpx.AsyncClient() as client:
+        res = await client.post(token_url, data=data)
+        if res.status_code != 200:
+             raise HTTPException(400, f"Google Auth failed: {res.text}")
+        
+        tokens = res.json()
+        id_token = tokens.get("id_token")
+        
+        # Verify token (Simplified: fetch user info via access_token for robustness)
+        access_token = tokens.get("access_token")
+        user_info_res = await client.get(
+            "https://www.googleapis.com/oauth2/v1/userinfo", 
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        if user_info_res.status_code != 200:
+            raise HTTPException(400, "Failed to fetch Google user info")
+            
+        user_data = user_info_res.json()
+        email = user_data.get("email")
+        
+        if not email:
+            raise HTTPException(400, "No email provided by Google.")
+            
+        # Create/Log in user using stable ID strategy or Supabase look up
+        # We'll use the stable ID strategy for consistency across dev modes
+        user_id = _stable_user_id_for_email(email)
+        
+        # Session setup
+        request.session["user"] = {"id": user_id, "email": email}
+        ensure_public_user(user_id, email)
+        
+        return RedirectResponse("/dashboard", status_code=303)
 
 @app.get("/auth/logout")
 async def auth_logout(request: Request):
