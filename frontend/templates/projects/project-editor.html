@@ -71,6 +71,20 @@
   --warn: #ffcc00;
 }
 
+/* PREMIUM THEME OVERRIDES via Class */
+body.premium {
+  --accent: #ffd700; 
+  --accent-glow: rgba(255, 215, 0, 0.25);
+  --panel: #121214; 
+  /* Override background gradient */
+  background-image: 
+    radial-gradient(circle at 10% 10%, rgba(255, 215, 0, 0.05) 0%, transparent 40%) !important;
+}
+
+/* Premium Text Color Overrides for buttons/badges */
+body.premium .msg.user { color: #000; }
+body.premium .agent-input button { color: #000; }
+
 * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; }
 
 body {
@@ -215,7 +229,7 @@ body {
 
 .msg.user { 
   align-self: flex-end; 
-  background: linear-gradient(135deg, var(--accent), #2b52cc);
+  background: var(--accent);
   color: #fff;
   border: 1px solid rgba(255,255,255,0.1);
 }
@@ -431,7 +445,7 @@ body {
 </style>
 </head>
 
-<body>
+<body class="{% if user.plan == 'premium' %}premium{% endif %}">
 <div class="shell">
 
 <aside class="left">
@@ -442,7 +456,14 @@ body {
     </div>
 
     <div class="header-actions">
-      <a class="pill" href="/projects/{{ project_id }}/settings" title="Project settings">⚙ Settings</a>
+      <a class="pill" href="/projects/{{ project_id }}/settings" title="Project settings">⚙Settings</a>
+      
+      {% if user.plan == 'premium' %}
+      <button class="pill" id="btnExportZip" style="color: #ffd700;" title="Export project to ZIP">
+        ⬇ZIP
+      </button>
+      {% endif %}
+
       <span class="pill" id="connPill" title="SSE connection">
         <span class="dot warn" id="connDot"></span>
         <span id="connText">Connecting…</span>
@@ -497,16 +518,21 @@ body {
 
     <div style="display:flex; gap:12px; align-items:center;">
       {% if user and user.tokens %}
-      <div style="display:flex; gap:10px; align-items:center">
-         <span class="badge" title="Tokens used this month">
-           🪙 <span id="tokenDisplay">{{ user.tokens.used }} used</span>
-         </span>
-         <a href="/pricing" class="badge link" style="color:var(--accent); border:1px solid var(--border); padding:4px 8px; border-radius:4px; text-decoration:none;">Upgrade ↗</a>
-      </div>
+      <span class="badge" title="Tokens used this month">
+        🪙 <span id="tokenDisplay">{{ "{:,}".format(user.tokens.used) }} used</span>
+      </span>
       {% endif %}
       
       <span class="badge" id="saveStatus">Saved</span>
-      <a class="tab link" href="/projects/{{ project_id }}/preview" target="_blank">
+            <a class="pill" href="/dashboard" target="_blank">
+        Dashboard
+      </a>
+      {% if user.plan != 'premium' %}
+        <a class="tab link" style= "background-color:#3b6cff; color:#fff;" href="/pricing" target="_blank">
+          UPGRADE
+        </a>
+      {% endif %}
+      <a class="pill" href="/projects/{{ project_id }}/preview" target="_blank">
         Open ↗
       </a>
     </div>
@@ -795,6 +821,16 @@ $("uploadInput").onchange = (e) => {
   };
   reader.readAsText(file);
 };
+
+/* --- EXPORT ZIP (Fixed) --- */
+const btnZip = $("btnExportZip");
+if (btnZip) {
+  btnZip.onclick = async () => {
+    addMessage("system", "Preparing ZIP download...");
+    // Redirect browser to download the zip
+    window.location.href = `/api/project/${PROJECT_ID}/export`;
+  };
+}
 
 /* --- TABS --- */
 function switchTab(tab){

@@ -52,13 +52,14 @@ if not os.path.isdir(FRONTEND_DIR):
     FRONTEND_STYLES_DIR = os.path.join(FRONTEND_DIR, "styles")
 
 DEV_MODE = os.getenv("DEV_MODE", "1") == "1"
-MONTHLY_TOKEN_LIMIT = int(os.getenv("MONTHLY_TOKEN_LIMIT", "100000"))
+# Default limit for new users if not in DB
+DEFAULT_TOKEN_LIMIT = int(os.getenv("MONTHLY_TOKEN_LIMIT", "100000"))
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # GOOGLE AUTH
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://fluffy-barnacle-g4w74496gqvpfw6vx-8000.app.github.dev/auth/google/callback")
 
 # ==========================================================================
 # APP INITIALIZATION
@@ -113,52 +114,79 @@ def db_upsert(table: str, data: dict, on_conflict=None):
 
 
 # ==========================================================================
-# TOKEN MANAGEMENT LOGIC (Simplified: Single Table)
+# TOKEN MANAGEMENT LOGIC
 # ==========================================================================
-def get_monthly_tokens_used(user_id: str, month: Optional[str] = None) -> int:
-    """Fetches tokens directly from the users table."""
-    # Note: 'month' param kept for compatibility but logic is now persistent per-user
-    user = db_select_one("users", {"id": user_id}, "tokens_used")
-    return int(user.get("tokens_used") or 0) if user else 0
+def get_token_usage_and_limit(user_id: str) -> Tuple[int, int]:
+    """Fetches used tokens and total limit from DB."""
+    user = db_select_one("users", {"id": user_id}, "tokens_used, tokens_limit")
+    if not user:
+        return 0, DEFAULT_TOKEN_LIMIT
+    
+    used = int(user.get("tokens_used") or 0)
+    limit = int(user.get("tokens_limit") or DEFAULT_TOKEN_LIMIT)
+    return used, limit
 
-def add_monthly_tokens(user_id: str, tokens_to_add: int, month: Optional[str] = None) -> int:
-    """Adds tokens. If user missing, creates them automatically (Upsert)."""
+def add_monthly_tokens(user_id: str, tokens_to_add: int) -> int:
+    """Adds tokens used. If user missing, creates them automatically."""
     if tokens_to_add <= 0:
-        return get_monthly_tokens_used(user_id)
+        used, _ = get_token_usage_and_limit(user_id)
+        return used
     
     try:
-        current = get_monthly_tokens_used(user_id)
-        new_total = current + int(tokens_to_add)
+        current_used, current_limit = get_token_usage_and_limit(user_id)
+        new_total = current_used + int(tokens_to_add)
         
-        # Single DB call: Update tokens OR create user if missing
-        # This prevents the Foreign Key error completely.
         db_upsert(
             "users",
             {
                 "id": user_id, 
                 "tokens_used": new_total,
-                "email": "dev@local", # Default for dev mode; ignored if user exists
+                # Preserve limit if exists, else default
                 "updated_at": "now()"
             }, 
             on_conflict="id"
         )
-        
         return new_total
     except Exception as e:
         print(f"Token Update Error: {e}")
         return 0
 
 def enforce_token_limit_or_raise(user_id: str) -> Tuple[int, int]:
-    """Checks limit using the new column."""
-    used = get_monthly_tokens_used(user_id)
-    remaining = max(0, MONTHLY_TOKEN_LIMIT - used)
+    """Checks usage against the user's specific limit."""
+    used, limit = get_token_usage_and_limit(user_id)
+    remaining = max(0, limit - used)
     
-    if used >= MONTHLY_TOKEN_LIMIT:
+    if used >= limit:
         raise HTTPException(
             status_code=402,
-            detail=f"Monthly token limit reached ({MONTHLY_TOKEN_LIMIT}). Used={used}.",
+            detail=f"Token limit reached ({limit}). Used={used}. Please upgrade or top-up.",
         )
     return used, remaining
+
+def set_user_plan_and_limit(user_id: str, plan: str, limit: int):
+    """Updates user plan and token limit (for upgrades)."""
+    # Force direct update
+    db_upsert(
+        "users",
+        {
+            "id": user_id,
+            "plan": plan,
+            "tokens_limit": limit,
+            "updated_at": "now()"
+        },
+        on_conflict="id"
+    )
+
+def decrease_tokens_used(user_id: str, amount: int):
+    """'Top up' by reducing the 'used' counter (simulates adding balance)."""
+    used, _ = get_token_usage_and_limit(user_id)
+    new_used = max(0, used - amount)
+    
+    db_upsert(
+        "users",
+        {"id": user_id, "tokens_used": new_used, "updated_at": "now()"},
+        on_conflict="id"
+    )
 
 
 # ==========================================================================
@@ -174,9 +202,19 @@ def _stable_user_id_for_email(email: str) -> str:
     return str(uuid.uuid5(_DEV_NAMESPACE, e))
 
 def ensure_public_user(user_id: str, email: str) -> None:
-    """Ensures the user exists in the public.users table."""
+    """Ensures the user exists in the public.users table WITHOUT overwriting existing data."""
     try:
-        db_upsert("users", {"id": user_id, "email": email, "plan": "free"}, on_conflict="id")
+        # --- FIX: Check existence first! ---
+        existing = db_select_one("users", {"id": user_id}, "id")
+        if existing:
+            return # User exists, do NOT touch their plan/limits
+            
+        # Default new users to free plan and default limit
+        db_upsert(
+            "users", 
+            {"id": user_id, "email": email, "plan": "free", "tokens_limit": DEFAULT_TOKEN_LIMIT}, 
+            on_conflict="id"
+        )
     except Exception:
         pass
 
@@ -202,7 +240,6 @@ def get_current_user(request: Request) -> Dict[str, Any]:
 def _require_project_owner(user: Dict[str, Any], project_id: str) -> None:
     """Verifies that the current user owns the project."""
     if DEV_MODE:
-        # In strict dev mode, we might relax this, but checking existence is good
         try:
             res = db_select_one("projects", {"id": project_id}, "id")
             if not res: raise Exception("Not found")
@@ -232,7 +269,6 @@ PUBLIC_PAGES = {
 }
 
 for route, template_name in PUBLIC_PAGES.items():
-    # We use a closure here to bind the template name variable
     def make_handler(t_name):
         async def handler(request: Request):
             return templates.TemplateResponse(t_name, {"request": request})
@@ -257,7 +293,6 @@ async def auth_signup(request: Request, email: str = Form(...), password: str = 
     
     if DEV_MODE:
         try:
-            # Try creating real supabase auth user first
             created = supabase.auth.admin.create_user({
                 "email": email, 
                 "password": password, 
@@ -265,7 +300,6 @@ async def auth_signup(request: Request, email: str = Form(...), password: str = 
             })
             user_id = created.user.id
         except Exception:
-            # Fallback to deterministic ID
             user_id = _stable_user_id_for_email(email)
         
         request.session["user"] = {"id": user_id, "email": email}
@@ -305,7 +339,6 @@ async def auth_google_callback(request: Request, code: str):
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not GOOGLE_REDIRECT_URI:
         raise HTTPException(500, "Google Auth not configured.")
         
-    # Exchange code for token
     token_url = "https://oauth2.googleapis.com/token"
     data = {
         "code": code,
@@ -321,10 +354,8 @@ async def auth_google_callback(request: Request, code: str):
              raise HTTPException(400, f"Google Auth failed: {res.text}")
         
         tokens = res.json()
-        id_token = tokens.get("id_token")
-        
-        # Verify token (Simplified: fetch user info via access_token for robustness)
         access_token = tokens.get("access_token")
+        
         user_info_res = await client.get(
             "https://www.googleapis.com/oauth2/v1/userinfo", 
             headers={"Authorization": f"Bearer {access_token}"}
@@ -338,11 +369,8 @@ async def auth_google_callback(request: Request, code: str):
         if not email:
             raise HTTPException(400, "No email provided by Google.")
             
-        # Create/Log in user using stable ID strategy or Supabase look up
-        # We'll use the stable ID strategy for consistency across dev modes
         user_id = _stable_user_id_for_email(email)
         
-        # Session setup
         request.session["user"] = {"id": user_id, "email": email}
         ensure_public_user(user_id, email)
         
@@ -355,18 +383,52 @@ async def auth_logout(request: Request):
 
 
 # ==========================================================================
-# DASHBOARD & WORKSPACE (FIXED 500)
+# BILLING ROUTES (Mock Payment Processing)
+# ==========================================================================
+@app.post("/billing/process-premium")
+async def process_premium(request: Request):
+    """Simulate upgrading to Premium (5M tokens/mo)."""
+    user = get_current_user(request)
+    
+    # Update Plan to premium and set limit to 5,000,000
+    set_user_plan_and_limit(user["id"], "premium", 5000000)
+    
+    # Redirect to dashboard with success param?
+    return RedirectResponse("/dashboard", status_code=303)
+
+@app.post("/billing/process-tokens")
+async def process_tokens(request: Request, amount: int = Form(...)):
+    """Simulate buying one-time token top-up."""
+    user = get_current_user(request)
+    
+    # "Top up" logic: We decrease 'tokens_used' by the purchased amount
+    decrease_tokens_used(user["id"], amount)
+    
+    return RedirectResponse("/dashboard", status_code=303)
+
+
+# ==========================================================================
+# DASHBOARD & WORKSPACE
 # ==========================================================================
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
     user = get_current_user(request)
     
+    # --- FIX START: Fetch latest Plan from DB ---
+    try:
+        db_user = db_select_one("users", {"id": user["id"]}, "plan")
+        if db_user:
+            user["plan"] = db_user.get("plan", "free")
+    except Exception:
+        user["plan"] = "free"
+    # --- FIX END ---
+    
     # Token Data
-    used = get_monthly_tokens_used(user["id"])
+    used, limit = get_token_usage_and_limit(user["id"])
     user["tokens"] = {
         "used": used, 
-        "limit": MONTHLY_TOKEN_LIMIT, 
-        "remaining": max(0, MONTHLY_TOKEN_LIMIT - used)
+        "limit": limit, 
+        "remaining": max(0, limit - used)
     }
     
     # Project Data
@@ -378,7 +440,6 @@ async def dashboard(request: Request):
             .order("updated_at", desc=True)
             .execute()
         )
-        # --- FIX: CHECK IF DATA EXISTS ---
         projects = res.data if res and res.data else []
     except Exception:
         projects = []
@@ -391,8 +452,8 @@ async def dashboard(request: Request):
 @app.get("/workspace", response_class=HTMLResponse)
 async def workspace(request: Request):
     user = get_current_user(request)
-    used = get_monthly_tokens_used(user["id"])
-    user["tokens"] = {"used": used, "limit": MONTHLY_TOKEN_LIMIT}
+    used, limit = get_token_usage_and_limit(user["id"])
+    user["tokens"] = {"used": used, "limit": limit}
 
     try:
         res = (
@@ -402,7 +463,6 @@ async def workspace(request: Request):
             .order("updated_at", desc=True)
             .execute()
         )
-        # --- FIX: CHECK IF DATA EXISTS ---
         projects = res.data if res and res.data else []
     except Exception:
         projects = []
@@ -413,10 +473,12 @@ async def workspace(request: Request):
     )
 
 
+# ==========================================================================
+# PROJECT ROUTES
+# ==========================================================================
+import io
+import zipfile
 
-# ==========================================================================
-# PROJECT ROUTES (FIXED 500)
-# ==========================================================================
 @app.post("/projects/create")
 async def create_project(request: Request, name: str = Form(...), description: str = Form("")):
     user = get_current_user(request)
@@ -428,7 +490,6 @@ async def create_project(request: Request, name: str = Form(...), description: s
             .insert({"owner_id": user["id"], "name": name, "description": description})
             .execute()
         )
-        # --- FIX: CHECK IF DATA EXISTS ---
         if not res or not res.data:
             raise Exception("No data returned from insert")
             
@@ -450,8 +511,17 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
-    used = get_monthly_tokens_used(user["id"])
-    user["tokens"] = {"used": used, "limit": MONTHLY_TOKEN_LIMIT}
+    # --- FIX START: Fetch latest Plan from DB ---
+    try:
+        db_user = db_select_one("users", {"id": user["id"]}, "plan")
+        if db_user:
+            user["plan"] = db_user.get("plan", "free")
+    except Exception:
+        pass
+    # --- FIX END ---
+    
+    used, limit = get_token_usage_and_limit(user["id"])
+    user["tokens"] = {"used": used, "limit": limit}
 
     return templates.TemplateResponse(
         "projects/project-editor.html",
@@ -474,7 +544,6 @@ async def project_settings(request: Request, project_id: str):
     
     try:
         res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
-        # --- FIX: CHECK IF DATA EXISTS ---
         project = res.data if res else None
     except Exception as e:
         return templates.TemplateResponse(
@@ -503,9 +572,62 @@ async def project_settings_save(
     
     return RedirectResponse(f"/projects/{project_id}/settings", status_code=303)
 
+@app.get("/api/project/{project_id}/export")
+async def project_export(request: Request, project_id: str):
+    """
+    Premium Feature: Export project files as a ZIP archive.
+    """
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+
+    # 1. Verify Premium Status (Double-check DB to ensure recent upgrade is caught)
+    user_record = db_select_one("users", {"id": user["id"]}, "plan")
+    current_plan = user_record.get("plan") if user_record else "free"
+    
+    if current_plan != "premium":
+        raise HTTPException(status_code=403, detail="Exporting to ZIP is a Premium feature. Please upgrade.")
+
+    # 2. Fetch all files for the project
+    res = (
+        supabase.table("files")
+        .select("path,content")
+        .eq("project_id", project_id)
+        .execute()
+    )
+    files = res.data if res and res.data else []
+
+    if not files:
+        raise HTTPException(status_code=404, detail="No files found in this project.")
+
+    # 3. Create ZIP in memory
+    zip_buffer = io.BytesIO()
+    try:
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for file in files:
+                # Ensure path is clean
+                path = file.get("path", "unknown.txt").strip("/")
+                content = file.get("content") or ""
+                # Write file to zip
+                zf.writestr(path, content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create ZIP: {e}")
+
+    # 4. Return as downloadable file
+    zip_buffer.seek(0)
+    filename = f"gorilla_project_{project_id[:8]}.zip"
+    
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+            "Cache-Control": "no-cache"
+        }
+    )
+
 
 # ==========================================================================
-# FILE API ROUTES (FIXED 500)
+# FILE API ROUTES
 # ==========================================================================
 @app.get("/api/project/{project_id}/files")
 async def list_files(request: Request, project_id: str):
@@ -519,7 +641,6 @@ async def list_files(request: Request, project_id: str):
         .order("updated_at", desc=True)
         .execute()
     )
-    # --- FIX: CHECK IF DATA EXISTS ---
     return {"files": res.data if res and res.data else []}
 
 @app.get("/api/project/{project_id}/file")
@@ -535,8 +656,6 @@ async def get_file(request: Request, project_id: str, path: str):
         .maybe_single()
         .execute()
     )
-    
-    # --- FIX: CHECK IF DATA EXISTS ---
     row = res.data if res else None
     if not row:
         return {"path": path, "content": ""}
@@ -557,22 +676,18 @@ async def save_file(
         {"project_id": project_id, "path": file, "content": content}, 
         on_conflict="project_id,path"
     )
-    
-    # Update project timestamp
     supabase.table("projects").update({"updated_at": "now()"}).eq("id", project_id).execute()
-    
     return {"success": True}
 
 @app.get("/api/project/{project_id}/tokens")
 async def check_tokens(request: Request, project_id: str):
-    """Endpoint to get live token usage via polling if needed."""
     user = get_current_user(request)
-    used = get_monthly_tokens_used(user["id"])
-    return {"used": used, "limit": MONTHLY_TOKEN_LIMIT}
+    used, limit = get_token_usage_and_limit(user["id"])
+    return {"used": used, "limit": limit}
 
 
 # ==========================================================================
-# STATIC FILE SERVING (PREVIEW) (FIXED 500)
+# STATIC FILE SERVING
 # ==========================================================================
 def _guess_media_type(path: str) -> str:
     mt, _ = mimetypes.guess_type(path)
@@ -598,8 +713,6 @@ async def serve_project_file(request: Request, project_id: str, path: str):
         .maybe_single()
         .execute()
     )
-    
-    # --- FIX: CHECK IF DATA EXISTS ---
     row = res.data if res else None
     
     if not row:
@@ -629,10 +742,8 @@ class _ProgressBus:
 
     def emit(self, project_id: str, event: Dict[str, Any]) -> None:
         for q in self._queues.get(project_id, []):
-            try: 
-                q.put_nowait(event)
-            except Exception: 
-                pass
+            try: q.put_nowait(event)
+            except Exception: pass
 
 progress_bus = _ProgressBus()
 
@@ -657,17 +768,15 @@ def emit_token_update(pid: str, used: int) -> None:
 
 
 # ==========================================================================
-# AI AGENT WORKFLOW (FIXED SILENT MESSAGES)
+# AI AGENT WORKFLOW
 # ==========================================================================
 async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
-    """Downloads all project files to memory for the agent context."""
     res = (
         supabase.table("files")
         .select("path,content")
         .eq("project_id", project_id)
         .execute()
     )
-    # --- FIX: CHECK IF DATA EXISTS ---
     rows = res.data if res and res.data else []
     return {r["path"]: (r.get("content") or "") for r in rows}
 
@@ -685,9 +794,7 @@ async def agent_start(request: Request, project_id: str, prompt: str = Form(...)
     async def _run():
         total_run_tokens = 0
         try:
-            # --- FIX: DELAY FOR FRONTEND CONNECTION ---
             await asyncio.sleep(0.5)
-            
             emit_progress(project_id, "Reading project files...", 5)
             file_tree = await _fetch_file_tree(project_id)
             
@@ -698,25 +805,21 @@ async def agent_start(request: Request, project_id: str, prompt: str = Form(...)
             emit_phase(project_id, "planner")
             emit_progress(project_id, "Planning...", 10)
             
-            # Generate Plan
             plan_res = planner.generate_plan(
                 user_request=prompt, 
                 project_context={"project_id": project_id, "files": list(file_tree.keys())}
             )
             
-            # Track Planner Tokens
             ptokens = plan_res.get("usage", {}).get("total_tokens", 0)
             if ptokens > 0:
                 total_run_tokens += ptokens
                 new_total = add_monthly_tokens(user["id"], ptokens)
                 emit_token_update(project_id, new_total)
             
-            # Show Assistant Message
             assistant_msg = plan_res.get("assistant_message")
             if assistant_msg:
                 emit_log(project_id, "assistant", assistant_msg)
             
-            # Show Tasks (Internal Log)
             tasks = plan_res["plan"].get("todo", [])
             todo_md = plan_res.get("todo_md", "")
             if todo_md:
@@ -732,14 +835,12 @@ async def agent_start(request: Request, project_id: str, prompt: str = Form(...)
             total = len(tasks)
             
             for i, task in enumerate(tasks, 1):
-                # Check limit before every heavy operation
                 enforce_token_limit_or_raise(user["id"])
                 
                 pct = 10 + (90 * (i / total))
                 emit_progress(project_id, f"Building step {i}/{total}...", pct)
                 emit_status(project_id, f"Implementing task {i}/{total}...")
                 
-                # Generate Code
                 code_res = await coder.generate_code(
                     plan_section="Implementation",
                     plan_text=task,
@@ -747,19 +848,16 @@ async def agent_start(request: Request, project_id: str, prompt: str = Form(...)
                     project_name=project_id
                 )
                 
-                # Track Coder Tokens
                 ctokens = code_res.get("usage", {}).get("total_tokens", 0)
                 if ctokens > 0:
                     total_run_tokens += ctokens
                     new_total = add_monthly_tokens(user["id"], ctokens)
                     emit_token_update(project_id, new_total)
 
-                # Show Coder Logic
                 coder_msg = code_res.get("message")
                 if coder_msg:
                     emit_log(project_id, "coder", coder_msg)
 
-                # Apply Changes
                 ops = code_res.get("operations", [])
                 emit_phase(project_id, "files")
                 
@@ -767,7 +865,6 @@ async def agent_start(request: Request, project_id: str, prompt: str = Form(...)
                     path = op.get("path")
                     content = op.get("content")
                     if path and content is not None:
-                        # Upsert to DB
                         db_upsert(
                             "files", 
                             {"project_id": project_id, "path": path, "content": content}, 
@@ -775,7 +872,6 @@ async def agent_start(request: Request, project_id: str, prompt: str = Form(...)
                         )
                         emit_file_changed(project_id, path)
                 
-                # Refresh context for next step
                 file_tree = await _fetch_file_tree(project_id)
             
             # --- FINISH ---
@@ -783,9 +879,8 @@ async def agent_start(request: Request, project_id: str, prompt: str = Form(...)
             emit_progress(project_id, "Done", 100)
             
         except Exception as e:
-            # Save any pending tokens if crash happened
             if total_run_tokens > 0:
-                add_monthly_tokens(user["id"], 0) # Just ensures sync if logic differed
+                add_monthly_tokens(user["id"], 0)
             
             emit_status(project_id, "Error")
             emit_log(project_id, "system", f"Workflow failed: {e}")
@@ -796,7 +891,6 @@ async def agent_start(request: Request, project_id: str, prompt: str = Form(...)
 
 @app.get("/api/project/{project_id}/events")
 async def agent_events(request: Request, project_id: str):
-    """SSE endpoint for streaming agent logs and status."""
     if not DEV_MODE:
         user = get_current_user(request)
         _require_project_owner(user, project_id)
@@ -804,7 +898,6 @@ async def agent_events(request: Request, project_id: str):
     async def _gen():
         q = progress_bus.subscribe(project_id)
         try:
-            # Initial connection ping
             yield f"data: {json.dumps({'type':'status', 'text':'Connected'})}\n\n"
             while True:
                 try:
@@ -868,7 +961,6 @@ async def run_status(request: Request, project_id: str):
 
 @app.api_route("/run/{project_id}/{path:path}", methods=["GET","POST","PUT","DELETE","OPTIONS","PATCH"])
 async def run_proxy(request: Request, project_id: str, path: str):
-    """Proxies requests to the running uvicorn instance for the project."""
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
@@ -885,7 +977,6 @@ async def run_proxy(request: Request, project_id: str, path: str):
             body=body,
             query=request.url.query
         )
-        # Forward response
         return Response(
             content=r.content,
             status_code=r.status_code,

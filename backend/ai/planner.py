@@ -142,7 +142,7 @@ class Planner:
             "  ]\n"
             "}\n\n"
             "- try to make more than 15 and for bigger projects 22 maximum for debugging 5 tasks are enough, readme.md in a way for this is an ai coder. and try to ask for the best looking UI always use if asked to add these features use .env GROQ_API_KEY for chatbots use this model 'llama-3.1-8b-instant' for tts use 'canopylabs/orpheus-v1-english' and for stt use 'whisper-large-v3' and REM_BG_API_KEY for bg removal."
-            "- Do NOT invent new modules or make a .env file\n"
+            "- Do NOT invent new modules. never ever make a new .env file\n"
             "- Tasks should reference files and orchestration steps only\n"
             "- Always use Fast API and HTML and have one file app.py\n"
             "- Always be very clear for a coding agent to follow instructions\n"

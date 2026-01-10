@@ -6,7 +6,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     @font-face { font-family: 'din-next-w01-light'; src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2'); font-display: swap; }
-    :root { --bg: #050810; --panel: #0e1324; --border: rgba(255, 255, 255, 0.08); --accent: #3b6cff; --accent-glow: rgba(59, 108, 255, 0.3); --text: #ffffff; --text-muted: rgba(255, 255, 255, 0.5); }
+    
+    /* --- THEME VARIABLES --- */
+    :root {
+      --bg: #050810;
+      --panel: #0e1324;
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #ffffff;
+      --text-muted: rgba(255, 255, 255, 0.5);
+      
+      /* Default Blue */
+      --accent: #3b6cff;
+      --accent-glow: rgba(59, 108, 255, 0.3);
+      --btn-text: #fff;
+    }
+
+    /* PREMIUM OVERRIDES */
+    body.premium {
+      --bg: #050810;
+      --panel: #121214;
+      --accent: #ffd700; /* Gold */
+      --accent-glow: rgba(255, 215, 0, 0.3);
+      --btn-text: #000; /* Black text on gold button */
+      
+      background-image: 
+        radial-gradient(circle at 80% 90%, rgba(255, 215, 0, 0.08) 0%, transparent 40%) !important;
+    }
+
     * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; }
     
     body { 
@@ -22,6 +48,12 @@
       border-radius: 24px; padding: 36px;
       box-shadow: 0 20px 50px -10px rgba(0,0,0,0.6);
       animation: fadeIn 0.4s ease-out;
+    }
+    
+    /* Premium Glow for Container */
+    body.premium .container {
+      box-shadow: 0 20px 60px -10px rgba(255, 215, 0, 0.1);
+      border-color: rgba(255, 215, 0, 0.15);
     }
 
     @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
@@ -55,6 +87,9 @@
       background: transparent; border: none; color: var(--accent); font-size: 28px; font-weight: 700;
       width: 180px; outline: none; border-bottom: 1px dashed rgba(59, 108, 255, 0.3); padding-bottom: 2px;
     }
+    /* Premium dashed line update */
+    body.premium .token-input { border-bottom-color: rgba(255, 215, 0, 0.3); }
+
     .token-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
 
     .price-display { font-size: 28px; color: #fff; font-weight: 700; text-align: right; }
@@ -82,18 +117,19 @@
     .input-icon svg { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
 
     .btn {
-      width: 100%; background: #fff; color: #000; border: none;
+      width: 100%; background: var(--accent); color: var(--btn-text); border: none;
       padding: 14px; border-radius: 10px; font-size: 14px; font-weight: 700;
       cursor: pointer; margin-top: 24px; transition: all 0.2s;
-      box-shadow: 0 4px 20px rgba(255,255,255,0.1);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
     }
-    .btn:hover { background: #e2e8f0; transform: translateY(-1px); }
+    .btn:hover { transform: translateY(-1px); filter: brightness(1.1); }
 
     .secure-note { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 16px; font-size: 11px; color: var(--text-muted); opacity: 0.7; }
 
   </style>
 </head>
-<body>
+
+<body class="{% if user is defined and user and user.plan == 'premium' %}premium{% endif %}">
 
 <div class="container">
   <div class="header">
@@ -149,9 +185,44 @@
       </div>
     </div>
 
+    <div class="section-title">Billing Address</div>
 
+    <div class="form-group">
+      <label class="label">Street Address</label>
+      <input type="text" name="billing_address" placeholder="123 Main St" required>
+    </div>
 
+    <div class="form-row">
+      <div class="col">
+        <label class="label">City</label>
+        <input type="text" name="billing_city" placeholder="New York" required>
+      </div>
+      <div class="col small">
+        <label class="label">Zip Code</label>
+        <input type="text" name="billing_zip" placeholder="10001" required>
+      </div>
+    </div>
 
+    <div class="form-group">
+      <label class="label">Country</label>
+      <select name="billing_country">
+        <option value="US">United States</option>
+        <option value="UK">United Kingdom</option>
+        <option value="CA">Canada</option>
+        <option value="DE">Germany</option>
+        <option value="FR">France</option>
+        <option value="JP">Japan</option>
+      </select>
+    </div>
+
+    <button type="submit" class="btn" id="payBtn">Pay $1.00</button>
+    
+    <div class="secure-note">
+      <svg width="10" height="10" fill="currentColor" viewBox="0 0 16 16"><path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/></svg>
+      Encrypted & Secured by Stripe
+    </div>
+  </form>
+</div>
 
 <script>
   const range = document.getElementById('tokenRange');

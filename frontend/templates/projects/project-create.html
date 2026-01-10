@@ -5,26 +5,127 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Create Project · gor://a</title>
   <style>
-        @font-face {
+    @font-face {
       font-family: 'din-next-w01-light';
       font-style: normal;
       font-weight: 400;
       src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2');
       font-display: swap;
     }
-    body{margin:0;background:#0b1020;color:#fff;min-height:100vh;font-family:'din-next-w01-light',system-ui,-apple-system,BlinkMacSystemFont,sans-serif}
-    .wrap{min-height:100vh;display:grid;place-items:center;padding:24px}
-    .card{width:min(520px,100%);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:18px}
-    h1{margin:0 0 12px;font-size:18px}
-    .row{display:flex;flex-direction:column;gap:8px;margin:10px 0}
-    label{font-size:12px;opacity:.8}
-    input,textarea{padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:#0f1530;color:#fff;outline:none}
-    textarea{min-height:90px;resize:vertical}
-    button{width:100%;padding:12px;border-radius:12px;border:0;background:#3b6cff;color:#fff;font-weight:600;cursor:pointer;margin-top:8px; font-family: 'din-next-w01-light', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;}
-    a{color:#a9c1ff}
+
+    /* --- THEME VARIABLES --- */
+    :root {
+      --bg: #0b1020;
+      --card-bg: rgba(255,255,255,.05);
+      --border: rgba(255,255,255,.08);
+      --input-bg: #0f1530;
+      --text: #fff;
+      
+      /* Default Blue Accent */
+      --accent: #3b6cff;
+      --btn-text: #fff;
+    }
+
+    /* PREMIUM OVERRIDES */
+    body.premium {
+      --bg: #050810;
+      --card-bg: rgba(255, 255, 255, 0.03); /* Slightly darker card for contrast */
+      
+      /* Premium Gold Accent */
+      --accent: #ffd700;
+      --btn-text: #000; /* Black text on Gold for readability */
+      
+      /* Premium Gradient Background */
+      background-image: 
+        radial-gradient(circle at 15% 10%, rgba(255, 215, 0, 0.05) 0%, transparent 40%),
+        radial-gradient(circle at 85% 90%, rgba(147, 51, 234, 0.08) 0%, transparent 40%) !important;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      font-family: 'din-next-w01-light', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    .wrap {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .card {
+      width: min(520px, 100%);
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px;
+      /* Add subtle premium glow if premium */
+      transition: box-shadow 0.3s ease;
+    }
+    
+    body.premium .card {
+      border-color: rgba(255, 215, 0, 0.15);
+      box-shadow: 0 10px 40px -10px rgba(0,0,0,0.5);
+    }
+
+    h1 { margin: 0 0 12px; font-size: 18px; }
+
+    .row { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+    
+    label { font-size: 12px; opacity: .8; }
+
+    input, textarea {
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: var(--input-bg);
+      color: #fff;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    
+    input:focus, textarea:focus {
+      border-color: var(--accent);
+    }
+
+    textarea { min-height: 90px; resize: vertical; }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      border-radius: 12px;
+      border: 0;
+      background: var(--accent);
+      color: var(--btn-text);
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+      font-family: 'din-next-w01-light', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2); 
+    }
+    
+    body.premium button:hover {
+      box-shadow: 0 4px 15px rgba(255, 215, 0, 0.25);
+    }
+
+    a { color: #a9c1ff; transition: color 0.2s; }
+    a:hover { color: #fff; }
+    
+    body.premium a { color: #ffe580; }
+    body.premium a:hover { color: #fff; }
+
   </style>
 </head>
-<body>
+
+<body class="{% if user.plan == 'premium' %}premium{% endif %}">
   <div class="wrap">
     <div class="card">
       <h1>Create project</h1>

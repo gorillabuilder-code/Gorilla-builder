@@ -11,13 +11,35 @@
   src:url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2');
   font-display:swap;
 }
-:root{
-  --bg:#0b1020; --panel:#0f1530; --border:rgba(255,255,255,.10);
-  --text:#fff; --muted:rgba(255,255,255,.65); --brand:#3b6cff;
+
+/* --- THEME VARIABLES --- */
+:root {
+  --bg: #0b1020;
+  --panel: #0f1530;
+  --border: rgba(255,255,255,.10);
+  --text: #fff;
+  --muted: rgba(255,255,255,.65);
+  --accent: #3b6cff;
+  --btn-text: #fff;
 }
+
+/* PREMIUM OVERRIDES */
+body.premium {
+  --bg: #050810;
+  --panel: #121214;
+  --accent: #ffd700;
+  --btn-text: #000;
+  
+  background-image: 
+    radial-gradient(circle at 15% 10%, rgba(255, 215, 0, 0.05) 0%, transparent 40%),
+    radial-gradient(circle at 85% 90%, rgba(147, 51, 234, 0.08) 0%, transparent 40%) !important;
+}
+
 *{box-sizing:border-box;font-family:'din-next-w01-light',system-ui,-apple-system,BlinkMacSystemFont,sans-serif}
 body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
+
 .wrap{max-width:980px;margin:0 auto;padding:22px}
+
 .top{
   display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding:14px 16px;border:1px solid var(--border);border-radius:16px;
@@ -26,6 +48,7 @@ body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
 .title{display:flex;flex-direction:column;gap:4px}
 .title h1{font-size:16px;margin:0}
 .title .sub{font-size:12px;color:var(--muted)}
+
 .btn{
   border:1px solid var(--border);
   background:rgba(255,255,255,.04);
@@ -38,37 +61,64 @@ body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
   align-items:center;
   gap:8px;
   font-size:12px;
+  transition: all 0.2s;
 }
-.btn.primary{border-color:rgba(59,108,255,.6);background:rgba(59,108,255,.14)}
+.btn:hover { background: rgba(255,255,255,.08); }
+
+.btn.primary{
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--btn-text);
+  font-weight: 600;
+}
+.btn.primary:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+
 .card{
   border:1px solid var(--border);
   background:rgba(255,255,255,.03);
   border-radius:16px;
   padding:16px;
 }
-.card h2{font-size:13px;margin:0 0 10px 0;color:rgba(255,255,255,.85)}
-label{font-size:12px;color:var(--muted);display:block;margin:10px 0 6px}
+.card h2{font-size:13px;margin:0 0 10px 0;color:rgba(255,255,255,.85); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;}
+
+label{font-size:12px;color:var(--muted);display:block;margin:12px 0 6px}
+
 input, textarea, select{
   width:100%;
   border:1px solid rgba(255,255,255,.12);
-  background:rgba(255,255,255,.04);
+  background:rgba(0,0,0,.2);
   color:#fff;
-  border-radius:12px;
+  border-radius:8px;
   padding:10px 12px;
   outline:none;
   font-size:13px;
+  transition: border-color 0.2s;
 }
+input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
+
 textarea{min-height:110px;resize:vertical}
-.row{display:flex;gap:10px}
-.row > div{flex:1}
+
 .note{font-size:12px;color:rgba(255,255,255,.55);margin-top:10px;line-height:1.4}
 hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:14px 0}
-.footer{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}
+.footer{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
 .small{font-size:12px;color:rgba(255,255,255,.55)}
+
+.premium-lock {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10px; color: #ffd700; border: 1px solid rgba(255,215,0,0.3);
+  padding: 2px 6px; border-radius: 4px; background: rgba(255,215,0,0.05);
+  margin-bottom: 8px;
+}
 </style>
 </head>
-<body>
+
+<body class="{% if user.plan == 'premium' %}premium{% endif %}">
 
 <div class="wrap">
   <div class="top">
@@ -78,7 +128,7 @@ hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:14px 0}
     </div>
     <div style="display:flex;gap:10px">
       <a class="btn" href="/projects/{{ project_id }}/editor">← Back to editor</a>
-      <a class="btn primary" href="/projects/{{ project_id }}/preview" target="_blank">Open preview ↗</a>
+      <a class="btn" href="/projects/{{ project_id }}/preview" target="_blank">Open preview ↗</a>
     </div>
   </div>
 
@@ -91,53 +141,56 @@ hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:14px 0}
 
   <div class="grid">
     <div class="card">
-      <h2>Basics</h2>
+      <h2>General</h2>
 
       <form method="post" action="/projects/{{ project_id }}/settings">
-        <label>Name</label>
-        <input name="name" value="{{ project.name if project else '' }}" placeholder="Project name" required />
+        <label>Project Name</label>
+        <input name="name" value="{{ project.name if project else '' }}" placeholder="My Awesome App" required />
 
         <label>Description</label>
-        <textarea name="description" placeholder="Short description">{{ project.description if project else '' }}</textarea>
+        <textarea name="description" placeholder="What does this project do?">{{ project.description if project else '' }}</textarea>
 
         <div class="footer">
-          <button class="btn primary" type="submit">Save changes</button>
+          <button class="btn primary" type="submit">Save Changes</button>
         </div>
       </form>
-
-      <div class="note">
-        Next: branding, environment variables, build targets, and deploy settings will live here.
-      </div>
     </div>
 
     <div class="card">
-      <h2>Future controls (placeholders)</h2>
+      <h2>Deployment & Hosting</h2>
 
-      <label>Token budget (per project)</label>
-      <input disabled value="Coming soon" />
+      {% if user.plan != 'premium' %}
+      <div class="premium-lock">
+        🔒 Upgrade to Premium to unlock
+      </div>
+      {% endif %}
 
-      <label>Pricing mode</label>
-      <select disabled>
-        <option>Coming soon</option>
+      <label>Custom Domain</label>
+      <input type="text" placeholder="e.g. myapp.com" 
+             {% if user.plan != 'premium' %}disabled{% endif %} />
+      <div class="note">Connect your own domain name. DNS verification required.</div>
+
+      <label>Hosting Region</label>
+      <select {% if user.plan != 'premium' %}disabled{% endif %}>
+        <option>US East (N. Virginia)</option>
+        <option>US West (Oregon)</option>
+        <option>EU Central (Frankfurt)</option>
+        <option>Asia Pacific (Singapore)</option>
       </select>
-
-      <label>Rate limits</label>
-      <input disabled value="Coming soon" />
 
       <hr/>
 
-      <h2>Domains & Deploy (later)</h2>
-      <div class="small">
-        This will eventually support custom domains/subdomains via DNS once you add:
-        (1) a deploy target (container/serverless), and
-        (2) a router/proxy for hostnames.
+      <h2>Environment Variables</h2>
+      <div class="small" style="margin-bottom:12px">
+        Manage secrets and API keys for your backend.
       </div>
+      
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
+        <input placeholder="KEY" style="flex:1" {% if user.plan != 'premium' %}disabled{% endif %}>
+        <input placeholder="VALUE" style="flex:1" type="password" {% if user.plan != 'premium' %}disabled{% endif %}>
+      </div>
+      <button class="btn" style="width:100%" {% if user.plan != 'premium' %}disabled{% endif %}>+ Add Variable</button>
 
-      <label>Primary domain</label>
-      <input disabled value="Coming soon" />
-
-      <label>Subdomain</label>
-      <input disabled value="Coming soon" />
     </div>
   </div>
 </div>

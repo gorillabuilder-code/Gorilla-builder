@@ -18,10 +18,27 @@
       --bg: #050810;
       --panel: #0e1324;
       --border: rgba(255, 255, 255, 0.08);
+      
+      /* Default Accent (Blue) */
       --accent: #3b6cff;
       --accent-glow: rgba(59, 108, 255, 0.3);
+      
       --text: #ffffff;
       --text-muted: rgba(255, 255, 255, 0.5);
+    }
+
+    /* PREMIUM THEME OVERRIDES */
+    /* This applies when <body class="premium"> is present */
+    body.premium {
+      /* Premium Gold/Purple Accent */
+      --accent: #ffd700; 
+      --accent-glow: rgba(255, 215, 0, 0.25);
+      --panel: #121214;
+      
+      /* Richer gradient for premium */
+      background-image: 
+        radial-gradient(circle at 15% 10%, rgba(255, 215, 0, 0.05) 0%, transparent 40%),
+        radial-gradient(circle at 85% 90%, rgba(147, 51, 234, 0.08) 0%, transparent 40%) !important;
     }
 
     * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; }
@@ -31,7 +48,7 @@
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
-      /* Subtle mesh gradient background */
+      /* Default Mesh Gradient */
       background-image: 
         radial-gradient(circle at 15% 10%, rgba(59, 108, 255, 0.08) 0%, transparent 40%),
         radial-gradient(circle at 85% 90%, rgba(157, 0, 255, 0.08) 0%, transparent 40%);
@@ -62,8 +79,26 @@
       font-weight: 700;
       background: #ffffff;
       -webkit-background-clip: text;
+      background-clip: text;
       -webkit-text-fill-color: transparent;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
+    
+    .premium-badge {
+      font-size: 15px;
+      color: #ffd700;
+      padding: 0 0px;
+      border-radius: 0px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      /* Default hidden, shown via logic */
+      display: none;
+    }
+    /* Show badge if body is premium */
+    body.premium .premium-badge { display: inline-block; }
 
     header nav {
       display:flex;
@@ -104,8 +139,9 @@
       font-size: 32px; 
       font-weight: 400; 
       margin: 0;
-      background: linear-gradient(90deg, #ffffff, #c4d6ff);
+      background:#fff;
       -webkit-background-clip: text;
+      background-clip: text;
       -webkit-text-fill-color: transparent; 
     }
     .who .sub { font-size: 15px; color: var(--text-muted); margin: 0; }
@@ -146,8 +182,12 @@
       gap: 8px;
       box-shadow: 0 4px 15px var(--accent-glow);
       transition: all 0.2s;
-      height: 38px; /* Match height of pills roughly */
+      height: 38px;
     }
+    
+    /* Premium override for button text color */
+    body.premium .upgrade-btn { color: #000; }
+
     .upgrade-btn:hover {
       transform: translateY(-2px);
       box-shadow: 0 6px 20px var(--accent-glow);
@@ -175,9 +215,19 @@
       box-shadow: 0 4px 20px rgba(0,0,0,0.2), 0 0 0 1px rgba(59, 108, 255, 0.1);
       transition: box-shadow 0.3s ease;
     }
-
+    
     .builder-box:focus-within {
       box-shadow: 0 8px 30px rgba(59, 108, 255, 0.15), 0 0 0 1px var(--accent);
+    }
+
+    /* Premium specific builder box style */
+    body.premium .builder-box {
+      background: linear-gradient(145deg, #18181b, #0e0e10);
+      border: 1px solid rgba(255, 215, 0, 0.15);
+      box-shadow: 0 4px 30px rgba(0,0,0,0.4), 0 0 0 1px rgba(255, 215, 0, 0.05);
+    }
+    body.premium .builder-box:focus-within {
+      box-shadow: 0 8px 40px rgba(255, 215, 0, 0.1), 0 0 0 1px var(--accent);
     }
 
     .input-wrapper {
@@ -203,7 +253,7 @@
     .builder-box button {
       background: var(--accent);
       border: none;
-      color: white;
+      color: #fff;
       border-radius: 12px;
       width: 48px;
       height: 48px;
@@ -214,9 +264,12 @@
       transition: all 0.2s;
       box-shadow: 0 4px 12px var(--accent-glow);
     }
+    
+    body.premium .builder-box button { color: #000; }
+
     .builder-box button:hover {
       transform: scale(1.05);
-      background: #4f7aff;
+      filter: brightness(1.1);
     }
 
     .row {
@@ -244,6 +297,11 @@
       background: rgba(59, 108, 255, 0.1); 
       color: var(--accent);
       border-color: rgba(59, 108, 255, 0.2);
+    }
+    
+    body.premium .idea:hover {
+      background: rgba(255, 215, 0, 0.1);
+      border-color: rgba(255, 215, 0, 0.2);
     }
 
     /* ---------- RECENT ---------- */
@@ -282,9 +340,15 @@
     /* Hover effect for cards */
     .project:hover { 
       transform: translateY(-4px); 
-      border-color: rgba(59, 108, 255, 0.4);
+      border-color: var(--accent);
       box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
     }
+    
+    body.premium .project:hover {
+      border-color: rgba(255, 215, 0, 0.3);
+      box-shadow: 0 10px 40px -10px rgba(0,0,0,0.7);
+    }
+
     .project:hover::after {
       content: '';
       position: absolute;
@@ -317,12 +381,15 @@
     }
   </style>
 </head>
-<body>
+
+<body class="{% if user.plan == 'premium' %}premium{% endif %}">
 
 <header>
-  <div class="logo">Gor://a</div>
+  <div class="logo">
+      Gor://a 
+      <span class="premium-badge">PRO</span>
+  </div>
   <nav>
-    <a href="/workspace">Workspace</a>
     <a href="/auth/logout">Logout</a>
   </nav>
 </header>
@@ -339,21 +406,27 @@
       {% if user and user.tokens %}
         <div class="pill">
           <span>🪙 Used:</span>
-          <strong>{{ user.tokens.used }}</strong>
+          <strong>{{ "{:,}".format(user.tokens.used) }}</strong>
           <span style="opacity:0.4">/</span>
-          <span>{{ user.tokens.limit }}</span>
+          <span>{{ "{:,}".format(user.tokens.limit) }}</span>
         </div>
         <div class="pill" style="border-color: rgba(43, 217, 124, 0.3); color: #2bd97c;">
           <span>Remaining:</span>
-          <strong>{{ user.tokens.remaining }}🪙</strong>
+          <strong>{{ "{:,}".format(user.tokens.remaining) }}🪙</strong>
         </div>
       {% else %}
         <div class="pill">Tokens: Loading...</div>
       {% endif %}
       
+      {% if user.plan != 'premium' %}
       <a href="/pricing" class="upgrade-btn">
         Upgrade ↗
       </a>
+      {% else %}
+      <a href="/checkout/tokens" class="pill" style="border-color:var(--accent); color:var(--accent);">
+        Buy More Tokens +
+      </a>
+      {% endif %}
     </div>
   </div>
 

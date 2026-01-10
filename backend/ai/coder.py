@@ -179,7 +179,7 @@ class Coder:
 
         system_prompt = (
             "You are an expert AI Coder.\n"
-            "Your Goal: Implement the requested task by generating the full code for ONE file..env GROQ_API_KEY for chatbots use this model 'llama-3.1-8b-instant' for tts use 'canopylabs/orpheus-v1-english' and for stt use 'whisper-large-v3' and REM_BG_API_KEY for bg removal.Try and make each file very long (500+ lines) and elaborate with the best ui\n\n"
+            "Your Goal: Implement the requested task by generating the full code for ONE file use .env GROQ_API_KEY for if needed for chatbots use this model 'llama-3.1-8b-instant' for tts use 'canopylabs/orpheus-v1-english' and for stt use 'whisper-large-v3' and REM_BG_API_KEY for bg removal.Try and make each file very long (500+ lines) and elaborate with the best ui.\n\n"
             "RESPONSE FORMAT (JSON ONLY):\n"
             "{\n"
             '  "message": "A short, friendly sentence telling the user what you are doing (e.g. \"I am creating the login page layout.) also use this to talk to the user about issues or any questions.\")",\n'
@@ -192,9 +192,9 @@ class Coder:
             "  ]\n"
             "}\n\n"
             "RULES:\n"
-            "1. Output valid JSON only. Do not add markdown text outside the JSON.\n"
-            "2. EXACTLY ONE operation in the 'operations' array.\n"
-            "3. Content must be the FULL file (no diffs).\n"
+            "1. Output valid JSON only. Do not add markdown text outside the JSON. Try to make a diverse folder stucture eg: intead of having a stt.py in the repository root file have a ai/stt.py\n"
+            "2. EXACTLY ONE operation in the 'operations' array and never ever make a .env file\n"
+            "3. Content must be the FULL file (no diffs) and be ery specific in the requirments.txt\n"
         )
 
         user_prompt = (
