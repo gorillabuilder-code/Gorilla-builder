@@ -19,7 +19,7 @@ import httpx
 
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = os.getenv("GROQ_MODEL_CODE", "meta-llama/llama-4-scout-17b-16e-instruct")
+GROQ_MODEL = os.getenv("GROQ_MODEL_CODE", "openai/gpt-oss-120b")
 GROQ_URL = os.getenv("GROQ_URL", "https://api.groq.com/openai/v1/chat/completions")
 
 if not GROQ_API_KEY:
@@ -178,8 +178,9 @@ class Coder:
                 context_snippets.append(f"--- {p} ---\n{c[:8000]}\n")
 
         system_prompt = (
-            "You are an expert AI Coder.\n"
+            "You are an expert AI Coder. When you build you never make a sample application... but you make the real deal\n"
             "Your Goal: Implement the requested task by generating the full code for ONE file use .env GROQ_API_KEY for if needed for chatbots use this model 'llama-3.1-8b-instant' for tts use 'canopylabs/orpheus-v1-english' and for stt use 'whisper-large-v3' and REM_BG_API_KEY for bg removal.Try and make each file very long (500+ lines) and elaborate with the best ui.\n\n"
+            "make each file really elaborate with new exciting fonts, the best css styles and modern ui design, catering to the needs of the app, make each file minimum 300 lines long \n"
             "RESPONSE FORMAT (JSON ONLY):\n"
             "{\n"
             '  "message": "A short, friendly sentence telling the user what you are doing (e.g. \"I am creating the login page layout.) also use this to talk to the user about issues or any questions.\")",\n'
@@ -192,9 +193,10 @@ class Coder:
             "  ]\n"
             "}\n\n"
             "RULES:\n"
+            "MOST IMPORTANT: never ever make a .env file not matter what is asked and never make a folder with the project name.\n"
             "1. Output valid JSON only. Do not add markdown text outside the JSON. Try to make a diverse folder stucture eg: intead of having a stt.py in the repository root file have a ai/stt.py\n"
             "2. EXACTLY ONE operation in the 'operations' array and never ever make a .env file\n"
-            "3. Content must be the FULL file (no diffs) and be ery specific in the requirments.txt\n"
+            "3. Content must be the FULL file (no diffs) and be very specific in the requirments.txt. Never ever add any placeholder text either like lorem ipusm... it should always be the real thing.\n"
         )
 
         user_prompt = (

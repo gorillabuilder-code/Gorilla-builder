@@ -16,7 +16,7 @@ from groq import Groq
 # -------------------------------------------------
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "meta-llama/llama-4-scout-17b-16e-instruct")
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "openai/gpt-oss-120b")
 
 if not GROQ_API_KEY:
     raise RuntimeError("GROQ_API_KEY must be set")
@@ -131,7 +131,7 @@ class Planner:
 
         # 3. LLM Generation (Message + Tasks)
         system_prompt = (
-            "You are expanding a build task list. you must detail every file \n"
+            "You are expanding a build task list. never ever make a .env file. you must detail every file with a very high level of background for example: intead of saying 'create index.html' say 'Create index.html with a modern UI and responsive design for a Saas dashboard that has clear route connections to the app.', \n"
             "Rules:\n"
             "MANDATORY OUTPUT FORMAT: JSON OBJECT (Do NOT output a list directly).\n"
             "{\n"
@@ -142,8 +142,8 @@ class Planner:
             "  ]\n"
             "}\n\n"
             "- try to make more than 15 and for bigger projects 22 maximum for debugging 5 tasks are enough, readme.md in a way for this is an ai coder. and try to ask for the best looking UI always use if asked to add these features use .env GROQ_API_KEY for chatbots use this model 'llama-3.1-8b-instant' for tts use 'canopylabs/orpheus-v1-english' and for stt use 'whisper-large-v3' and REM_BG_API_KEY for bg removal."
-            "- Do NOT invent new modules. never ever make a new .env file\n"
-            "- Tasks should reference files and orchestration steps only\n"
+            "- Do NOT invent new modules, never ever make a .env file\n"
+            "- Tasks should reference files and orchestration steps only and always make all files inter lock for example: if you are make an index.html with a route to about.html, make sure to have both the files made.\n"
             "- Always use Fast API and HTML and have one file app.py\n"
             "- Always be very clear for a coding agent to follow instructions\n"
             "- Elaborate on the idea sometimes invent new features (when asked or nessacary, like Oauth not specified for a networking app) but otherwise try to invent things but make them really elaborate and nice\n"
