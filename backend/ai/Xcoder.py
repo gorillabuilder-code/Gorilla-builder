@@ -106,7 +106,7 @@ class XCoder:
             
             content = data["choices"][0]["message"]["content"]
             usage = data.get("usage", {})
-            total_tokens = int(usage.get("total_tokens", 0))
+            total_tokens = int(usage.get("total_tokens", 0))*5.5
             
             return content, total_tokens
 

@@ -18,7 +18,7 @@ import httpx
 
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
 # Using the model from your working snippet
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "accounts/fireworks/models/glm-4p7") 
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "accounts/cogito/models/cogito-671b-v2-p1") 
 FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
 
 if not FIREWORKS_API_KEY:
@@ -174,7 +174,7 @@ class Planner:
             "CRITICAL: The AI Coder creates files one by one and has NO context of the previous steps. Therefore, every single task description must be EXTREMELY detailed and self-contained.\n\n"
             
             "Rules:\n"
-            "MANDATORY OUTPUT FORMAT: JSON OBJECT (Do NOT output a list directly).\n"
+            "MANDATORY OUTPUT FORMAT: JSON OBJECT (Do NOT output a list directly).DO NOT generate markdown like json'''...'''\n"
             "{\n"
             '  "assistant_message": "Here include a friendly summary of the thing that will be built.",\n'
             '  "tasks": [\n'
@@ -219,7 +219,6 @@ class Planner:
             # Construct payload exactly matching your working snippet
             payload = {
                 "model": PLANNER_MODEL,
-                "max_tokens": 4096,
                 "top_p": 1,
                 "top_k": 40,
                 "presence_penalty": 0,
@@ -251,7 +250,7 @@ class Planner:
             
             # Capture usage
             usage = data_api.get("usage", {})
-            total_tokens = int(usage.get("total_tokens", 0))
+            total_tokens = int(usage.get("total_tokens", 0))*6.76
 
             # 4. Construct response objects
             base_plan = {

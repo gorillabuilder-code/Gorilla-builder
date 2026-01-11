@@ -527,9 +527,9 @@ body.xmode .upload-btn:hover { background: rgba(189, 0, 255, 0.1); }
         ⬇ZIP
       </button>
       {% endif %}
-      <button class="pill" href="/projects/{{ project_id }}/settings" style="color: #f0ecec; background-color: red;" title="Play game">
+      <a class="pill" href="/projects/{{ project_id }}/settings" style="color: #f0ecec; background-color: red;" title="Play game">
         BORED?
-      </button>
+      </a>
       <span class="pill" id="connPill" title="SSE connection">
         <span class="dot warn" id="connDot"></span>
         <span id="connText">Connecting…</span>
