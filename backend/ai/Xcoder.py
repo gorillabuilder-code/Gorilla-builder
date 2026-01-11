@@ -19,7 +19,7 @@ import httpx
 # --- Configuration for Fireworks AI ---
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
 # Using the high-performance Qwen3-Coder model for X-Mode
-FIREWORKS_MODEL = os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/glm-4p7") 
+FIREWORKS_MODEL = os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/deepseek-v3p2") 
 FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
 
 if not FIREWORKS_API_KEY:

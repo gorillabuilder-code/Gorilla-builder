@@ -22,7 +22,7 @@ import httpx
 
 # --- Configuration for Fireworks AI ---
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
-FIREWORKS_MODEL = os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/deepseek-v3p2")
+FIREWORKS_MODEL = os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/qwen3-235b-a22b")
 FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
 
 if not FIREWORKS_API_KEY:
@@ -109,7 +109,7 @@ class Coder:
             
             content = data["choices"][0]["message"]["content"]
             usage = data.get("usage", {})
-            total_tokens = int(usage.get("total_tokens", 0))*3.85
+            total_tokens = int(usage.get("total_tokens", 0))*2.35
             
             return content, total_tokens
 
@@ -228,7 +228,7 @@ class Coder:
                     raise ValueError("Could not extract JSON from response")
                 
                 canonical = self._normalize_and_validate_ops(parsed)
-                canonical["usage"] = {"total_tokens": tokens*9.35}  # Adjusted token count estimate
+                canonical["usage"] = {"total_tokens": tokens*2.35}  # Adjusted token count estimate
                 return canonical
                 
             except Exception as e:
