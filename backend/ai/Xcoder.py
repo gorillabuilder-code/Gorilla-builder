@@ -1,12 +1,10 @@
-# backend/ai/coder.py
+# backend/ai/Xcoder.py
 """
-coder.py — gor://a AI Code Generation Engine (Fireworks Qwen3-Coder)
+Xcoder.py — GOR://A X-MODE AI Engine (Fireworks Qwen3-Coder)
 
-- Calls Fireworks AI chat completions (Qwen3-Coder-480B)
-- Uses Regex to reliably extract JSON from "chatty" models
-- Enforces a 'message' field so the AI talks to the user
-- Returns token usage statistics
-- Auto-retries on failure
+- The "Elite" version of the coder.
+- Enforces Purple/Neon aesthetics (#bd00ff).
+- Writes "Futuristic/Cyberpunk" UI code.
 """
 
 from __future__ import annotations
@@ -15,19 +13,17 @@ import os
 import json
 import re
 from typing import Dict, Any, List, Optional, Tuple
-import asyncio
 
 import httpx
 
-
 # --- Configuration for Fireworks AI ---
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
-FIREWORKS_MODEL = os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/deepseek-v3p2")
+# Using the high-performance Qwen3-Coder model for X-Mode
+FIREWORKS_MODEL = os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/glm-4p7") 
 FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
 
 if not FIREWORKS_API_KEY:
     raise RuntimeError("FIREWORKS_API_KEY must be configured in the environment")
-
 
 ALLOWED_ACTIONS = {"create_file", "overwrite_file"}
 
@@ -75,17 +71,18 @@ def _extract_json(text: str) -> Any:
     except json.JSONDecodeError:
         pass
     
+    # If we get here, the model probably just chatted without JSON.
     return None
 
 
-class Coder:
+class XCoder:
     def __init__(self, timeout_s: float = 120.0):
         self.timeout_s = timeout_s
 
     async def _call_fireworks(
         self,
         messages: List[Dict[str, str]],
-        temperature: float = 0.1,
+        temperature: float = 0.2, # Slightly higher for creativity in Xmode
     ) -> Tuple[str, int]:
         """
         Returns (content, total_tokens)
@@ -126,8 +123,10 @@ class Coder:
         if not isinstance(ops, list) or not ops:
             raise ValueError("JSON missing 'operations' list")
 
-        user_msg = parsed.get("message") or ops[0].get("message") or "I am working on the file..."
+        # Get the friendly message
+        user_msg = parsed.get("message") or ops[0].get("message") or "X-Mode Engine Active..."
 
+        # Take only the first operation
         op = ops[0]
         action_raw = (op.get("action") or "").strip()
         action = ACTION_NORMALIZE.get(action_raw, action_raw)
@@ -137,7 +136,7 @@ class Coder:
 
         if action not in ALLOWED_ACTIONS:
              if action in ["delete_file", "move_file"]:
-                 return {"message": "Skipping unsupported action", "operations": []}
+                 return {"message": "X-Mode ignores delete requests.", "operations": []}
              raise ValueError(f"Unknown action: {action}")
 
         path = op.get("path")
@@ -160,7 +159,7 @@ class Coder:
         file_tree: Dict[str, str],
         project_name: str,
         history: Optional[List[Dict[str, str]]] = None,
-        max_retries: int = 3,  # Increased default retries
+        max_retries: int = 2,
     ) -> Dict[str, Any]:
 
         file_list = sorted(list(file_tree.keys()))
@@ -172,10 +171,11 @@ class Coder:
                 c = file_tree[p]
                 context_snippets.append(f"--- {p} ---\n{c[:8000]}\n")
 
+        # --- XMODE PERSONA ---
         system_prompt = (
-            "You are an expert AI Coder running on Qwen3-Coder via Fireworks AI. When you build you never make a sample application... but you make the real deal\n"
-            "Your Goal: Implement the requested task by generating the full code for ONE file. Use .env for API keys. For chatbots use 'llama-3.1-8b-instant' logic, for tts use 'canopylabs/orpheus-v1-english' and for stt use 'whisper-large-v3'. Try and make each file elaborate with the best ui.\n\n"
-            "Make each file really elaborate with new exciting fonts, the best css styles and modern ui design, catering to the needs of the app, try to make each file 300 lines long but not too long like 10 lines is good for requirements.txt\n"
+            "You are an expert AI Coder running on Deepseek v3.2 via Fireworks AI. When you build you never make a sample application... but you make the real deal\n"
+            "Your Goal: Implement the requested task by generating the full code for ONE file. Use .env for API keys. For chatbots use 'llama-3.1-8b-instant' logic, for tts use 'canopylabs/orpheus-v1-english' and for stt use 'whisper-large-v3'. Try and make each file very long (500+ lines) and elaborate with the best ui.\n\n"
+            "Make each file really elaborate with new exciting fonts, the best css styles and modern ui design, catering to the needs of the app, make each file minimum 300 lines long \n"
             "RESPONSE FORMAT (JSON ONLY):\n"
             "{\n"
             '  "message": "A short, friendly sentence telling the user what you are doing (e.g. \"I am creating the login page layout.) also use this to talk to the user about issues or any questions.\")",\n'
@@ -195,11 +195,11 @@ class Coder:
         )
 
         user_prompt = (
-            f"Project: {project_name}\n"
+            f"Project: {project_name} (X-MODE)\n"
             f"Task: {plan_text}\n\n"
             f"Existing Files:\n{file_list_txt}\n\n"
             f"Context:\n{''.join(context_snippets) if context_snippets else '(none)'}\n\n"
-            "Generate the JSON response now."
+            "Generate the X-Mode JSON response now."
         )
 
         # MERGE SYSTEM PROMPT INTO USER MESSAGE to avoid 400 Bad Request
@@ -208,19 +208,20 @@ class Coder:
         # Initialize messages list
         messages = []
         
+        # Add history
         if history:
             messages.extend(history[-4:])
             
+        # Append combined user message
         messages.append({"role": "user", "content": combined_prompt})
 
         last_err: Optional[str] = None
         last_raw: Optional[str] = None
 
-        # Retry Loop
         for attempt in range(max_retries + 1):
             try:
-                # Call Fireworks
-                raw, tokens = await self._call_fireworks(messages, temperature=0.1)
+                # Call Fireworks instead of SambaNova
+                raw, tokens = await self._call_fireworks(messages, temperature=0.2)
                 last_raw = raw
                 
                 parsed = _extract_json(raw)
@@ -228,33 +229,18 @@ class Coder:
                     raise ValueError("Could not extract JSON from response")
                 
                 canonical = self._normalize_and_validate_ops(parsed)
-                canonical["usage"] = {"total_tokens": tokens*2.35}  # Adjusted token count estimate
+                canonical["usage"] = {"total_tokens": int(tokens)*3.5} # XMODE multiplier
                 return canonical
                 
             except Exception as e:
                 last_err = str(e)
-                print(f"Coder Attempt {attempt+1}/{max_retries+1} failed: {last_err}")
-                
-                # If we have retries left, append a self-correction message and loop again
-                if attempt < max_retries:
-                    correction_msg = (
-                        f"Your previous response was invalid (Error: {last_err}).\n"
-                        "Please fix the format. Output valid JSON only. Ensure all brackets are closed."
-                    )
-                    
-                    # If we got raw text, let the model see what it messed up
-                    if last_raw:
-                         # Truncate raw response to avoid context limit overflow
-                         messages.append({"role": "assistant", "content": last_raw[:2000]})
-                    
-                    messages.append({"role": "user", "content": correction_msg})
-                    
-                    # Small backoff before retry (optional but good practice)
-                    await asyncio.sleep(1) 
-                    continue
-                else:
-                    # No more retries, raise the final error
-                    break
+                correction_msg = (
+                    f"SYSTEM ERROR: Invalid JSON detected ({last_err}).\n"
+                    "X-CODER, recalibrate and output PURE JSON only."
+                )
+                if last_raw:
+                     messages.append({"role": "assistant", "content": last_raw[:4000]})
+                messages.append({"role": "user", "content": correction_msg})
 
         safe_raw = (last_raw or "")[:500]
-        raise ValueError(f"Coder failed after {max_retries+1} attempts: {last_err}. Raw start: {safe_raw}")
+        raise ValueError(f"X-Coder failed: {last_err}. Raw start: {safe_raw}")

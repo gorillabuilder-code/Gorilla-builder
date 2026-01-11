@@ -34,6 +34,7 @@ load_dotenv()
 from backend.run_manager import ProjectRunManager
 from backend.ai.planner import Planner
 from backend.ai.coder import Coder
+from backend.ai.Xcoder import XCoder
 
 
 # ==========================================================================
@@ -528,6 +529,35 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
         {"request": request, "project_id": project_id, "file": file, "user": user}
     )
 
+@app.get("/projects/{project_id}/xmode", response_class=HTMLResponse)
+async def project_xmode(request: Request, project_id: str, file: str = "index.html"):
+    """
+    Same as editor but activates 'xmode' (Purple Theme).
+    """
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+    
+    try:
+        db_user = db_select_one("users", {"id": user["id"]}, "plan")
+        if db_user:
+            user["plan"] = db_user.get("plan", "free")
+    except Exception:
+        pass
+    
+    used, limit = get_token_usage_and_limit(user["id"])
+    user["tokens"] = {"used": used, "limit": limit}
+
+    return templates.TemplateResponse(
+        "projects/project-editor.html",
+        {
+            "request": request, 
+            "project_id": project_id, 
+            "file": file, 
+            "user": user,
+            "xmode": True
+        }
+    )
+
 @app.get("/projects/{project_id}/preview", response_class=HTMLResponse)
 async def project_preview(request: Request, project_id: str):
     user = get_current_user(request)
@@ -781,7 +811,12 @@ async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
     return {r["path"]: (r.get("content") or "") for r in rows}
 
 @app.post("/api/project/{project_id}/agent/start")
-async def agent_start(request: Request, project_id: str, prompt: str = Form(...)):
+async def agent_start(
+    request: Request, 
+    project_id: str, 
+    prompt: str = Form(...),
+    xmode: bool = Form(False)
+):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
@@ -799,7 +834,13 @@ async def agent_start(request: Request, project_id: str, prompt: str = Form(...)
             file_tree = await _fetch_file_tree(project_id)
             
             planner = Planner()
-            coder = Coder()
+            
+            # CHOOSE CODER BASED ON XMODE
+            if xmode:
+                emit_status(project_id, "🔮 X-MODE ENGAGED")
+                coder = XCoder()
+            else:
+                coder = Coder()
             
             # --- PHASE 1: PLANNER ---
             emit_phase(project_id, "planner")
@@ -811,9 +852,9 @@ async def agent_start(request: Request, project_id: str, prompt: str = Form(...)
             )
             
             ptokens = plan_res.get("usage", {}).get("total_tokens", 0)
-            if ptokens > 0:
-                total_run_tokens += ptokens
-                new_total = add_monthly_tokens(user["id"], ptokens)
+            if int(ptokens) > 0:
+                total_run_tokens += int(ptokens)
+                new_total = add_monthly_tokens(user["id"], int(ptokens))
                 emit_token_update(project_id, new_total)
             
             assistant_msg = plan_res.get("assistant_message")
@@ -986,6 +1027,27 @@ async def run_proxy(request: Request, project_id: str, path: str):
     except Exception as e:
         raise HTTPException(502, f"Proxy failed: {e}")
 
+@app.get("/projects/{project_id}/game", response_class=HTMLResponse)
+async def project_game(request: Request, project_id: str):
+    """
+    Renders the Waiting Room Game (Snake).
+    """
+    user = get_current_user(request)
+    # We check if project exists/user owns it, though not strictly strictly required for a game
+    _require_project_owner(user, project_id)
+    
+    # --- Safe Plan Fetch for Theme ---
+    try:
+        db_user = db_select_one("users", {"id": user["id"]}, "plan")
+        if db_user:
+            user["plan"] = db_user.get("plan", "free")
+    except Exception:
+        pass
+
+    return templates.TemplateResponse(
+        "projects/game.html",
+        {"request": request, "project_id": project_id, "user": user}
+    )
 
 # ==========================================================================
 # HEALTH CHECK

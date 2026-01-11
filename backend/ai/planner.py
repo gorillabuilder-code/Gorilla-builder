@@ -1,27 +1,65 @@
 # backend/ai/planner.py
 """
-planner.py — gor://a Deterministic AI Capability Planner
+planner.py — gor://a Deterministic AI Capability Planner (Fireworks DeepSeek V3.2)
 """
 
 from __future__ import annotations
 
 import os
 import json
+import re
 from typing import Dict, Any, List, Optional, TypedDict
 
-from groq import Groq
+import httpx
 
 # -------------------------------------------------
 # Configuration
 # -------------------------------------------------
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "openai/gpt-oss-120b")
+FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
+# Using the model from your working snippet
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "accounts/fireworks/models/glm-4p7") 
+FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
 
-if not GROQ_API_KEY:
-    raise RuntimeError("GROQ_API_KEY must be set")
+if not FIREWORKS_API_KEY:
+    raise RuntimeError("FIREWORKS_API_KEY must be set")
 
-client = Groq(api_key=GROQ_API_KEY)
+# -------------------------------------------------
+# Helpers
+# -------------------------------------------------
+
+def _extract_json(text: str) -> Any:
+    """
+    Robustly extract the largest valid JSON object from a string.
+    """
+    text = text.strip()
+
+    # 1. Try to find JSON inside ```json ... ``` blocks
+    code_block_pattern = r"```(?:json)?\s*(\{.*?\})\s*```"
+    match = re.search(code_block_pattern, text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            pass
+
+    # 2. Try to find the outer-most { ... }
+    try:
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            json_str = text[start : end + 1]
+            return json.loads(json_str)
+    except json.JSONDecodeError:
+        pass
+
+    # 3. Fallback: try parsing the whole string
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    
+    return None
 
 # -------------------------------------------------
 # Canonical AI Capability Registry
@@ -130,8 +168,11 @@ class Planner:
         modules = sorted({AI_CAPABILITIES[c] for c in capabilities if c in AI_CAPABILITIES})
 
         # 3. LLM Generation (Message + Tasks)
+        # 3. LLM Generation (Message + Tasks)
         system_prompt = (
-            "You are expanding a build task list. never ever make a .env file. you must detail every file with a very high level of background for example: intead of saying 'create index.html' say 'Create index.html with a modern UI and responsive design for a Saas dashboard that has clear route connections to the app.', \n"
+            "You are the Lead Architect for a software project. Your goal is to create a detailed, step-by-step build plan for an AI Coder. \n"
+            "CRITICAL: The AI Coder creates files one by one and has NO context of the previous steps. Therefore, every single task description must be EXTREMELY detailed and self-contained.\n\n"
+            
             "Rules:\n"
             "MANDATORY OUTPUT FORMAT: JSON OBJECT (Do NOT output a list directly).\n"
             "{\n"
@@ -141,12 +182,23 @@ class Planner:
             '    "Update app.py..."\n'
             "  ]\n"
             "}\n\n"
-            "- try to make more than 15 and for bigger projects 22 maximum for debugging 5 tasks are enough, readme.md in a way for this is an ai coder. and try to ask for the best looking UI always use if asked to add these features use .env GROQ_API_KEY for chatbots use this model 'llama-3.1-8b-instant' for tts use 'canopylabs/orpheus-v1-english' and for stt use 'whisper-large-v3' and REM_BG_API_KEY for bg removal."
-            "- Do NOT invent new modules, never ever make a .env file\n"
-            "- Tasks should reference files and orchestration steps only and always make all files inter lock for example: if you are make an index.html with a route to about.html, make sure to have both the files made.\n"
-            "- Always use Fast API and HTML and have one file app.py\n"
-            "- Always be very clear for a coding agent to follow instructions\n"
-            "- Elaborate on the idea sometimes invent new features (when asked or nessacary, like Oauth not specified for a networking app) but otherwise try to invent things but make them really elaborate and nice\n"
+            
+            "GUIDELINES FOR TASK GENERATION:\n"
+            "1. **No Generic Tasks:** Never write 'Create app.py'. This is a failure.\n"
+            "2. **Specifics & Context:** Every task must mention the PROJECT NAME, the FILE PURPOSE, and the EXACT CONTENTS.\n"
+            "   - BAD: 'Create app.py with routes.'\n"
+            "   - GOOD: 'Setup the app.py for the Educai AI education platform using FastAPI. Define routes for index.html (landing), learn.html (modules), dashboard.html (user stats), and play.html (gamified quiz). Initialize the AI chatbot endpoint using the Groq client to act as an education tutor.'\n"
+            "3. **Interlocking Files:** If you ask for a route in `app.py`, you MUST also create the corresponding HTML file in a later task. Reference the specific filenames consistently.\n"
+            "4. **Tech Stack Constraints:**\n"
+            "   - Always use FastAPI for the backend (`app.py`).\n"
+            "   - Always use HTML/CSS/JS for the frontend.\n"
+            "   - Do NOT invent new modules or folders unless necessary.\n"
+            "   - Never ever make a .env file. Use `os.getenv` directly in the code.\n"
+            "   - Never ask to 'setup the repository'. Start immediately with creating the first file.\n"
+            "5. **AI Integration Details:**\n"
+            "   - If adding features, strictly use these: .env GROQ_API_KEY for chatbots (model: 'llama-3.1-8b-instant'), 'canopylabs/orpheus-v1-english' for TTS, 'whisper-large-v3' for STT, and REM_BG_API_KEY for background removal.\n"
+            "6. **Volume:** Generate between 15 to 22 tasks for a complete application. For simple fixes, 5 tasks are sufficient.\n"
+            "7. **Elaboration:** Invent specific features if they aren't provided. If building a 'Chat App', don't just make a chat; make a 'Real-time WebSocket Chat with Message History and Typing Indicators'. Make it elaborate and impressive.\n"
         )
         
         # Prepare context
@@ -164,23 +216,42 @@ class Planner:
         messages.append({"role": "user", "content": user_msg_content})
 
         try:
-            # Call Groq
-            resp = client.chat.completions.create(
-                model=PLANNER_MODEL,
-                messages=messages,
-                response_format={"type": "json_object"},
-                temperature=0.1,
-                max_tokens=2048
-            )
+            # Construct payload exactly matching your working snippet
+            payload = {
+                "model": PLANNER_MODEL,
+                "max_tokens": 4096,
+                "top_p": 1,
+                "top_k": 40,
+                "presence_penalty": 0,
+                "frequency_penalty": 0,
+                "temperature": 0.6,
+                "messages": messages
+            }
+            
+            headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {FIREWORKS_API_KEY}"
+            }
 
-            raw = resp.choices[0].message.content
-            data = json.loads(raw)
+            # Sync call wrapper
+            with httpx.Client(timeout=120.0) as client:
+                resp = client.post(FIREWORKS_URL, json=payload, headers=headers)
+                resp.raise_for_status()
+                data_api = resp.json()
+
+            raw = data_api["choices"][0]["message"]["content"]
+            
+            data = _extract_json(raw)
+            if not data:
+                raise ValueError(f"Could not extract JSON from response: {raw[:100]}...")
             
             tasks = data.get("tasks", [])
             assistant_message = data.get("assistant_message", "I have updated the plan.")
             
             # Capture usage
-            total_tokens = resp.usage.total_tokens if resp.usage else 0
+            usage = data_api.get("usage", {})
+            total_tokens = int(usage.get("total_tokens", 0))
 
             # 4. Construct response objects
             base_plan = {
@@ -198,7 +269,7 @@ class Planner:
                 "assistant_message": assistant_message,
                 "plan": base_plan,
                 "todo_md": self._to_todo_md(base_plan, assistant_message),
-                "usage": {"total_tokens": total_tokens}
+                "usage": {"total_tokens": int(total_tokens)*2.725}# Adjusted token count estimate
             }
 
         except Exception as e:
@@ -207,6 +278,7 @@ class Planner:
             if project_id:
                 _append_history(project_id, "system", fallback_msg)
             
+            print(f"Planner Error: {e}")
             return {
                 "assistant_message": fallback_msg,
                 "plan": {"todo": []},

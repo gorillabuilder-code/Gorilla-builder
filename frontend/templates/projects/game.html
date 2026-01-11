@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Waiting Room · Gorilla Rush</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    @font-face { font-family: 'din-next-w01-light'; src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2'); font-display: swap; }
+    
+    :root {
+      --bg: #050810;
+      --panel: #0e1324;
+      --border: rgba(255, 255, 255, 0.08);
+      --accent: #3b6cff;
+      --accent-glow: rgba(59, 108, 255, 0.4);
+      --text: #ffffff;
+      --text-muted: rgba(255, 255, 255, 0.5);
+      --game-bg: linear-gradient(to bottom, #0f1623, #062b18);
+    }
+
+    /* PREMIUM THEME */
+    body.premium {
+      --accent: #ffd700;
+      --accent-glow: rgba(255, 215, 0, 0.4);
+      --panel: #121214;
+      --game-bg: linear-gradient(to bottom, #181205, #1f1b0a);
+    }
+
+    * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .nav-top {
+      position: absolute;
+      top: 30px;
+      left: 30px;
+      z-index: 100;
+    }
+
+    .btn {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 10px 16px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .btn:hover { background: rgba(255,255,255,0.1); color: #fff; border-color: var(--accent); }
+
+    /* GAME CONTAINER */
+    #game-container {
+      position: relative;
+      width: 800px;
+      height: 500px;
+      background: var(--game-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 20px 60px -10px rgba(0,0,0,0.6);
+    }
+    
+    body.premium #game-container {
+      border-color: rgba(255, 215, 0, 0.15);
+      box-shadow: 0 0 80px rgba(255, 215, 0, 0.05);
+    }
+
+    /* HUD */
+    .hud {
+      position: absolute;
+      top: 20px;
+      left: 24px;
+      font-size: 14px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      z-index: 10;
+      display: flex;
+      gap: 20px;
+    }
+    .hud span { color: #fff; font-weight: 700; margin-left: 8px; }
+    .hud .high { color: var(--accent); }
+
+    /* CHARACTERS */
+    #gorilla {
+      position: absolute;
+      bottom: 20px;
+      left: 375px;
+      font-size: 48px;
+      width: 50px;
+      height: 50px;
+      line-height: 50px;
+      text-align: center;
+      transition: left 0.08s linear;
+      filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5));
+    }
+
+    .item {
+      position: absolute;
+      font-size: 32px;
+      top: -50px;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+    }
+
+    /* SCREENS */
+    #overlay-screen {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(5, 8, 16, 0.85);
+      backdrop-filter: blur(8px);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 50;
+      transition: opacity 0.3s;
+    }
+    
+    #overlay-screen.hidden { opacity: 0; pointer-events: none; }
+
+    h1 { 
+      margin: 0 0 10px 0; 
+      font-size: 32px; 
+      font-weight: 300; 
+      color: #fff; 
+      letter-spacing: -1px; 
+    }
+    h1 b { color: var(--accent); font-weight: 600; }
+    
+    p { color: var(--text-muted); font-size: 14px; margin-bottom: 30px; text-align: center; line-height: 1.6; }
+
+    .play-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 12px 32px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 20px var(--accent-glow);
+      transition: transform 0.2s;
+    }
+    body.premium .play-btn { color: #000; }
+    .play-btn:hover { transform: scale(1.05); }
+
+    /* DECORATION */
+    .tree { 
+      position: absolute; 
+      bottom: -10px; 
+      font-size: 120px; 
+      opacity: 0.1; 
+      filter: grayscale(100%); 
+      pointer-events: none;
+    }
+
+  </style>
+</head>
+<body class="{% if user.plan == 'premium' %}premium{% endif %}">
+
+  <div class="nav-top">
+    <a href="/projects/{{ project_id }}/editor" class="btn">
+      ← Back to Editor
+    </a>
+  </div>
+
+  <div id="game-container">
+    <div class="tree" style="left: -20px;">🌴</div>
+    <div class="tree" style="right: -20px;">🌴</div>
+    <div class="tree" style="left: 30%; font-size: 80px; opacity: 0.05;">🌿</div>
+
+    <div class="hud">
+      <div>Score <span id="scoreVal">0</span></div>
+      <div style="opacity:0.5">High Score <span class="high" id="highVal">0</span></div>
+    </div>
+
+    <div id="gorilla"><svg width="60px" height="60px" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="iconify iconify--twemoji" preserveAspectRatio="xMidYMid meet"><path fill="#31373D" d="M5 16c0-4-5-3-4 1s3 5 3 5l1-6zm26 0c0-4 5-3 4 1s-3 5-3 5l-1-6z"></path><path fill="#31373D" d="M32.65 21.736c0 10.892-4.691 14.087-14.65 14.087c-9.958 0-14.651-3.195-14.651-14.087S8.042.323 18 .323c9.959 0 14.65 10.521 14.65 21.413z"></path><path fill="#66757F" d="M27.567 23c1.49-4.458 2.088-7.312-.443-7.312H8.876c-2.532 0-1.933 2.854-.444 7.312C3.504 34.201 17.166 34.823 18 34.823S32.303 33.764 27.567 23z"></path><path fill="#31373D" d="M15 18.003a2 2 0 0 1-4 0c0-1.104.896-1 2-1s2-.105 2 1zm10 0a2 2 0 0 1-4 0c0-1.104.896-1 2-1s2-.105 2 1z"></path><ellipse fill="#31373D" cx="15.572" cy="23.655" rx="1.428" ry="1"></ellipse><path fill="#31373D" d="M21.856 23.655c0 .553-.639 1-1.428 1c-.79 0-1.429-.447-1.429-1c0-.553.639-1 1.429-1s1.428.448 1.428 1z"></path><path fill="#99AAB5" d="M21.02 21.04c-1.965-.26-3.02.834-3.02.834s-1.055-1.094-3.021-.834c-3.156.417-3.285 3.287-1.939 3.105c.766-.104.135-.938 1.713-1.556c1.579-.616 3.247.66 3.247.66s1.667-1.276 3.246-.659s.947 1.452 1.714 1.556c1.346.181 1.218-2.689-1.94-3.106z"></path><path fill="#31373D" d="M24.835 30.021c-1.209.323-3.204.596-6.835.596s-5.625-.272-6.835-.596c-3.205-.854-1.923-1.735 0-1.477c1.923.259 3.631.415 6.835.415c3.205 0 4.914-.156 6.835-.415c1.923-.258 3.204.623 0 1.477z"></path><path fill="#66757F" d="M4.253 16.625c1.403-1.225-1.078-3.766-2.196-2.544c-.341.373.921-.188 1.336 1.086c.308.942.001 2.208.86 1.458zm27.493 0c-1.402-1.225 1.078-3.766 2.196-2.544c.341.373-.921-.188-1.337 1.086c-.306.942 0 2.208-.859 1.458z"></path></svg></div>
+
+    <div id="overlay-screen">
+      <h1 id="titleText">Gorilla <b>Rush</b></h1>
+      <p id="descText">
+        Catch <span style="font-size:18px">🍌</span> Bananas.<br>
+        Avoid <span style="font-size:18px">🥥</span> Coconuts.
+      </p>
+      <button class="play-btn" onclick="startGame()" id="actionBtn">Start Game</button>
+    </div>
+  </div>
+
+  <script>
+    const container = document.getElementById('game-container');
+    const gorilla = document.getElementById('gorilla');
+    const scoreEl = document.getElementById('scoreVal');
+    const highEl = document.getElementById('highVal');
+    const overlay = document.getElementById('overlay-screen');
+    const titleText = document.getElementById('titleText');
+    const descText = document.getElementById('descText');
+    const actionBtn = document.getElementById('actionBtn');
+
+    // State
+    let score = 0;
+    let highScore = localStorage.getItem('gorilla_rush_hs') || 0;
+    let gorillaX = 375; // Center of 800px container
+    let isRunning = false;
+    let gameSpeed = 4;
+    let spawnRate = 1000;
+    
+    let items = []; // { el, y, type }
+    let spawnTimeout;
+    let keys = {};
+
+    // Init High Score
+    highEl.textContent = highScore;
+
+    // Listeners
+    document.addEventListener('keydown', (e) => keys[e.key] = true);
+    document.addEventListener('keyup', (e) => keys[e.key] = false);
+
+    // Premium Check (for golden gorilla)
+    const isPremium = document.body.classList.contains('premium');
+    if(isPremium) {
+      gorilla.style.filter = "drop-shadow(0 0 10px rgba(255, 215, 0, 0.6))";
+      // Optional: Add a crown or change emoji if desired
+      // gorilla.innerHTML = "👑🦍"; 
+    }
+
+    function startGame() {
+      overlay.classList.add('hidden');
+      
+      // Cleanup previous run
+      items.forEach(i => i.el.remove());
+      items = [];
+      
+      score = 0;
+      scoreEl.textContent = "0";
+      gorillaX = 375;
+      gorilla.style.left = gorillaX + "px";
+      
+      gameSpeed = 5;
+      spawnRate = 900;
+      isRunning = true;
+
+      requestAnimationFrame(gameLoop);
+      clearTimeout(spawnTimeout);
+      spawnItem();
+    }
+
+    function gameOver() {
+      isRunning = false;
+      clearTimeout(spawnTimeout);
+      
+      // Update High Score
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('gorilla_rush_hs', highScore);
+        highEl.textContent = highScore;
+      }
+
+      // Show Screen
+      titleText.innerHTML = "Game <b>Over</b>";
+      descText.innerHTML = `You collected <strong style="color:#fff">${score}</strong> bananas.`;
+      actionBtn.textContent = "Try Again";
+      overlay.classList.remove('hidden');
+    }
+
+    function spawnItem() {
+      if (!isRunning) return;
+
+      const el = document.createElement('div');
+      el.classList.add('item');
+      
+      // 80% Banana, 20% Coconut
+      const isBanana = Math.random() > 0.2;
+      el.textContent = isBanana ? '🍌' : '🥥';
+      
+      // Random X (Container width 800 - item width approx 40)
+      const x = Math.floor(Math.random() * 760);
+      el.style.left = x + 'px';
+      el.style.top = '-50px';
+      
+      container.appendChild(el);
+      items.push({ el: el, y: -50, type: isBanana ? 'banana' : 'coconut' });
+
+      // Difficulty Scaling
+      if (score > 15) { gameSpeed = 7; spawnRate = 700; }
+      if (score > 30) { gameSpeed = 9; spawnRate = 500; }
+      if (score > 50) { gameSpeed = 12; spawnRate = 350; }
+
+      spawnTimeout = setTimeout(spawnItem, spawnRate);
+    }
+
+    function gameLoop() {
+      if (!isRunning) return;
+
+      // 1. Move Player
+      // Container width 800, Gorilla width 50. Bounds: 0 to 750
+      if (keys['ArrowLeft'] && gorillaX > 0) gorillaX -= 9;
+      if (keys['ArrowRight'] && gorillaX < 750) gorillaX += 9;
+      gorilla.style.left = gorillaX + 'px';
+
+      // 2. Move Items & Check Collision
+      // Iterate backwards to safely remove items
+      for (let i = items.length - 1; i >= 0; i--) {
+        let item = items[i];
+        item.y += gameSpeed;
+        item.el.style.top = item.y + 'px';
+
+        // Collision Zone (Gorilla is at bottom: ~430px to 480px)
+        // Hitbox: X within range, Y within range
+        const itemX = parseInt(item.el.style.left);
+        const hitY = item.y > 430 && item.y < 480;
+        const hitX = itemX > (gorillaX - 30) && itemX < (gorillaX + 50);
+
+        if (hitY && hitX) {
+          if (item.type === 'banana') {
+            // Success
+            score++;
+            scoreEl.textContent = score;
+            // Pop effect
+            item.el.style.transform = "scale(1.5)";
+            item.el.style.opacity = "0";
+            item.el.style.transition = "all 0.1s";
+            
+            // Remove from array now, from DOM after anim
+            const elToRemove = item.el;
+            items.splice(i, 1);
+            setTimeout(() => elToRemove.remove(), 100);
+            continue;
+          } else {
+            // Hit Coconut
+            gameOver();
+            return; 
+          }
+        }
+
+        // Remove if off screen (> 500px height)
+        if (item.y > 500) {
+          item.el.remove();
+          items.splice(i, 1);
+        }
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+  </script>
+</body>
+</html>
