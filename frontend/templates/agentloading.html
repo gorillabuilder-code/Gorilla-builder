@@ -6,6 +6,11 @@
 <title>Agent Working Loader</title>
 <style>
 /* Centering Container */
+@font-face{
+  font-family:'din-next-w01-light';
+  src:url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2');
+  font-display:swap;
+}
 body {
   margin: 0;
   padding: 0;
@@ -13,8 +18,8 @@ body {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background-color: #f0f0f0; /* Example background, change as needed */
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #19233d; /* Example background, change as needed */
+  font-family: 'din-next-w01-light', Tahoma, Geneva, Verdana, sans-serif;
 }
 
 .loader-container {
@@ -28,7 +33,7 @@ body {
 .loading-text {
   font-size: 1.2rem;
   font-weight: 500;
-  color: #333; /* Dark grey text */
+  color: #fff; /* Dark grey text */
   text-align: center;
   animation: pulse 2s infinite ease-in-out;
   margin-top: 20px; /* Additional spacing if needed */
@@ -42,6 +47,23 @@ body {
 }
 
 /* From Uiverse.io by Admin12121 - Modified for scaling if needed */ 
+.loader {
+  --duration: 3s;
+  --primary: rgba(39, 94, 254, 1);
+  --primary-rgba: rgba(39, 94, 254, 0);
+  width: 200px;
+  height: 320px;
+  position: relative;
+  transform-style: preserve-3d;
+}
+
+@media (max-width: 480px) {
+  .loader {
+    zoom: 0.44;
+  }
+}
+
+/* From Uiverse.io by Admin12121 */ 
 .loader {
   --duration: 3s;
   --primary: rgba(39, 94, 254, 1);
@@ -68,7 +90,7 @@ body {
   right: 32%;
   bottom: -11px;
 /* change the back groung color on switching from light to dark mood */
-  background: #e8e8e8; 
+  background: #19233d;
   transform: translateZ(200px) rotate(var(--r));
   -webkit-animation: mask var(--duration) linear forwards infinite;
   animation: mask var(--duration) linear forwards infinite;
@@ -826,6 +848,7 @@ body {
     opacity: 1;
   }
 }
+
 
 
 </style>
