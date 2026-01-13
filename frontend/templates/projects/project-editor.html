@@ -527,7 +527,7 @@ body.xmode .upload-btn:hover { background: rgba(189, 0, 255, 0.1); }
         ⬇ZIP
       </button>
       {% endif %}
-      <a class="pill" href="/projects/{{ project_id }}/game" style="color: #f0ecec; background-color: red;" title="Play game">
+      <a class="pill" href="/projects/{{ project_id }}/game" target="_blank" style="color: #f0ecec; background-color: red;" title="Play game">
         BORED?
       </a>
       <span class="pill" id="connPill" title="SSE connection">
@@ -580,8 +580,7 @@ body.xmode .upload-btn:hover { background: rgba(189, 0, 255, 0.1); }
 
       <div class="previewMode" id="previewModeWrap" style="display:none">
         <select class="select" id="previewMode">
-          <option value="static">Static (HTML/JS)</option>
-          <option value="server">Server (Uvicorn)</option>
+          <option value="server">Server Preview</option>
         </select>
         <button class="smallbtn" id="btnRunServer">Run</button>
         <button class="smallbtn danger" id="btnStopServer">Stop</button>
