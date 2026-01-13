@@ -9,11 +9,14 @@ import asyncio
 import secrets
 import mimetypes
 import traceback
+import random
+import string
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
-from fastapi import FastAPI, Request, HTTPException, Form
+import resend  # pip install resend
+from fastapi import FastAPI, Request, HTTPException, Form, BackgroundTasks
 from fastapi.responses import (
     HTMLResponse,
     RedirectResponse,
@@ -63,6 +66,24 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://fluffy-barnacle-g4w74496gqvpfw6vx-8000.app.github.dev/auth/google/callback")
 
 # ==========================================================================
+# CONFIGURATION: RESEND & SUPABASE
+# ==========================================================================
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+if RESEND_API_KEY:
+    resend.api_key = RESEND_API_KEY
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+    raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+# IN-MEMORY OTP STORE (For production, use Redis)
+PENDING_SIGNUPS = {}
+
+# ==========================================================================
 # APP INITIALIZATION
 # ==========================================================================
 app = FastAPI(title="GOR://A Backend ASGI")
@@ -76,17 +97,6 @@ if os.path.isdir(FRONTEND_STYLES_DIR):
     app.mount("/styles", StaticFiles(directory=FRONTEND_STYLES_DIR), name="styles")
 
 templates = Jinja2Templates(directory=FRONTEND_TEMPLATES_DIR)
-
-# ==========================================================================
-# SUPABASE CLIENT
-# ==========================================================================
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-
-if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-    raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
-
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
 # ==========================================================================
@@ -253,6 +263,47 @@ def _require_project_owner(user: Dict[str, Any], project_id: str) -> None:
     if not res:
         raise HTTPException(status_code=404, detail="Project not found or access denied")
 
+# --- RESEND EMAIL LOGIC ---
+def send_otp_email(to_email: str, code: str):
+    if not RESEND_API_KEY:
+        print(f"⚠️ Resend Key missing. Code for {to_email}: {code}")
+        return
+    try:
+        params = {
+            "from": "Gor://a <talk@gorillabuilder.dev>", # Use your verified domain in production
+            "to": [to_email],
+            "subject": "Your Verification Code for Gor://a",
+            "html": f"""
+            <!DOCTYPE html>
+            <html>
+            <body style="margin: 0; padding: 0; background-color: #0b1020; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+            <div style="width: 100%; padding: 40px 0; background-color: #0b1020;">
+                <div style="max-width: 420px; margin: 0 auto; background-color: #0f1530; padding: 40px; border-radius: 18px; color: #ffffff;">
+                    
+                    <h1 style="margin: 0 0 10px; font-size: 24px; font-weight: 400; letter-spacing: -0.3px;">Welcome to Gor://a</h1>
+                    <p style="margin: 0 0 30px; opacity: 0.7; font-size: 14px; line-height: 1.5;">
+                        Start building AI apps faster. Use the code below to verify your account.
+                    </p>
+
+                    <div style="background-color: #141a3a; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 30px;">
+                        <span style="display: block; font-size: 12px; opacity: 0.5; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;">Verification Code</span>
+                        <strong style="font-size: 32px; color: #3b6cff; letter-spacing: 5px;">{code}</strong>
+                    </div>
+
+                    <p style="font-size: 12px; opacity: 0.4; text-align: center; margin-top: 40px;">
+                        If you didn't request this, you can safely ignore this email.
+                    </p>
+                </div>
+            </div>
+            </body>
+            </html>
+            """,
+        }
+        resend.Emails.send(params)
+        print(f"✅ OTP sent to {to_email}")
+    except Exception as e:
+        print(f"❌ Resend Error: {e}")
+
 
 # ==========================================================================
 # PUBLIC ROUTES (Templates)
@@ -260,7 +311,7 @@ def _require_project_owner(user: Dict[str, Any], project_id: str) -> None:
 PUBLIC_PAGES = {
     "/": "index.html",
     "/login": "auth/login.html",
-    "/signup": "auth/signup.html",
+    "/signup": "auth/signup.html", # Used for both steps
     "/forgot-password": "forgot.html",
     "/pricing": "freemium/pricing.html",
     "/checkout/tokens": "freemium/checkout/tokens.html",
@@ -272,7 +323,7 @@ PUBLIC_PAGES = {
 for route, template_name in PUBLIC_PAGES.items():
     def make_handler(t_name):
         async def handler(request: Request):
-            return templates.TemplateResponse(t_name, {"request": request})
+            return templates.TemplateResponse(t_name, {"request": request, "step": "initial"})
         return handler
         
     app.get(route, response_class=HTMLResponse)(make_handler(template_name))
@@ -286,28 +337,87 @@ async def favicon():
 
 
 # ==========================================================================
-# AUTH API ROUTES
+# AUTH API ROUTES (UPDATED FOR 2FA)
 # ==========================================================================
+
+# STEP 1: INITIAL SIGNUP (Generates OTP)
 @app.post("/auth/signup")
-async def auth_signup(request: Request, email: str = Form(...), password: str = Form(...)):
+async def auth_signup_init(
+    request: Request, 
+    background_tasks: BackgroundTasks,
+    email: str = Form(...), 
+    password: str = Form(...)
+):
     email = (email or "").strip().lower()
     
-    if DEV_MODE:
+    # Generate 6-digit OTP
+    otp = "".join(random.choices(string.digits, k=6))
+    
+    # Store in memory (Temporary)
+    PENDING_SIGNUPS[email] = {
+        "password": password,
+        "otp": otp,
+        "ts": time.time()
+    }
+    
+    # Send Email via Resend
+    background_tasks.add_task(send_otp_email, email, otp)
+    
+    # Render the SAME template, but switch step to 'verify'
+    return templates.TemplateResponse(
+        "auth/signup.html", 
+        {
+            "request": request, 
+            "step": "verify", 
+            "email": email
+        }
+    )
+
+# STEP 2: VERIFY OTP (Creates User)
+@app.post("/auth/verify")
+async def auth_verify_otp(
+    request: Request,
+    email: str = Form(...),
+    code: str = Form(...)
+):
+    email = email.strip().lower()
+    record = PENDING_SIGNUPS.get(email)
+    
+    # Validation
+    if not record:
+        return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "initial", "error": "Session expired. Please sign up again."})
+    
+    if record["otp"] != code:
+        # Return to verify step with error
+        return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "verify", "email": email, "error": "Invalid code. Try again."})
+    
+    # OTP Valid: Create User in Supabase
+    try:
+        password = record["password"]
+        
+        # Check if user exists in Supabase Auth first
         try:
             created = supabase.auth.admin.create_user({
-                "email": email, 
-                "password": password, 
+                "email": email,
+                "password": password,
                 "email_confirm": True
             })
             user_id = created.user.id
         except Exception:
+            # If user already exists in Auth, just get ID (or fail if password wrong in login flow)
             user_id = _stable_user_id_for_email(email)
-        
+
+        # Create session
         request.session["user"] = {"id": user_id, "email": email}
         ensure_public_user(user_id, email)
+        
+        # Cleanup memory
+        del PENDING_SIGNUPS[email]
+        
         return RedirectResponse("/dashboard", status_code=303)
         
-    raise HTTPException(400, detail="Signup requires DEV_MODE=1 or Supabase Auth setup.")
+    except Exception as e:
+        return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "initial", "error": f"Error creating account: {e}"})
 
 @app.post("/auth/login")
 async def auth_login(request: Request, email: str = Form(...), password: str = Form(...)):
@@ -319,7 +429,17 @@ async def auth_login(request: Request, email: str = Form(...), password: str = F
         ensure_public_user(user_id, email)
         return RedirectResponse("/dashboard", status_code=303)
         
-    raise HTTPException(400, detail="Login requires DEV_MODE=1 or Supabase Auth setup.")
+    try:
+        # Attempt Supabase Login
+        res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        if res.user:
+            request.session["user"] = {"id": res.user.id, "email": email}
+            ensure_public_user(res.user.id, email)
+            return RedirectResponse("/dashboard", status_code=303)
+    except Exception:
+        pass
+        
+    return RedirectResponse("/login?error=Invalid credentials", status_code=303)
 
 @app.get("/auth/google")
 async def auth_google(request: Request):
@@ -1024,7 +1144,76 @@ async def run_proxy(request: Request, project_id: str, path: str):
             headers={k: v for k, v in r.headers.items() if k.lower() not in ("content-encoding", "transfer-encoding", "connection")},
             media_type=r.headers.get("content-type")
         )
-    except Exception as e:
+    except RuntimeError as e:
+        err_msg = str(e)
+        
+        if "CRASH_DETECTED" in err_msg:
+            clean_error = err_msg.replace("CRASH_DETECTED:", "").strip()
+            
+            # --- CASE 1: SERVER OFFLINE (BUILDING) ---
+            # If server is just not responding (likely building or installing), 
+            # show "Agent Loading" screen but DO NOT trigger auto-fix.
+            if "Server not running" in clean_error or "Connection refused" in clean_error:
+                loading_path = os.path.join(FRONTEND_TEMPLATES_DIR, "agentloading.html")
+                loading_html = "<h2>🚧 Building...</h2><p>The agent is working on your app.</p>"
+                if os.path.exists(loading_path):
+                    with open(loading_path, "r", encoding="utf-8") as f:
+                        loading_html = f.read()
+                return HTMLResponse(loading_html, status_code=200)
+
+            # --- CASE 2: ACTUAL CRASH (AUTO-FIX) ---
+            # Only trigger if we have a specific Python error trace
+            print(f"🔥 AUTO-FIX TRIGGERED for {project_id}")
+            
+            # 1. Notify User
+            emit_status(project_id, "⚠️ App Crashed! Auto-fixing...")
+            emit_log(project_id, "system", f"Crash detected: {clean_error[:200]}...")
+
+            # 2. Get Current Code
+            file_tree = await _fetch_file_tree(project_id)
+            
+            # 3. Trigger Coder (Background Task)
+            coder = Coder()
+            fix_prompt = (
+                f"The application crashed with the following error:\n\n{clean_error}\n\n"
+                "Fix the code in app.py (or the relevant file) to resolve this error. "
+                "Ensure imports are correct and syntax is valid."
+            )
+            
+            async def _auto_fix():
+                try:
+                    res = await coder.generate_code(
+                        plan_section="Bug Fix",
+                        plan_text=fix_prompt,
+                        file_tree=file_tree,
+                        project_name=project_id
+                    )
+                    ops = res.get("operations", [])
+                    for op in ops:
+                        p = op.get("path")
+                        c = op.get("content")
+                        if p and c:
+                            db_upsert("files", {"project_id": project_id, "path": p, "content": c}, on_conflict="project_id,path")
+                            emit_file_changed(project_id, p)
+                            
+                    emit_status(project_id, "✅ Crash Fixed. Restarting...")
+                    new_tree = await _fetch_file_tree(project_id)
+                    await run_manager.start(project_id, new_tree)
+                    emit_status(project_id, "Server Restarted.")
+                except Exception as fix_err:
+                    emit_log(project_id, "system", f"Auto-fix failed: {fix_err}")
+
+            asyncio.create_task(_auto_fix())
+            
+            # 4. Return Loading Screen while fixing
+            loading_path = os.path.join(FRONTEND_TEMPLATES_DIR, "agentloading.html")
+            loading_html = "<h2>💥 App Crashed</h2><p>AI is analyzing and fixing the code...</p>"
+            if os.path.exists(loading_path):
+                with open(loading_path, "r", encoding="utf-8") as f:
+                    loading_html = f.read()
+            
+            return HTMLResponse(loading_html, status_code=200)
+
         raise HTTPException(502, f"Proxy failed: {e}")
 
 @app.get("/projects/{project_id}/game", response_class=HTMLResponse)
