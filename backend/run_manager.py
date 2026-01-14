@@ -98,8 +98,9 @@ class ProjectRunManager:
         python_bin = os.path.join(venv_dir, "bin", "python")
         pip_bin = [python_bin, "-m", "pip"]
 
-        code, out = await self._run_cmd(root, pip_bin + ["install", "--upgrade", "pip", "setuptools", "wheel"], timeout_s=240)
-        if code != 0: raise RuntimeError(f"Failed to upgrade pip:\n{out}")
+        # FIX: Force install uvicorn and fastapi to prevent startup crashes if missing from reqs
+        code, out = await self._run_cmd(root, pip_bin + ["install", "--upgrade", "pip", "setuptools", "wheel", "uvicorn", "fastapi"], timeout_s=240)
+        if code != 0: raise RuntimeError(f"Failed to upgrade pip/uvicorn:\n{out}")
 
         if os.path.exists(req_path):
             code, out = await self._run_cmd(root, pip_bin + ["install", "-r", "requirements.txt"], timeout_s=600)

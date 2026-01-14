@@ -1038,15 +1038,6 @@ async def agent_start(
             # --- FINISH ---
             emit_status(project_id, "All tasks completed.")
             emit_progress(project_id, "Done", 100)
-
-            # [NEW] AUTO-START SERVER
-            try:
-                emit_status(project_id, "Auto-starting server...")
-                new_tree = await _fetch_file_tree(project_id)
-                await run_manager.start(project_id, new_tree)
-                emit_status(project_id, "Server Running.")
-            except Exception as e:
-                emit_log(project_id, "system", f"Auto-start failed: {e}")
             
         except Exception as e:
             if total_run_tokens > 0:
@@ -1109,8 +1100,55 @@ async def run_start(request: Request, project_id: str):
         emit_log(project_id, "system", f"Server running on port {info.port}")
         return {"ok": True, "port": info.port}
     except Exception as e:
-        emit_log(project_id, "system", f"Server start failed: {e}")
-        raise HTTPException(400, f"Start failed: {e}")
+        # --- AUTO-FIX LOGIC FOR STARTUP CRASHES ---
+        err_msg = str(e)
+        clean_error = err_msg.replace("App crashed during startup:", "").strip()
+        print(f"🔥 STARTUP AUTO-FIX TRIGGERED for {project_id}")
+        
+        emit_status(project_id, "⚠️ Startup Crash! Auto-fixing...")
+        emit_log(project_id, "system", f"Startup crash: {clean_error[:200]}...")
+
+        # Get code
+        file_tree = await _fetch_file_tree(project_id)
+        
+        # Trigger Coder
+        coder = Coder()
+        fix_prompt = (
+            f"The application crashed during startup with this error:\n\n{clean_error}\n\n"
+            "Fix the code (app.py, requirements.txt, etc) to resolve this startup error. "
+            "If a module is missing, add it to requirements.txt."
+        )
+        
+        async def _auto_fix_startup():
+            try:
+                res = await coder.generate_code(
+                    plan_section="Startup Fix",
+                    plan_text=fix_prompt,
+                    file_tree=file_tree,
+                    project_name=project_id
+                )
+                ops = res.get("operations", [])
+                for op in ops:
+                    p = op.get("path")
+                    c = op.get("content")
+                    if p and c:
+                        db_upsert("files", {"project_id": project_id, "path": p, "content": c}, on_conflict="project_id,path")
+                        emit_file_changed(project_id, p)
+                        
+                emit_status(project_id, "✅ Startup Fixed. Retrying...")
+                
+                # Retry Start
+                new_tree = await _fetch_file_tree(project_id)
+                await run_manager.start(project_id, new_tree)
+                emit_status(project_id, "Server Started Successfully.")
+                
+            except Exception as fix_err:
+                emit_log(project_id, "system", f"Auto-fix failed: {fix_err}")
+
+        asyncio.create_task(_auto_fix_startup())
+        
+        # Return success so frontend doesn't show error alert, but status indicates fixing
+        return {"ok": False, "status": "fixing"}
 
 @app.post("/api/project/{project_id}/run/stop")
 async def run_stop(request: Request, project_id: str):
@@ -1171,70 +1209,52 @@ async def run_proxy(request: Request, project_id: str, path: str):
                 return HTMLResponse(loading_html, status_code=200)
 
             # --- CASE 2: ACTUAL CRASH (AUTO-FIX) ---
+            # Only trigger if we have a specific Python error trace
             print(f"🔥 AUTO-FIX TRIGGERED for {project_id}")
             
-            # 1. Notify User (Frontend)
+            # 1. Notify User
             emit_status(project_id, "⚠️ App Crashed! Auto-fixing...")
             emit_log(project_id, "system", f"Crash detected: {clean_error[:200]}...")
 
             # 2. Get Current Code
             file_tree = await _fetch_file_tree(project_id)
             
-            # 3. Trigger Coder to Fix it (Background Task with Retry Loop)
-            coder = Coder() # Or XCoder if you prefer
+            # 3. Trigger Coder (Background Task)
+            coder = Coder()
+            fix_prompt = (
+                f"The application crashed with the following error:\n\n{clean_error}\n\n"
+                "Fix the code in app.py (or the relevant file) to resolve this error. "
+                "Ensure imports are correct and syntax is valid."
+            )
             
             async def _auto_fix():
-                current_error = clean_error
-                for attempt in range(3): # Try 3 times
-                    try:
-                        if attempt > 0:
-                            emit_status(project_id, f"Auto-Fixing (Attempt {attempt+1}/3)...")
-                        
-                        fix_prompt = (
-                            f"The application crashed with this error:\n{current_error}\n"
-                            "Fix the code in app.py (or relevant file) to resolve this. "
-                            "Ensure imports, syntax, and port binding are correct."
-                        )
-                        
-                        # Generate Fix
-                        res = await coder.generate_code(
-                            plan_section="Bug Fix",
-                            plan_text=fix_prompt,
-                            file_tree=file_tree,
-                            project_name=project_id
-                        )
-                        
-                        # Apply Fix
-                        ops = res.get("operations", [])
-                        for op in ops:
-                            p = op.get("path")
-                            c = op.get("content")
-                            if p and c:
-                                db_upsert("files", {"project_id": project_id, "path": p, "content": c}, on_conflict="project_id,path")
-                                emit_file_changed(project_id, p)
-                                
-                        emit_status(project_id, "✅ Crash Fixed. Restarting...")
-                        
-                        # Restart Server
-                        new_tree = await _fetch_file_tree(project_id)
-                        await run_manager.start(project_id, new_tree)
-                        emit_status(project_id, "Server Restarted.")
-                        return # Success!
-                        
-                    except Exception as fix_err:
-                        # Capture the NEW error for the next attempt
-                        current_error = str(fix_err)
-                        emit_log(project_id, "system", f"Fix attempt {attempt+1} failed: {current_error[:100]}...")
-                        await asyncio.sleep(1)
-
-                emit_status(project_id, "❌ Auto-fix failed after 3 attempts.")
+                try:
+                    res = await coder.generate_code(
+                        plan_section="Bug Fix",
+                        plan_text=fix_prompt,
+                        file_tree=file_tree,
+                        project_name=project_id
+                    )
+                    ops = res.get("operations", [])
+                    for op in ops:
+                        p = op.get("path")
+                        c = op.get("content")
+                        if p and c:
+                            db_upsert("files", {"project_id": project_id, "path": p, "content": c}, on_conflict="project_id,path")
+                            emit_file_changed(project_id, p)
+                            
+                    emit_status(project_id, "✅ Crash Fixed. Restarting...")
+                    new_tree = await _fetch_file_tree(project_id)
+                    await run_manager.start(project_id, new_tree)
+                    emit_status(project_id, "Server Restarted.")
+                except Exception as fix_err:
+                    emit_log(project_id, "system", f"Auto-fix failed: {fix_err}")
 
             asyncio.create_task(_auto_fix())
             
-            # 4. Return Loading Screen to User while fixing
+            # 4. Return Loading Screen while fixing
             loading_path = os.path.join(FRONTEND_TEMPLATES_DIR, "agentloading.html")
             loading_html = "<h2>💥 App Crashed</h2><p>AI is analyzing and fixing the code...</p>"
-            
             if os.path.exists(loading_path):
                 with open(loading_path, "r", encoding="utf-8") as f:
                     loading_html = f.read()
