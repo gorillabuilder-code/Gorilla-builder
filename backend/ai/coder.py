@@ -212,8 +212,18 @@ class Coder:
         # Initialize messages list
         messages = []
         
+        # Add History (Sanitized for API compatibility)
         if history:
-            messages.extend(history[-4:])
+            for msg in history[-6:]: # Include last 6 messages for context
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                
+                # Standardize roles (Fireworks usually supports user/assistant/system)
+                # Map custom roles like 'coder' or 'planner' to 'user' or 'assistant'
+                if role not in ("user", "assistant", "system"):
+                    role = "user" 
+                
+                messages.append({"role": role, "content": content})
             
         messages.append({"role": "user", "content": combined_prompt})
 
