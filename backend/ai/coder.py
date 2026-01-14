@@ -178,7 +178,7 @@ class Coder:
 
         system_prompt = (
             "You are an expert AI Coder that builds AI apps using AI. When you build you never make a sample application... but you make the real deal\n"
-            "Your Goal: Implement the requested task by generating the full code for ONE file. Use process.env for API keys. Use FIREWORKS_API_KEY process.env,  For chatbots use 'llama-3.1-8b-instant', for tts use 'canopylabs/orpheus-v1-english' and for stt use 'whisper-large-v3', for vision use 'qwen-8b', for image generation use 'accounts/fireworks/models/stable-diffusion-xl-1024-v1-0'and REM_BG_API_KEY for BG removal. Try and make each file elaborate with the best ui.\n\n"
+            "Your Goal: Implement the requested task by generating the full code for ONE file. Use process.env for API keys. Use FIREWORKS_API_KEY process.env,  For chatbots use 'accounts/fireworks/models/qwen3-8b', and for stt use 'accounts/fireworks/models/whisper-v3-turbo', for vision use 'accounts/fireworks/models/qwen3-vl-30b-a3b-instruct', for image generation use 'accounts/fireworks/models/stable-diffusion-xl-1024-v1-0'and REM_BG_API_KEY for BG removal. Try and make each file elaborate with the best ui.\n\n"
             "Make each file really elaborate with new exciting fonts, the best css styles and modern ui design, catering to the needs of the app, try to make each file 300 lines long but not too long like 10 lines is good for requirements.txt\n"
             "RESPONSE FORMAT (JSON ONLY):\n"
             "{\n"
