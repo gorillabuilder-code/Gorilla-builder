@@ -208,9 +208,17 @@ class XCoder:
         # Initialize messages list
         messages = []
         
-        # Add history
+        # Add History (Sanitized for API compatibility)
         if history:
-            messages.extend(history[-4:])
+            for msg in history[-6:]: # Keep last 6 context messages
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                
+                # Standardize roles
+                if role not in ("user", "assistant", "system"):
+                    role = "user"
+                
+                messages.append({"role": role, "content": content})
             
         # Append combined user message
         messages.append({"role": "user", "content": combined_prompt})
