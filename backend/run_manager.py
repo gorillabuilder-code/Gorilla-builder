@@ -99,7 +99,8 @@ class ProjectRunManager:
         pip_bin = [python_bin, "-m", "pip"]
 
         # FIX: Force install uvicorn and fastapi to prevent startup crashes if missing from reqs
-        code, out = await self._run_cmd(root, pip_bin + ["install", "--upgrade", "pip", "setuptools", "wheel", "uvicorn", "fastapi"], timeout_s=240)
+        # Also install python-dotenv just in case user code relies on it
+        code, out = await self._run_cmd(root, pip_bin + ["install", "--upgrade", "pip", "setuptools", "wheel", "uvicorn", "fastapi", "python-dotenv"], timeout_s=240)
         if code != 0: raise RuntimeError(f"Failed to upgrade pip/uvicorn:\n{out}")
 
         if os.path.exists(req_path):

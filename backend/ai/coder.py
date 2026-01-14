@@ -1,8 +1,8 @@
 # backend/ai/coder.py
 """
-coder.py — gor://a AI Code Generation Engine (Fireworks Qwen3-Coder)
+coder.py — gor://a AI Code Generation Engine (Fireworks Minimax-M2P1)
 
-- Calls Fireworks AI chat completions (Qwen3-Coder-480B)
+- Calls Fireworks AI chat completions (Minimax-M2P1)
 - Uses Regex to reliably extract JSON from "chatty" models
 - Enforces a 'message' field so the AI talks to the user
 - Returns token usage statistics
@@ -22,6 +22,7 @@ import httpx
 
 # --- Configuration for Fireworks AI ---
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
+# Using Minimax as requested for high-quality reasoning
 FIREWORKS_MODEL = os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/minimax-m2p1")
 FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
 
@@ -93,7 +94,8 @@ class Coder:
         payload = {
             "model": FIREWORKS_MODEL,
             "messages": messages,
-            "temperature": 0.6
+            "max_tokens": 8000, # Increased for Minimax code generation
+            "temperature": 0.6, # Slightly higher for Minimax creativity/adherence
         }
 
         headers = {
@@ -159,7 +161,7 @@ class Coder:
         file_tree: Dict[str, str],
         project_name: str,
         history: Optional[List[Dict[str, str]]] = None,
-        max_retries: int = 3,  # Increased default retries
+        max_retries: int = 3,
     ) -> Dict[str, Any]:
 
         file_list = sorted(list(file_tree.keys()))
@@ -207,14 +209,13 @@ class Coder:
         # Initialize messages list
         messages = []
         
-        # Add History (Sanitized for API compatibility)
+        # Add History (Safely handling the retry loop context)
         if history:
             for msg in history[-6:]: # Include last 6 messages for context
                 role = msg.get("role", "user")
                 content = msg.get("content", "")
                 
                 # Standardize roles (Fireworks usually supports user/assistant/system)
-                # Map custom roles like 'coder' or 'planner' to 'user' or 'assistant'
                 if role not in ("user", "assistant", "system"):
                     role = "user" 
                 
@@ -229,7 +230,7 @@ class Coder:
         for attempt in range(max_retries + 1):
             try:
                 # Call Fireworks
-                raw, tokens = await self._call_fireworks(messages, temperature=0.1)
+                raw, tokens = await self._call_fireworks(messages, temperature=0.6)
                 last_raw = raw
                 
                 parsed = _extract_json(raw)

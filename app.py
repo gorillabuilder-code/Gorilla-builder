@@ -1113,37 +1113,68 @@ async def run_start(request: Request, project_id: str):
         
         # Trigger Coder
         coder = Coder()
-        fix_prompt = (
-            f"The application crashed during startup with this error:\n\n{clean_error}\n\n"
-            "Fix the code (app.py, requirements.txt, etc) to resolve this startup error. "
-            "If a module is missing, add it to requirements.txt."
-        )
+        
+        # Loop for up to 3 retry attempts
+        max_retries = 3
+        history = []
         
         async def _auto_fix_startup():
-            try:
-                res = await coder.generate_code(
-                    plan_section="Startup Fix",
-                    plan_text=fix_prompt,
-                    file_tree=file_tree,
-                    project_name=project_id
-                )
-                ops = res.get("operations", [])
-                for op in ops:
-                    p = op.get("path")
-                    c = op.get("content")
-                    if p and c:
-                        db_upsert("files", {"project_id": project_id, "path": p, "content": c}, on_conflict="project_id,path")
-                        emit_file_changed(project_id, p)
+            nonlocal clean_error, file_tree
+            
+            for attempt in range(max_retries):
+                try:
+                    fix_prompt = (
+                        f"The application crashed during startup (Attempt {attempt+1}/{max_retries}) with this error:\n\n{clean_error}\n\n"
+                        "Fix the code (app.py, requirements.txt, etc) to resolve this startup error. "
+                        "If a module is missing, add it to requirements.txt."
+                    )
+                    
+                    # Pass history so the model knows what failed previously
+                    res = await coder.generate_code(
+                        plan_section="Startup Fix",
+                        plan_text=fix_prompt,
+                        file_tree=file_tree,
+                        project_name=project_id,
+                        history=history
+                    )
+                    
+                    # Store AI response in history
+                    if res.get("message"):
+                        history.append({"role": "assistant", "content": res.get("message")})
                         
-                emit_status(project_id, "✅ Startup Fixed. Retrying...")
-                
-                # Retry Start
-                new_tree = await _fetch_file_tree(project_id)
-                await run_manager.start(project_id, new_tree)
-                emit_status(project_id, "Server Started Successfully.")
-                
-            except Exception as fix_err:
-                emit_log(project_id, "system", f"Auto-fix failed: {fix_err}")
+                    ops = res.get("operations", [])
+                    for op in ops:
+                        p = op.get("path")
+                        c = op.get("content")
+                        if p and c:
+                            db_upsert("files", {"project_id": project_id, "path": p, "content": c}, on_conflict="project_id,path")
+                            emit_file_changed(project_id, p)
+                            
+                    emit_status(project_id, f"✅ Fix Applied (Attempt {attempt+1}). Retrying start...")
+                    
+                    # Retry Start
+                    new_tree = await _fetch_file_tree(project_id)
+                    # Update local file_tree for next loop if needed
+                    file_tree = new_tree
+                    
+                    await run_manager.start(project_id, new_tree)
+                    emit_status(project_id, "Server Started Successfully.")
+                    return # Success! Exit loop
+                    
+                except Exception as retry_err:
+                    # If start failed again, update error and loop
+                    err_str = str(retry_err)
+                    if "App crashed" in err_str:
+                         clean_error = err_str.replace("App crashed during startup:", "").strip()
+                    else:
+                         clean_error = err_str
+                    
+                    emit_log(project_id, "system", f"Fix failed: {clean_error[:100]}...")
+                    # Add failure to history for context
+                    history.append({"role": "user", "content": f"That fix didn't work. The server crashed again with: {clean_error}"})
+                    await asyncio.sleep(1) # Breath before retry
+
+            emit_status(project_id, "❌ Auto-fix failed after max retries.")
 
         asyncio.create_task(_auto_fix_startup())
         
