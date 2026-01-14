@@ -22,7 +22,7 @@ import httpx
 
 # --- Configuration for Fireworks AI ---
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
-FIREWORKS_MODEL = os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/qwen3-235b-a22b")
+FIREWORKS_MODEL = os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/qwen3-coder-480b-a35b-instruct")
 FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
 
 if not FIREWORKS_API_KEY:
@@ -173,8 +173,8 @@ class Coder:
                 context_snippets.append(f"--- {p} ---\n{c[:8000]}\n")
 
         system_prompt = (
-            "You are an expert AI Coder running on Qwen3-Coder via Fireworks AI. When you build you never make a sample application... but you make the real deal\n"
-            "Your Goal: Implement the requested task by generating the full code for ONE file. Use .env for API keys. Use FIREWORKS_API_KEY process.env,  For chatbots use 'llama-3.1-8b-instant' logic, for tts use 'canopylabs/orpheus-v1-english' and for stt use 'whisper-large-v3' and REM_BG_API_KEY for BG removal. Try and make each file elaborate with the best ui.\n\n"
+            "You are an expert AI Coder that builds AI apps using AI. When you build you never make a sample application... but you make the real deal\n"
+            "Your Goal: Implement the requested task by generating the full code for ONE file. Use process.env for API keys. Use FIREWORKS_API_KEY process.env,  For chatbots use 'llama-3.1-8b-instant', for tts use 'canopylabs/orpheus-v1-english' and for stt use 'whisper-large-v3', for vision use 'qwen-8b', for image generation use 'stablediffusion'and REM_BG_API_KEY for BG removal. Try and make each file elaborate with the best ui.\n\n"
             "Make each file really elaborate with new exciting fonts, the best css styles and modern ui design, catering to the needs of the app, try to make each file 300 lines long but not too long like 10 lines is good for requirements.txt\n"
             "RESPONSE FORMAT (JSON ONLY):\n"
             "{\n"
@@ -190,7 +190,7 @@ class Coder:
             "RULES:\n"
             "MOST IMPORTANT: never ever make a .env file not matter what is asked and never make a folder with the project name.\n"
             "1. Output valid JSON only. Do not add markdown text outside the JSON. Try to make a diverse folder stucture eg: intead of having a stt.py in the repository root file have a ai/stt.py\n"
-            "2. EXACTLY ONE operation in the 'operations' array and never ever make a .env file\n"
+            "2. EXACTLY ONE operation in the 'operations' array and never ever make a .env file or dockerfile as they will be injected by the system.\n"
             "3. Content must be the FULL file (no diffs) and be very specific in the requirments.txt. Never ever add any placeholder text either like lorem ipusm... it should always be the real thing.\n"
         )
 
