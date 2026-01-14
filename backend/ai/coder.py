@@ -92,9 +92,13 @@ class Coder:
         """
         payload = {
             "model": FIREWORKS_MODEL,
-            "messages": messages,
-            "temperature": temperature,
-            "stream": False
+            "messages": messages,  
+            "max_tokens": 32768,
+            "top_p": 1,
+            "top_k": 40,
+            "presence_penalty": 0,
+            "frequency_penalty": 0,
+            "temperature": 0.6,
         }
 
         headers = {
