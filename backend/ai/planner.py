@@ -187,7 +187,7 @@ class Planner:
             "1. **No Generic Tasks:** Never write 'Create app.py'. This is a failure.\n"
             "2. **Specifics & Context:** Every task must mention the PROJECT NAME, the FILE PURPOSE, and the EXACT CONTENTS.\n"
             "   - BAD: 'Create app.py with routes.'\n"
-            "   - GOOD: 'Setup the app.py for the Educai AI education platform using FastAPI. Define routes for index.html (landing), learn.html (modules), dashboard.html (user stats), and play.html (gamified quiz). Initialize the AI chatbot endpoint using the Groq client to act as an education tutor.'\n"
+            "   - GOOD: 'Setup the app.py for the Educai AI education platform using FastAPI. Define routes for index.html (landing), learn.html (modules), dashboard.html (user stats), and play.html (gamified quiz). Initialize the AI chatbot endpoint using the firewroks client to act as an education tutor.'\n"
             "3. **Interlocking Files:** If you ask for a route in `app.py`, you MUST also create the corresponding HTML file in a later task. Reference the specific filenames consistently.\n"
             "4. **Tech Stack Constraints:**\n"
             "   - Always use FastAPI for the backend (`app.py`).\n"
@@ -197,7 +197,7 @@ class Planner:
             "   - Never ask to 'setup the repository'. Start immediately with creating the first file.\n"
             "5. **AI Integration Details:**\n"
             "   - If adding features, strictly use these: Use FIREWORKS_API_KEY process.env,  For chatbots use 'accounts/fireworks/models/qwen3-8b', and for stt use 'accounts/fireworks/models/whisper-v3-turbo', for vision use 'accounts/fireworks/models/qwen3-vl-30b-a3b-instruct', for image generation use 'accounts/fireworks/models/stable-diffusion-xl-1024-v1-0'and REM_BG_API_KEY for BG removal.\n"
-            "6. **Volume:** Generate between 15 to 22 tasks for a complete application. For simple fixes, 5 tasks are sufficient.\n"
+            "6. **Volume:** Generate between 10 to 18 tasks for a complete application For a simple app with only a few files try to have as less taskes as possible, around 4 - 8, never lesser than 3. For simple fixes, 5 tasks are sufficient.\n"
             "7. **Elaboration:** Invent specific features if they aren't provided. If building a 'Chat App', don't just make a chat; make a 'Real-time WebSocket Chat with Message History and Typing Indicators'. Make it elaborate and impressive. Also name it nicely, instead of calling it a FIREWORKS CHAT APP, call it CHATTY the Chatbot\n"
         )
         
