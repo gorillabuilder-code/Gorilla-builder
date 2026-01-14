@@ -90,8 +90,7 @@ class XCoder:
         payload = {
             "model": FIREWORKS_MODEL,
             "messages": messages,
-            "temperature": temperature,
-            "stream": False
+            "temperature": temperature
         }
 
         headers = {

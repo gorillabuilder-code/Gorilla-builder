@@ -22,7 +22,7 @@ import httpx
 
 # --- Configuration for Fireworks AI ---
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
-FIREWORKS_MODEL = os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/qwen3-coder-480b-a35b-instruct")
+FIREWORKS_MODEL = os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/deepseek-v3p2")
 FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
 
 if not FIREWORKS_API_KEY:
@@ -93,12 +93,7 @@ class Coder:
         payload = {
             "model": FIREWORKS_MODEL,
             "messages": messages,
-            "max_tokens": 32768,
-            "top_p": 1,
-            "top_k": 40,
-            "presence_penalty": 0,
-            "frequency_penalty": 0,
-            "temperature": 0.6,
+            "temperature": 0.6
         }
 
         headers = {

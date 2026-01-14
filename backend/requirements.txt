@@ -16,4 +16,4 @@ orjson==3.10.7
 python-multipart==0.0.9
 itsdangerous
 gotrue==2.4.1
-gunicorn
+resend
