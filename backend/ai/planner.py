@@ -18,7 +18,7 @@ import httpx
 
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
 # Using the model from your working snippet
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "accounts/cogito/models/deepseek-v3p2") 
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "accounts/fireworks/models/deepseek-v3p2") 
 FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
 
 if not FIREWORKS_API_KEY:

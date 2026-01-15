@@ -94,8 +94,6 @@ class Coder:
         payload = {
             "model": FIREWORKS_MODEL,
             "messages": messages,
-            "max_tokens": 8000, # Increased for Minimax code generation
-            "temperature": 0.6, # Slightly higher for Minimax creativity/adherence
         }
 
         headers = {
