@@ -1,4 +1,3 @@
-# backend/run_manager.py
 from __future__ import annotations
 
 import os
@@ -74,38 +73,84 @@ class ProjectRunManager:
         self._runs.pop(project_id, None)
 
     async def _run_cmd(self, cwd: str, cmd: list[str], timeout_s: int = 300) -> tuple[int, str]:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd, cwd=cwd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
+        """Executes a subprocess command safely."""
         try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd, cwd=cwd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
             out_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
+            return int(proc.returncode or 0), (out_bytes or b"").decode("utf-8", errors="ignore")
         except asyncio.TimeoutError:
             try: proc.kill()
             except: pass
             return 124, f"Timeout running: {' '.join(cmd)}"
-        return int(proc.returncode or 0), (out_bytes or b"").decode("utf-8", errors="ignore")
+        except Exception as e:
+            return 1, str(e)
 
     async def _ensure_venv_and_install(self, root: str) -> str:
         req_path = os.path.join(root, "requirements.txt")
         venv_dir = os.path.join(root, ".venv")
 
+        # Use the exact same python executable running this backend to create the venv
+        curr_python = sys.executable
+
+        # 1. Create Venv if missing
         if not os.path.isdir(venv_dir):
-            code, out = await self._run_cmd(root, ["python", "-m", "venv", ".venv"], timeout_s=180)
+            code, out = await self._run_cmd(root, [curr_python, "-m", "venv", ".venv"], timeout_s=180)
             if code != 0: raise RuntimeError(f"Failed to create venv:\n{out}")
 
-        python_bin = os.path.join(venv_dir, "bin", "python")
+        # 2. Find the Python Binary inside the Venv (Cross-platform)
+        # Windows usually puts it in Scripts/, Unix in bin/
+        possible_bins = [
+            os.path.join(venv_dir, "Scripts", "python.exe"),
+            os.path.join(venv_dir, "bin", "python"),
+            os.path.join(venv_dir, "bin", "python3"),
+        ]
+        
+        python_bin = None
+        for p in possible_bins:
+            if os.path.exists(p):
+                python_bin = p
+                break
+        
+        if not python_bin:
+            # Fallback: Assume standard structure based on OS if detection fails
+            if os.name == "nt":
+                python_bin = os.path.join(venv_dir, "Scripts", "python.exe")
+            else:
+                python_bin = os.path.join(venv_dir, "bin", "python")
+
         pip_bin = [python_bin, "-m", "pip"]
 
-        # FIX: Force install uvicorn and fastapi to prevent startup crashes if missing from reqs
-        # Also install python-dotenv just in case user code relies on it
-        code, out = await self._run_cmd(root, pip_bin + ["install", "--upgrade", "pip", "setuptools", "wheel", "uvicorn", "fastapi", "python-dotenv"], timeout_s=240)
-        if code != 0: raise RuntimeError(f"Failed to upgrade pip/uvicorn:\n{out}")
+        # 3. CRITICAL: Force Install Core Deps (Uvicorn/FastAPI)
+        # We explicitly verify this step. If it fails, we nuke the venv and try once more.
+        for attempt in range(2):
+            code, out = await self._run_cmd(root, pip_bin + ["install", "--upgrade", "pip", "uvicorn", "fastapi", "python-dotenv"], timeout_s=300)
+            
+            # Check if uvicorn is actually importable
+            verify_code, _ = await self._run_cmd(root, [python_bin, "-c", "import uvicorn; print('ok')"], timeout_s=10)
+            
+            if code == 0 and verify_code == 0:
+                break # Success
+            
+            # If failed, nuke and retry
+            if attempt == 0:
+                print(f"⚠️ Venv seems corrupted (uvicorn check failed). Recreating at {venv_dir}...")
+                shutil.rmtree(venv_dir, ignore_errors=True)
+                # Re-create venv
+                await self._run_cmd(root, [curr_python, "-m", "venv", ".venv"], timeout_s=180)
+            else:
+                raise RuntimeError(f"Failed to initialize python environment (uvicorn install failed):\n{out}")
 
+        # 4. Install User Requirements
         if os.path.exists(req_path):
             code, out = await self._run_cmd(root, pip_bin + ["install", "-r", "requirements.txt"], timeout_s=600)
-            if code != 0: raise RuntimeError(f"requirements.txt install failed:\n{out}")
+            if code != 0: 
+                # We don't fail hard on reqs install (might be a bad package name), 
+                # but we log it. The app might still start if the core deps are there.
+                print(f"⚠️ Warning: requirements.txt install had issues:\n{out}")
 
         return python_bin
 
@@ -113,7 +158,8 @@ class ProjectRunManager:
         await self.stop(project_id)
 
         root = os.path.join(self.base_dir, project_id)
-        if os.path.isdir(root): shutil.rmtree(root, ignore_errors=True)
+        # Don't nuke the whole root, just update files. Nuking destroys the venv every time which is slow.
+        # shutil.rmtree(root, ignore_errors=True) 
         os.makedirs(root, exist_ok=True)
 
         for path, content in (file_tree or {}).items():
@@ -149,6 +195,7 @@ class ProjectRunManager:
         env_vars["PORT"] = str(port)
 
         # Start Uvicorn with Stderr Capture
+        # We assume app.py exposes `app`. 
         proc = await asyncio.create_subprocess_exec(
             python_bin, "-m", "uvicorn", "app:app",
             "--host", "127.0.0.1", "--port", str(port),
@@ -161,9 +208,9 @@ class ProjectRunManager:
         self._runs[project_id] = info
 
         # --- [STARTUP HEALTH CHECK] ---
-        # Increased timeout to 30s (60 * 0.5) to allow for slow builds/installs
+        # Increased timeout to 45s (90 * 0.5) to allow for massive files to load
         startup_error = None
-        for _ in range(60): 
+        for _ in range(90): 
             await asyncio.sleep(0.5)
             
             # Check if process died
@@ -183,6 +230,10 @@ class ProjectRunManager:
         
         # If loop finishes or process died
         if startup_error:
+            # Check for common truncation errors to give better hints
+            if "SyntaxError" in startup_error and "unexpected EOF" in startup_error:
+                startup_error += "\n\n(HINT: The file 'app.py' was likely truncated by the AI. Check the file end.)"
+            
             raise RuntimeError(f"App crashed during startup:\n{startup_error}")
         
         # If we timed out but process is still "running" (zombie state)

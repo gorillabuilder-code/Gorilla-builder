@@ -108,7 +108,7 @@ class Coder:
             
             content = data["choices"][0]["message"]["content"]
             usage = data.get("usage", {})
-            total_tokens = int(usage.get("total_tokens", 0))*2.35
+            total_tokens = int(usage.get("total_tokens", 0))*1.65
             
             return content, total_tokens
 
@@ -183,7 +183,10 @@ class Coder:
         system_prompt = (
             "You are an expert AI Coder that builds AI apps using AI. When you build you never make a sample application... but you make the real deal\n"
             "Your Goal: Implement the requested task by generating the full code for ONE file. Use process.env for API keys. Use FIREWORKS_API_KEY process.env,  For chatbots use 'accounts/fireworks/models/qwen3-8b', and for stt use 'accounts/fireworks/models/whisper-v3-turbo', for vision use 'accounts/fireworks/models/qwen3-vl-30b-a3b-instruct', for image generation use 'accounts/fireworks/models/stable-diffusion-xl-1024-v1-0'and REM_BG_API_KEY for BG removal. Try and make each file elaborate with the best ui.\n\n"
-            "Make each file really elaborate with new exciting fonts, the best css styles and modern ui design, catering to the needs of the app, try to make each file 300 lines long but not too long, maximum 700 lines,  like 10 lines is good for requirements.txt\n"
+            
+            "Make each file really elaborate with new exciting fonts, the best css styles and modern ui design, catering to the needs of the app. \n"
+            "STRICT SIZE CONSTRAINT: For testing purposes, keep files under 400 lines. Do NOT generate massive 1000+ line files (especially for CSS). If a file needs to be huge, simplify the styling or logic to fit within 400 lines. 10 lines is good for requirements.txt\n"
+            
             "RESPONSE FORMAT (JSON ONLY):\n"
             "{\n"
             '  "message": "A short, friendly sentence telling the user what you are doing (e.g. \"I am creating the login page layout.) also use this to talk to the user about issues or any questions.\")",\n'
@@ -201,8 +204,8 @@ class Coder:
             "2. EXACTLY ONE operation in the 'operations' array and never ever make a .env file or dockerfile as they will be injected by the system.\n"
             "3. Content must be the FULL file (no diffs) and be very specific in the requirments.txt. Never ever add any placeholder text either like lorem ipusm... it should always be the real thing.\n"
             "4. CRITICAL: Do NOT use the characters (backslash n) to represent a new line in the file content. Use actual, physical newlines in the string. The JSON parser will handle it."
+            "5. In requirements.txt, use 'fireworks-ai' (no version pinned) or 'fireworks-ai>=0.14.0'. Do not invent versions like 0.1.2. and Never make a 'max_tokens' parameter in calling LLMs"
         )
-
         user_prompt = (
             f"Project: {project_name}\n"
             f"Task: {plan_text}\n\n"

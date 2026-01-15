@@ -1,4 +1,3 @@
-# app.py
 from __future__ import annotations
 
 import os
@@ -930,6 +929,101 @@ async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
     rows = res.data if res and res.data else []
     return {r["path"]: (r.get("content") or "") for r in rows}
 
+# --- NEW: Internal Robust Starter Function ---
+async def _start_server_with_retry(project_id: str):
+    """
+    Internal robust server starter.
+    Loops automatically to catch crashes, fix them via AI, and restart.
+    Emits events to the frontend so the user sees 'Booting -> Crash -> Fixing -> Retry'.
+    """
+    emit_status(project_id, "Booting server...")
+    
+    max_retries = 8
+    history = []
+    
+    # Initial attempt to start
+    try:
+        file_tree = await _fetch_file_tree(project_id)
+        info = await run_manager.start(project_id, file_tree)
+        emit_status(project_id, "Server Running")
+        emit_log(project_id, "system", f"Server running on port {info.port}")
+        emit_progress(project_id, "Ready", 100)
+        return # Success on first try
+    except Exception as e:
+        # Initial crash detected, enter fix loop
+        err_msg = str(e)
+        clean_error = err_msg.replace("App crashed during startup:", "").strip()
+        emit_status(project_id, "⚠️ Startup Failed. Auto-fixing...")
+        emit_log(project_id, "system", f"Crash: {clean_error[:200]}...")
+    
+    # Enter Retry Loop
+    coder = Coder()
+    
+    for attempt in range(max_retries):
+        emit_phase(project_id, "fixing")
+        emit_progress(project_id, f"Auto-Fixing (Attempt {attempt+1}/{max_retries})", 50)
+        
+        try:
+            # 1. Fetch latest code (it changes every loop)
+            file_tree = await _fetch_file_tree(project_id)
+            
+            # 2. Generate Fix
+            fix_prompt = (
+                f"The application crashed during startup (Attempt {attempt+1}/{max_retries}) with this error:\n\n{clean_error}\n\n"
+                "Fix the code (app.py, requirements.txt, etc) to resolve this startup error. "
+                "If a module is missing, add it to requirements.txt."
+            )
+            
+            res = await coder.generate_code(
+                plan_section="Startup Fix",
+                plan_text=fix_prompt,
+                file_tree=file_tree,
+                project_name=project_id,
+                history=history
+            )
+            
+            if res.get("message"):
+                history.append({"role": "assistant", "content": res.get("message")})
+                emit_log(project_id, "coder", f"Applying fix: {res.get('message')}")
+            
+            # 3. Apply Fixes
+            ops = res.get("operations", [])
+            for op in ops:
+                p = op.get("path")
+                c = op.get("content")
+                if p and c:
+                    db_upsert("files", {"project_id": project_id, "path": p, "content": c}, on_conflict="project_id,path")
+                    emit_file_changed(project_id, p)
+            
+            # 4. Retry Start
+            emit_status(project_id, f"Restaring Server (Attempt {attempt+1})...")
+            
+            # Refresh tree for start
+            new_tree = await _fetch_file_tree(project_id)
+            
+            info = await run_manager.start(project_id, new_tree)
+            
+            # If we get here, it started!
+            emit_status(project_id, "Server Fixed & Running")
+            emit_log(project_id, "system", f"Server running on port {info.port}")
+            emit_progress(project_id, "Ready", 100)
+            return
+            
+        except Exception as retry_err:
+            # Fix failed or Server crashed again
+            err_str = str(retry_err)
+            if "App crashed" in err_str:
+                 clean_error = err_str.replace("App crashed during startup:", "").strip()
+            else:
+                 clean_error = err_str
+            
+            emit_log(project_id, "system", f"Fix attempt failed: {clean_error[:100]}...")
+            history.append({"role": "user", "content": f"That fix didn't work. The server crashed again with: {clean_error}"})
+            await asyncio.sleep(1) 
+
+    emit_status(project_id, "❌ Auto-fix failed after max retries.")
+
+
 @app.post("/api/project/{project_id}/agent/start")
 async def agent_start(
     request: Request, 
@@ -1035,9 +1129,12 @@ async def agent_start(
                 
                 file_tree = await _fetch_file_tree(project_id)
             
-            # --- FINISH ---
-            emit_status(project_id, "All tasks completed.")
-            emit_progress(project_id, "Done", 100)
+            # --- FINISH CODING ---
+            emit_status(project_id, "Coding Complete. Starting Server...")
+            emit_progress(project_id, "Booting...", 100)
+            
+            # --- PHASE 3: AUTO-START WITH RETRY ---
+            await _start_server_with_retry(project_id)
             
         except Exception as e:
             if total_run_tokens > 0:
@@ -1093,93 +1190,11 @@ async def run_start(request: Request, project_id: str):
     if not DEV_MODE: 
         raise HTTPException(403, "Server preview is DEV_MODE only.")
         
-    try:
-        emit_status(project_id, "Booting server...")
-        file_tree = await _fetch_file_tree(project_id)
-        info = await run_manager.start(project_id, file_tree)
-        emit_log(project_id, "system", f"Server running on port {info.port}")
-        return {"ok": True, "port": info.port}
-    except Exception as e:
-        # --- AUTO-FIX LOGIC FOR STARTUP CRASHES ---
-        err_msg = str(e)
-        clean_error = err_msg.replace("App crashed during startup:", "").strip()
-        print(f"🔥 STARTUP AUTO-FIX TRIGGERED for {project_id}")
-        
-        emit_status(project_id, "⚠️ Startup Crash! Auto-fixing...")
-        emit_log(project_id, "system", f"Startup crash: {clean_error[:200]}...")
-
-        # Get code
-        file_tree = await _fetch_file_tree(project_id)
-        
-        # Trigger Coder
-        coder = Coder()
-        
-        # Loop for up to 3 retry attempts
-        max_retries = 3
-        history = []
-        
-        async def _auto_fix_startup():
-            nonlocal clean_error, file_tree
-            
-            for attempt in range(max_retries):
-                try:
-                    fix_prompt = (
-                        f"The application crashed during startup (Attempt {attempt+1}/{max_retries}) with this error:\n\n{clean_error}\n\n"
-                        "Fix the code (app.py, requirements.txt, etc) to resolve this startup error. "
-                        "If a module is missing, add it to requirements.txt."
-                    )
-                    
-                    # Pass history so the model knows what failed previously
-                    res = await coder.generate_code(
-                        plan_section="Startup Fix",
-                        plan_text=fix_prompt,
-                        file_tree=file_tree,
-                        project_name=project_id,
-                        history=history
-                    )
-                    
-                    # Store AI response in history
-                    if res.get("message"):
-                        history.append({"role": "assistant", "content": res.get("message")})
-                        
-                    ops = res.get("operations", [])
-                    for op in ops:
-                        p = op.get("path")
-                        c = op.get("content")
-                        if p and c:
-                            db_upsert("files", {"project_id": project_id, "path": p, "content": c}, on_conflict="project_id,path")
-                            emit_file_changed(project_id, p)
-                            
-                    emit_status(project_id, f"✅ Fix Applied (Attempt {attempt+1}). Retrying start...")
-                    
-                    # Retry Start
-                    new_tree = await _fetch_file_tree(project_id)
-                    # Update local file_tree for next loop if needed
-                    file_tree = new_tree
-                    
-                    await run_manager.start(project_id, new_tree)
-                    emit_status(project_id, "Server Started Successfully.")
-                    return # Success! Exit loop
-                    
-                except Exception as retry_err:
-                    # If start failed again, update error and loop
-                    err_str = str(retry_err)
-                    if "App crashed" in err_str:
-                         clean_error = err_str.replace("App crashed during startup:", "").strip()
-                    else:
-                         clean_error = err_str
-                    
-                    emit_log(project_id, "system", f"Fix failed: {clean_error[:100]}...")
-                    # Add failure to history for context
-                    history.append({"role": "user", "content": f"That fix didn't work. The server crashed again with: {clean_error}"})
-                    await asyncio.sleep(1) # Breath before retry
-
-            emit_status(project_id, "❌ Auto-fix failed after max retries.")
-
-        asyncio.create_task(_auto_fix_startup())
-        
-        # Return success so frontend doesn't show error alert, but status indicates fixing
-        return {"ok": False, "status": "fixing"}
+    # Trigger the robust starter in background so request returns fast
+    # but the user gets SSE updates
+    asyncio.create_task(_start_server_with_retry(project_id))
+    
+    return {"ok": True, "status": "starting"}
 
 @app.post("/api/project/{project_id}/run/stop")
 async def run_stop(request: Request, project_id: str):
@@ -1229,8 +1244,6 @@ async def run_proxy(request: Request, project_id: str, path: str):
             clean_error = err_msg.replace("CRASH_DETECTED:", "").strip()
             
             # --- CASE 1: SERVER OFFLINE (BUILDING) ---
-            # If server is just not responding (likely building or installing), 
-            # show "Agent Loading" screen but DO NOT trigger auto-fix.
             if "Server not running" in clean_error or "Connection refused" in clean_error:
                 loading_path = os.path.join(FRONTEND_TEMPLATES_DIR, "agentloading.html")
                 loading_html = "<h2>🚧 Building...</h2><p>The agent is working on your app.</p>"
@@ -1239,51 +1252,11 @@ async def run_proxy(request: Request, project_id: str, path: str):
                         loading_html = f.read()
                 return HTMLResponse(loading_html, status_code=200)
 
-            # --- CASE 2: ACTUAL CRASH (AUTO-FIX) ---
-            # Only trigger if we have a specific Python error trace
-            print(f"🔥 AUTO-FIX TRIGGERED for {project_id}")
+            # --- CASE 2: RUNTIME CRASH (AUTO-FIX) ---
+            # NOTE: We can trigger the same robust starter here!
+            print(f"🔥 RUNTIME AUTO-FIX TRIGGERED for {project_id}")
+            asyncio.create_task(_start_server_with_retry(project_id))
             
-            # 1. Notify User
-            emit_status(project_id, "⚠️ App Crashed! Auto-fixing...")
-            emit_log(project_id, "system", f"Crash detected: {clean_error[:200]}...")
-
-            # 2. Get Current Code
-            file_tree = await _fetch_file_tree(project_id)
-            
-            # 3. Trigger Coder (Background Task)
-            coder = Coder()
-            fix_prompt = (
-                f"The application crashed with the following error:\n\n{clean_error}\n\n"
-                "Fix the code in app.py (or the relevant file) to resolve this error. "
-                "Ensure imports are correct and syntax is valid."
-            )
-            
-            async def _auto_fix():
-                try:
-                    res = await coder.generate_code(
-                        plan_section="Bug Fix",
-                        plan_text=fix_prompt,
-                        file_tree=file_tree,
-                        project_name=project_id
-                    )
-                    ops = res.get("operations", [])
-                    for op in ops:
-                        p = op.get("path")
-                        c = op.get("content")
-                        if p and c:
-                            db_upsert("files", {"project_id": project_id, "path": p, "content": c}, on_conflict="project_id,path")
-                            emit_file_changed(project_id, p)
-                            
-                    emit_status(project_id, "✅ Crash Fixed. Restarting...")
-                    new_tree = await _fetch_file_tree(project_id)
-                    await run_manager.start(project_id, new_tree)
-                    emit_status(project_id, "Server Restarted.")
-                except Exception as fix_err:
-                    emit_log(project_id, "system", f"Auto-fix failed: {fix_err}")
-
-            asyncio.create_task(_auto_fix())
-            
-            # 4. Return Loading Screen while fixing
             loading_path = os.path.join(FRONTEND_TEMPLATES_DIR, "agentloading.html")
             loading_html = "<h2>💥 App Crashed</h2><p>AI is analyzing and fixing the code...</p>"
             if os.path.exists(loading_path):
@@ -1300,10 +1273,8 @@ async def project_game(request: Request, project_id: str):
     Renders the Waiting Room Game (Snake).
     """
     user = get_current_user(request)
-    # We check if project exists/user owns it, though not strictly strictly required for a game
     _require_project_owner(user, project_id)
     
-    # --- Safe Plan Fetch for Theme ---
     try:
         db_user = db_select_one("users", {"id": user["id"]}, "plan")
         if db_user:
