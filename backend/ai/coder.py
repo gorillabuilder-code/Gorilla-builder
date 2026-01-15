@@ -187,12 +187,12 @@ class Coder:
             "  ]\n"
             "}\n\n"
             "RULES:\n"
-            "MOST IMPORTANT: never ever make a .env file not matter what is asked and never make a folder with the project name.\n"
+            "MOST IMPORTANT: never ever make a .env file not matter what is asked and never make a folder with the project name. AND EVEN MORE IMPORTANT is that never output /n in any file to go to the next line.\n"
             "1. Output valid JSON only. Do not add markdown text outside the JSON. Try to make a diverse folder stucture eg: intead of having a stt.py in the repository root file have a ai/stt.py\n"
             "2. EXACTLY ONE operation in the 'operations' array and never ever make a .env file or dockerfile as they will be injected by the system.\n"
             "3. Content must be the FULL file (no diffs) and be very specific in the requirments.txt. Never ever add any placeholder text either like lorem ipusm... it should always be the real thing.\n"
+            "4. CRITICAL: Do NOT use the characters '\n'(backslash n) to represent a new line in the file content. Use actual, physical newlines in the string. The JSON parser will handle it."
         )
-
         user_prompt = (
             f"Project: {project_name}\n"
             f"Task: {plan_text}\n\n"
