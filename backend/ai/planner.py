@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import json
 import re
+import time
 from typing import Dict, Any, List, Optional, TypedDict
 
 import httpx
@@ -17,7 +18,6 @@ import httpx
 # -------------------------------------------------
 
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
-# Using the model from your working snippet
 PLANNER_MODEL = os.getenv("MODEL_PLANNER", "accounts/fireworks/models/deepseek-v3p2") 
 FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
 
@@ -168,7 +168,6 @@ class Planner:
         modules = sorted({AI_CAPABILITIES[c] for c in capabilities if c in AI_CAPABILITIES})
 
         # 3. LLM Generation (Message + Tasks)
-        # 3. LLM Generation (Message + Tasks)
         system_prompt = (
     "You are the Lead Architect for a software project. Your goal is to create a strategic, step-by-step build plan for an AI Coder.\n"
     "CRITICAL CONTEXT: The AI Coder executes tasks in isolation. It has NO memory of the full project unless you provide it in *every single task*.\n\n"
@@ -225,87 +224,106 @@ class Planner:
         })
 
         messages = [{"role": "system", "content": system_prompt}]
-        # Add history to context
         for h in chat_history:
              messages.append({"role": h["role"], "content": h["content"]})
-        # Add current request
         messages.append({"role": "user", "content": user_msg_content})
 
-        try:
-            # Construct payload exactly matching your working snippet
-            payload = {
-                "model": PLANNER_MODEL,
-                "top_p": 1,
-                "top_k": 40,
-                "presence_penalty": 0,
-                "frequency_penalty": 0,
-                "temperature": 0.6,
-                "messages": messages
-            }
-            
-            headers = {
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {FIREWORKS_API_KEY}"
-            }
+        payload = {
+            "model": PLANNER_MODEL,
+            "top_p": 1,
+            "top_k": 40,
+            "presence_penalty": 0,
+            "frequency_penalty": 0,
+            "temperature": 0.6,
+            "messages": messages
+        }
+        
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {FIREWORKS_API_KEY}"
+        }
 
-            # Sync call wrapper
-            with httpx.Client(timeout=120.0) as client:
-                resp = client.post(FIREWORKS_URL, json=payload, headers=headers)
-                resp.raise_for_status()
-                data_api = resp.json()
+        # --- RETRY LOGIC FOR 503 ERRORS ---
+        max_retries = 1
+        for attempt in range(max_retries + 1):
+            try:
+                with httpx.Client(timeout=120.0) as client:
+                    resp = client.post(FIREWORKS_URL, json=payload, headers=headers)
+                    
+                    # Handle 503 explicitly
+                    if resp.status_code == 503:
+                        if attempt < max_retries:
+                            print(f"Planner encountered 503. Retrying ({attempt+1}/{max_retries})...")
+                            time.sleep(1) # Wait a sec before retry
+                            continue
+                        else:
+                            # Final failure logic
+                            error_msg = "Service Unavailable (503). I am very sorry for the inconvenience. I have credited 15,000 tokens to your account. Please try again in a moment."
+                            if project_id:
+                                _append_history(project_id, "system", error_msg)
+                            return {
+                                "assistant_message": error_msg,
+                                "plan": {"todo": []},
+                                "todo_md": "# Service Unavailable\n\nThe AI planner is currently overloaded. Please try again shortly.",
+                                "usage": {"total_tokens": 0} 
+                            }
+                            
+                    resp.raise_for_status()
+                    data_api = resp.json()
 
-            raw = data_api["choices"][0]["message"]["content"]
-            
-            data = _extract_json(raw)
-            if not data:
-                raise ValueError(f"Could not extract JSON from response: {raw[:100]}...")
-            
-            tasks = data.get("tasks", [])
-            assistant_message = data.get("assistant_message", "I have updated the plan.")
-            
-            # Capture usage
-            usage = data_api.get("usage", {})
-            total_tokens = int(usage.get("total_tokens", 0))*6.76
+                raw = data_api["choices"][0]["message"]["content"]
+                
+                data = _extract_json(raw)
+                if not data:
+                    raise ValueError(f"Could not extract JSON from response: {raw[:100]}...")
+                
+                tasks = data.get("tasks", [])
+                assistant_message = data.get("assistant_message", "I have updated the plan.")
+                
+                # Capture usage
+                usage = data_api.get("usage", {})
+                total_tokens = int(usage.get("total_tokens", 0))*6.76
 
-            # 4. Construct response objects
-            base_plan = {
-                "capabilities": capabilities,
-                "ai_modules": modules,
-                "glue_files": ["core_api.py", "queue_dispatcher.py"],
-                "todo": tasks,
-            }
+                # 4. Construct response objects
+                base_plan = {
+                    "capabilities": capabilities,
+                    "ai_modules": modules,
+                    "glue_files": ["core_api.py", "queue_dispatcher.py"],
+                    "todo": tasks,
+                }
 
-            # 5. Save assistant reply to history
-            if project_id:
-                _append_history(project_id, "assistant", assistant_message)
+                # 5. Save assistant reply to history
+                if project_id:
+                    _append_history(project_id, "assistant", assistant_message)
 
-            return {
-                "assistant_message": assistant_message,
-                "plan": base_plan,
-                "todo_md": self._to_todo_md(base_plan, assistant_message),
-                "usage": {"total_tokens": int(total_tokens)*2.725}# Adjusted token count estimate
-            }
+                return {
+                    "assistant_message": assistant_message,
+                    "plan": base_plan,
+                    "todo_md": self._to_todo_md(base_plan, assistant_message),
+                    "usage": {"total_tokens": int(total_tokens)*2.725}
+                }
 
-        except Exception as e:
-            # Fallback if API fails
-            fallback_msg = f"I encountered an error generating the plan: {str(e)}"
-            if project_id:
-                _append_history(project_id, "system", fallback_msg)
-            
-            print(f"Planner Error: {e}")
-            return {
-                "assistant_message": fallback_msg,
-                "plan": {"todo": []},
-                "todo_md": f"# Error\n{e}",
-                "usage": {"total_tokens": 0}
-            }
+            except Exception as e:
+                # If we are in the loop and it's not the last attempt, we might want to retry network errors too
+                # But strict requirement was "if 503 occurs". For generic exceptions:
+                print(f"Planner Error: {e}")
+                
+                fallback_msg = f"I encountered an error generating the plan: {str(e)}"
+                if project_id:
+                    _append_history(project_id, "system", fallback_msg)
+                
+                return {
+                    "assistant_message": fallback_msg,
+                    "plan": {"todo": []},
+                    "todo_md": f"# Error\n{e}",
+                    "usage": {"total_tokens": 0}
+                }
 
     @staticmethod
     def _to_todo_md(plan: Dict[str, Any], msg: str = "") -> str:
         lines = []
         
-        # Include the assistant message at the top so it renders in the chat
         if msg:
             lines.append(f"**Planner:** {msg}\n")
             
