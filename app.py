@@ -10,6 +10,7 @@ import mimetypes
 import traceback
 import random
 import string
+import urllib.parse  # Added for safe URL redirection
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -599,22 +600,53 @@ async def workspace(request: Request):
 import io
 import zipfile
 
+# --- UPDATED CREATE ROUTE FOR DASHBOARD PROMPTS ---
 @app.post("/projects/create")
-async def create_project(request: Request, name: str = Form(...), description: str = Form("")):
+async def create_project(
+    request: Request, 
+    prompt: Optional[str] = Form(None), 
+    name: Optional[str] = Form(None),
+    description: str = Form("")
+):
     user = get_current_user(request)
     ensure_public_user(user["id"], user.get("email") or "unknown@local")
 
+    # 1. Determine Project Name
+    # If using the dashboard input, 'name' is empty but 'prompt' has text.
+    project_name = name
+    if not project_name:
+        if prompt:
+             # Auto-generate name based on timestamp
+             project_name = f"Project {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        else:
+             project_name = "Untitled Project"
+    
+    # 2. Insert into DB
     try:
+        # We store the initial prompt in the description for now, or just keep it for the redirects
+        desc_to_save = description or (prompt[:200] if prompt else "")
+        
         res = (
             supabase.table("projects")
-            .insert({"owner_id": user["id"], "name": name, "description": description})
+            .insert({"owner_id": user["id"], "name": project_name, "description": desc_to_save})
             .execute()
         )
         if not res or not res.data:
             raise Exception("No data returned from insert")
             
         project = res.data[0]
-        return RedirectResponse(f"/projects/{project['id']}/editor", status_code=303)
+        pid = project['id']
+        
+        # 3. Redirect to Editor
+        # If we have a prompt, pass it as a query param so the frontend can read it and auto-start.
+        target_url = f"/projects/{pid}/editor"
+        if prompt:
+            # Safe URL encoding
+            safe_prompt = urllib.parse.quote(prompt)
+            target_url += f"?prompt={safe_prompt}"
+            
+        return RedirectResponse(target_url, status_code=303)
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Create failed: {e}")
 

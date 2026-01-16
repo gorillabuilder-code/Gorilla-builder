@@ -18,7 +18,7 @@ import httpx
 # -------------------------------------------------
 
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "accounts/fireworks/models/deepseek-v3p2") 
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "accounts/fireworks/models/glm-4p7") 
 FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
 
 if not FIREWORKS_API_KEY:
@@ -259,13 +259,12 @@ class Planner:
                             continue
                         else:
                             # Final failure logic
-                            error_msg = "Service Unavailable (503). I am very sorry for the inconvenience. I have credited 15,000 tokens to your account. Please try again in a moment."
-                            if project_id:
-                                _append_history(project_id, "system", error_msg)
+                            error_msg = "Service Unavailable (503). I am very sorry for the inconvenience."
+                            _append_history(project_id, "system", error_msg)
                             return {
                                 "assistant_message": error_msg,
                                 "plan": {"todo": []},
-                                "todo_md": "# Service Unavailable\n\nThe AI planner is currently overloaded. Please try again shortly.",
+                                "todo_md": "# Service Unavailable\n\nThe AI planner is currently overloaded. Please try again shortly. If this continues blame [FIREWORKS.AI](https://fireworks.ai)",
                                 "usage": {"total_tokens": 0} 
                             }
                             
@@ -283,7 +282,7 @@ class Planner:
                 
                 # Capture usage
                 usage = data_api.get("usage", {})
-                total_tokens = int(usage.get("total_tokens", 0))*6.76
+                total_tokens = int(usage.get("total_tokens", 0))*3.25
 
                 # 4. Construct response objects
                 base_plan = {

@@ -982,6 +982,14 @@ function startStream(){
     if(m.type === "status") {
       addMessage("system", m.text);
       setProgress(m.text);
+      
+      // AUTO RELOAD PREVIEW IF SERVER IS READY
+      if (m.text === "Server Running" || m.text === "Server Fixed & Running") {
+          // If we are currently on the preview tab, reload it
+          if ($("tabPreview").classList.contains("active")) {
+              refreshPreview();
+          }
+      }
     }
     
     // Phase change
@@ -1012,20 +1020,35 @@ function startStream(){
   es.onerror = () => setConn("bad");
 }
 
-$("runAgent").onclick = async () => {
+/* --- TRIGGER AGENT --- */
+async function triggerAgent(promptText) {
+    if(!promptText) return;
+    addMessage("user", promptText);
+    
+    await fetch(`/api/project/${PROJECT_ID}/agent/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ prompt: promptText })
+    });
+    
+    startStream();
+}
+
+// 1. Click Listener
+$("runAgent").onclick = () => {
   const p = $("prompt").value.trim();
   if(!p) return;
-  addMessage("user", p);
   $("prompt").value = "";
-  
-  await fetch(`/api/project/${PROJECT_ID}/agent/start`, {
-    method:"POST",
-    headers:{"Content-Type":"application/x-www-form-urlencoded"},
-    body:new URLSearchParams({prompt:p})
-  });
-  
-  startStream();
+  triggerAgent(p);
 };
+
+// 2. Enter Key Listener
+$("prompt").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault(); // Prevent new line
+        $("runAgent").click();
+    }
+});
 
 /* --- INIT --- */
 (async () => {
@@ -1035,6 +1058,20 @@ $("runAgent").onclick = async () => {
   startStream();
   await serverStatus();
   setProgress("Ready", 0);
+  
+  // CHECK FOR AUTO-PROMPT FROM DASHBOARD
+  const urlParams = new URLSearchParams(window.location.search);
+  const autoPrompt = urlParams.get('prompt');
+  
+  if (autoPrompt) {
+      // Clear the param from URL without reloading so it doesn't re-trigger on refresh
+      window.history.replaceState({}, document.title, window.location.pathname);
+      
+      // Delay slightly to let socket connect
+      setTimeout(() => {
+          triggerAgent(autoPrompt);
+      }, 500);
+  }
 })();
 </script>
 

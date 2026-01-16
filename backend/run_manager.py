@@ -11,6 +11,56 @@ from typing import Dict, Optional, Tuple
 import httpx
 from dotenv import dotenv_values 
 
+# --------------------------------------------------------------------------
+# INJECTED SERVER SCRIPT
+# This script handles imports safely and catches SyntaxErrors (truncation)
+# --------------------------------------------------------------------------
+SERVER_ENTRY_SCRIPT = """
+import sys
+import os
+import traceback
+
+# Ensure the project directory is in python path
+sys.path.insert(0, os.getcwd())
+
+def run():
+    try:
+        print("--> Attempting to import app.py...")
+        # 1. Attempt Import (This catches SyntaxErrors from AI truncation)
+        from app import app
+        import uvicorn
+        
+        # 2. Start Server
+        port = int(os.environ.get("PORT", 8000))
+        print(f"--> Starting Uvicorn on port {port}...")
+        uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
+        
+    except SyntaxError as e:
+        print("\\n" + "="*40)
+        print("CRITICAL: APP.PY SYNTAX ERROR (LIKELY TRUNCATION)")
+        print(f"File: {e.filename}, Line: {e.lineno}")
+        print(f"Error: {e.msg}")
+        print("="*40 + "\\n")
+        sys.exit(1)
+        
+    except ImportError as e:
+        print("\\n" + "="*40)
+        print(f"CRITICAL: IMPORT ERROR ({e})")
+        print("Did the AI forget to install a library?")
+        print("="*40 + "\\n")
+        sys.exit(1)
+        
+    except Exception:
+        print("\\n" + "="*40)
+        print("CRITICAL: RUNTIME CRASH")
+        traceback.print_exc()
+        print("="*40 + "\\n")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    run()
+"""
+
 def _pick_free_port() -> int:
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
@@ -31,11 +81,9 @@ class ProjectRunManager:
     DEV-only runner:
       - dumps project files to /tmp/gor-a/<project_id>/
       - installs requirements.txt into a project venv if present
-      - runs uvicorn for app.py if present (expects app:app)
+      - INJECTS `server_entry.py` to handle startup safely
+      - runs `python server_entry.py` instead of `python -m uvicorn`
       - proxies via FastAPI endpoint (in app.py)
-      - [SECURE] Injects secrets from .env.inject at runtime
-      - [SECURE] Scrubs backend keys from user process
-      - [ROBUST] Checks for startup crashes and captures errors
     """
 
     def __init__(self, base_dir: str = "/tmp/gor-a"):
@@ -43,7 +91,6 @@ class ProjectRunManager:
         self._runs: Dict[str, RunInfo] = {}
         os.makedirs(self.base_dir, exist_ok=True)
 
-        # 1. Load Secret Injection File
         self.injected_secrets = {
             **dotenv_values(".env.inject"),
             **dotenv_values("backend/.env.inject")
@@ -73,7 +120,6 @@ class ProjectRunManager:
         self._runs.pop(project_id, None)
 
     async def _run_cmd(self, cwd: str, cmd: list[str], timeout_s: int = 300) -> tuple[int, str]:
-        """Executes a subprocess command safely."""
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd, cwd=cwd,
@@ -92,64 +138,45 @@ class ProjectRunManager:
     async def _ensure_venv_and_install(self, root: str) -> str:
         req_path = os.path.join(root, "requirements.txt")
         venv_dir = os.path.join(root, ".venv")
-
-        # Use the exact same python executable running this backend to create the venv
         curr_python = sys.executable
 
-        # 1. Create Venv if missing
+        # 1. Create Venv
         if not os.path.isdir(venv_dir):
             code, out = await self._run_cmd(root, [curr_python, "-m", "venv", ".venv"], timeout_s=180)
             if code != 0: raise RuntimeError(f"Failed to create venv:\n{out}")
 
-        # 2. Find the Python Binary inside the Venv (Cross-platform)
-        # Windows usually puts it in Scripts/, Unix in bin/
-        possible_bins = [
-            os.path.join(venv_dir, "Scripts", "python.exe"),
-            os.path.join(venv_dir, "bin", "python"),
-            os.path.join(venv_dir, "bin", "python3"),
-        ]
+        # 2. Find Python Binary
+        if os.name == "nt":
+            python_bin = os.path.join(venv_dir, "Scripts", "python.exe")
+        else:
+            python_bin = os.path.join(venv_dir, "bin", "python")
         
-        python_bin = None
-        for p in possible_bins:
-            if os.path.exists(p):
-                python_bin = p
-                break
-        
-        if not python_bin:
-            # Fallback: Assume standard structure based on OS if detection fails
-            if os.name == "nt":
-                python_bin = os.path.join(venv_dir, "Scripts", "python.exe")
-            else:
-                python_bin = os.path.join(venv_dir, "bin", "python")
+        if not os.path.exists(python_bin):
+             python_bin = os.path.join(venv_dir, "bin", "python3")
 
         pip_bin = [python_bin, "-m", "pip"]
 
-        # 3. CRITICAL: Force Install Core Deps (Uvicorn/FastAPI)
-        # We explicitly verify this step. If it fails, we nuke the venv and try once more.
+        # 3. Core Deps (Uvicorn/FastAPI/Dotenv)
+        # We try twice. If it fails, we nuke the venv.
         for attempt in range(2):
-            code, out = await self._run_cmd(root, pip_bin + ["install", "--upgrade", "pip", "uvicorn", "fastapi", "python-dotenv"], timeout_s=300)
+            # Note: We install standard uvicorn, not the module version logic
+            code, out = await self._run_cmd(root, pip_bin + ["install", "--upgrade", "pip", "uvicorn", "fastapi", "python-dotenv", "aiofiles", "jinja2", "multipart"], timeout_s=300)
             
-            # Check if uvicorn is actually importable
-            verify_code, _ = await self._run_cmd(root, [python_bin, "-c", "import uvicorn; print('ok')"], timeout_s=10)
+            if code == 0:
+                break
             
-            if code == 0 and verify_code == 0:
-                break # Success
-            
-            # If failed, nuke and retry
             if attempt == 0:
-                print(f"⚠️ Venv seems corrupted (uvicorn check failed). Recreating at {venv_dir}...")
+                print(f"⚠️ Venv issue. Recreating at {venv_dir}...")
                 shutil.rmtree(venv_dir, ignore_errors=True)
-                # Re-create venv
                 await self._run_cmd(root, [curr_python, "-m", "venv", ".venv"], timeout_s=180)
             else:
-                raise RuntimeError(f"Failed to initialize python environment (uvicorn install failed):\n{out}")
+                raise RuntimeError(f"Failed to install core dependencies:\n{out}")
 
-        # 4. Install User Requirements
+        # 4. User Reqs
         if os.path.exists(req_path):
             code, out = await self._run_cmd(root, pip_bin + ["install", "-r", "requirements.txt"], timeout_s=600)
+            # We log but don't crash on user reqs failure (sometimes they ask for bad versions)
             if code != 0: 
-                # We don't fail hard on reqs install (might be a bad package name), 
-                # but we log it. The app might still start if the core deps are there.
                 print(f"⚠️ Warning: requirements.txt install had issues:\n{out}")
 
         return python_bin
@@ -158,27 +185,32 @@ class ProjectRunManager:
         await self.stop(project_id)
 
         root = os.path.join(self.base_dir, project_id)
-        # Don't nuke the whole root, just update files. Nuking destroys the venv every time which is slow.
-        # shutil.rmtree(root, ignore_errors=True) 
         os.makedirs(root, exist_ok=True)
 
+        # 1. Write User Files
         for path, content in (file_tree or {}).items():
             if not path or path.endswith("/"): continue
             abs_path = os.path.join(root, path)
             os.makedirs(os.path.dirname(abs_path), exist_ok=True)
             with open(abs_path, "w", encoding="utf-8") as f: f.write(content or "")
 
+        # 2. Verify app.py
         entry = os.path.join(root, "app.py")
         if not os.path.exists(entry):
-            raise RuntimeError("No app.py found. Server preview requires app.py exporting `app`.")
+            raise RuntimeError("No app.py found.")
 
+        # 3. Inject SERVER_ENTRY.PY (Method 2)
+        server_entry_path = os.path.join(root, "server_entry.py")
+        with open(server_entry_path, "w", encoding="utf-8") as f:
+            f.write(SERVER_ENTRY_SCRIPT)
+
+        # 4. Setup Venv
         python_bin = await self._ensure_venv_and_install(root)
         port = _pick_free_port()
 
-        # --- [SECURE ENV PREPARATION] ---
+        # 5. Env Vars
         env_vars = os.environ.copy()
         
-        # Blocklist Backend Keys
         sensitive_keys = [
             "FIREWORKS_API_KEY", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_URL",
             "RESEND_API_KEY", "AUTH_SECRET_KEY", "GROQ_API_KEY",
@@ -187,63 +219,66 @@ class ProjectRunManager:
         for k in sensitive_keys:
             env_vars.pop(k, None)
 
-        # Inject Secrets
         env_vars.update(self.injected_secrets)
-        
-        # Config
         env_vars["PYTHONUNBUFFERED"] = "1"
         env_vars["PORT"] = str(port)
 
-        # Start Uvicorn with Stderr Capture
-        # We assume app.py exposes `app`. 
+        # 6. RUN THE INJECTED SCRIPT (Not -m uvicorn)
         proc = await asyncio.create_subprocess_exec(
-            python_bin, "-m", "uvicorn", "app:app",
-            "--host", "127.0.0.1", "--port", str(port),
+            python_bin, "server_entry.py",  # <--- MAGIC FIX
             cwd=root, env=env_vars,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE, # Capture errors for Auto-Fix
+            stderr=asyncio.subprocess.PIPE,
         )
 
         info = RunInfo(project_id=project_id, port=port, proc=proc, root_dir=root, python_bin=python_bin)
         self._runs[project_id] = info
 
-        # --- [STARTUP HEALTH CHECK] ---
-        # Increased timeout to 45s (90 * 0.5) to allow for massive files to load
+        # 7. Health Check
         startup_error = None
-        for _ in range(90): 
+        for _ in range(60): 
             await asyncio.sleep(0.5)
             
-            # Check if process died
             if proc.returncode is not None:
+                # Process died. Read stderr to see why.
                 raw_err = await proc.stderr.read()
-                startup_error = raw_err.decode() if raw_err else "Unknown crash on startup"
+                raw_out = await proc.stdout.read() # Sometimes error is in stdout due to our script
+                
+                full_log = (raw_out.decode() + "\n" + raw_err.decode()).strip()
+                
+                # Check for our custom markers
+                if "CRITICAL: APP.PY SYNTAX ERROR" in full_log:
+                    startup_error = full_log
+                elif "frozen runpy" in full_log:
+                     startup_error = "System Error: Python environment corrupted. Please retry."
+                else:
+                    startup_error = full_log or "Unknown crash."
                 break
             
-            # Check if port is listening
             try:
                 async with httpx.AsyncClient(timeout=1.0) as client:
                     await client.get(f"http://127.0.0.1:{port}/")
-                # If we get here (even if 404/500), the server IS running
                 return info
             except (httpx.ConnectError, httpx.ReadTimeout):
-                continue # Keep waiting
+                continue
         
-        # If loop finishes or process died
         if startup_error:
-            # Check for common truncation errors to give better hints
-            if "SyntaxError" in startup_error and "unexpected EOF" in startup_error:
-                startup_error += "\n\n(HINT: The file 'app.py' was likely truncated by the AI. Check the file end.)"
-            
-            raise RuntimeError(f"App crashed during startup:\n{startup_error}")
+            # Clean up the error message for the user
+            clean_err = startup_error
+            if "CRITICAL:" in clean_err:
+                # Extract just the critical part
+                try:
+                    clean_err = clean_err.split("="*40)[1].strip()
+                except:
+                    pass
+            raise RuntimeError(f"App crashed during startup:\n{clean_err}")
         
-        # If we timed out but process is still "running" (zombie state)
         await self.stop(project_id)
         raise RuntimeError("Server started but timed out (port not reachable).")
 
     async def proxy(self, project_id: str, path: str, method: str, headers: dict, body: bytes, query: str) -> httpx.Response:
         running, port = self.is_running(project_id)
         
-        # If not running, assume crash and try to read log
         if not running:
             info = self._runs.get(project_id)
             err_msg = "Server not running."
@@ -252,8 +287,6 @@ class ProjectRunManager:
                     err_bytes = await info.proc.stderr.read()
                     if err_bytes: err_msg = err_bytes.decode()
                  except: pass
-            
-            # Throw specific error for Auto-Fix to catch
             raise RuntimeError(f"CRASH_DETECTED: {err_msg}")
 
         url = f"http://127.0.0.1:{port}/{path.lstrip('/')}"
@@ -270,5 +303,4 @@ class ProjectRunManager:
                 resp = await client.request(method, url, headers=fwd_headers, content=body)
                 return resp
             except (httpx.ConnectError, httpx.ReadTimeout):
-                # Connection dropped mid-request -> Crash likely
                 raise RuntimeError("CRASH_DETECTED: Connection refused during request (Runtime Crash).")
