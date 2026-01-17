@@ -13,16 +13,17 @@
   import { EditorView, keymap, lineNumbers } from "https://esm.sh/@codemirror/view";
   import { defaultKeymap, history, historyKeymap } from "https://esm.sh/@codemirror/commands";
   import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark";
+  import { javascript } from "https://esm.sh/@codemirror/lang-javascript";
+  import { html } from "https://esm.sh/@codemirror/lang-html";
+  import { css } from "https://esm.sh/@codemirror/lang-css";
 
-  window.createEditor = (parent, content, onChange) => {
+  window.createEditor = (parent, content, onChange, fileName) => {
     const fixedHeightEditor = EditorView.theme({
       "&": { height: "100%", fontSize: "14px" },
       ".cm-scroller": { overflow: "auto" }
     });
 
-    const state = EditorState.create({
-      doc: content,
-      extensions: [
+    let extensions = [
         fixedHeightEditor,
         lineNumbers(),
         history(),
@@ -34,7 +35,22 @@
             onChange(v.state.doc.toString());
           }
         })
-      ]
+    ];
+
+    // Auto-detect language based on extension
+    if (fileName) {
+        if (fileName.endsWith('.js') || fileName.endsWith('.jsx') || fileName.endsWith('.ts') || fileName.endsWith('.json')) {
+            extensions.push(javascript());
+        } else if (fileName.endsWith('.html')) {
+            extensions.push(html());
+        } else if (fileName.endsWith('.css')) {
+            extensions.push(css());
+        }
+    }
+
+    const state = EditorState.create({
+      doc: content,
+      extensions: extensions
     });
 
     return new EditorView({ state, parent });
@@ -71,41 +87,28 @@
   --warn: #ffcc00;
 }
 
-/* PREMIUM THEME OVERRIDES via Class */
+/* PREMIUM THEME OVERRIDES */
 body.premium {
   --accent: #ffd700; 
   --accent-glow: rgba(255, 215, 0, 0.25);
   --panel: #121214; 
-  /* Override background gradient */
-  background-image: 
-    radial-gradient(circle at 10% 10%, rgba(255, 215, 0, 0.05) 0%, transparent 40%) !important;
+  background-image: radial-gradient(circle at 10% 10%, rgba(255, 215, 0, 0.05) 0%, transparent 40%) !important;
 }
 
-/* XMODE THEME OVERRIDES (PURPLE) */
+/* XMODE THEME OVERRIDES */
 body.xmode {
-  --bg: #0b0214; /* Deep dark purple/black */
-  --panel: #140526; /* Dark purple panel */
-  --panel-light: #1f0a38; /* Lighter purple panel */
-  --accent: #bd00ff; /* Neon Purple */
+  --bg: #0b0214; 
+  --panel: #140526; 
+  --panel-light: #1f0a38; 
+  --accent: #bd00ff; 
   --accent-glow: rgba(189, 0, 255, 0.3);
   --text-muted: rgba(228, 184, 255, 0.6);
   --border: rgba(189, 0, 255, 0.15);
-  
-  /* Purple Mesh Gradient */
-  background-image: 
-    radial-gradient(circle at 10% 10%, rgba(189, 0, 255, 0.12) 0%, transparent 50%) !important;
+  background-image: radial-gradient(circle at 10% 10%, rgba(189, 0, 255, 0.12) 0%, transparent 50%) !important;
 }
 
-/* Override input buttons in Xmode */
-body.xmode .agent-input button {
-  box-shadow: 0 0 15px var(--accent-glow);
-}
-body.xmode .node.active {
-  border-left-color: var(--accent);
-  background: rgba(189, 0, 255, 0.15);
-}
-
-/* Premium Text Color Overrides for buttons/badges */
+body.xmode .agent-input button { box-shadow: 0 0 15px var(--accent-glow); }
+body.xmode .node.active { border-left-color: var(--accent); background: rgba(189, 0, 255, 0.15); }
 body.premium .msg.user { color: #000; }
 body.premium .agent-input button { color: #000; }
 
@@ -117,9 +120,7 @@ body {
   color: var(--text);
   height: 100vh;
   overflow: hidden;
-  /* Subtle mesh gradient */
-  background-image: 
-    radial-gradient(circle at 10% 10%, rgba(59, 108, 255, 0.05) 0%, transparent 40%);
+  background-image: radial-gradient(circle at 10% 10%, rgba(59, 108, 255, 0.05) 0%, transparent 40%);
 }
 
 .shell { display: flex; height: 100vh; width: 100%; }
@@ -146,14 +147,9 @@ body {
   background: rgba(14, 19, 36, 0.8);
   backdrop-filter: blur(10px);
 }
-/* Adjust header background for xmode */
-body.xmode .left header {
-  background: rgba(20, 5, 38, 0.85);
-}
+body.xmode .left header { background: rgba(20, 5, 38, 0.85); }
 
 .hgroup .t { font-size: 16px; font-weight: 500; letter-spacing: -0.3px; }
-.hgroup .id { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-
 .header-actions { display: flex; gap: 8px; }
 
 .pill {
@@ -204,10 +200,7 @@ body.xmode .left header {
   font-weight: 600;
   box-shadow: 0 0 10px var(--accent-glow);
 }
-/* XMode phase active override */
-body.xmode .phase.active {
-  background: rgba(189, 0, 255, 0.1);
-}
+body.xmode .phase.active { background: rgba(189, 0, 255, 0.1); }
 
 /* PROGRESS */
 .progress {
@@ -221,121 +214,40 @@ body.xmode .phase.active {
 .progress-title { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px; }
 .progress-status { font-size: 11px; color: var(--accent); font-weight: 500; }
 
-.bar-bg {
-  height: 6px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.06);
-  overflow: hidden;
-}
+.bar-bg { height: 6px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden; }
 .bar-fill {
-  height: 100%;
-  width: 0%;
+  height: 100%; width: 0%;
   background: linear-gradient(90deg, var(--accent), #6390ff);
   border-radius: 999px;
   transition: width 0.4s ease-out;
   box-shadow: 0 0 8px var(--accent-glow);
 }
-/* Xmode bar gradient */
-body.xmode .bar-fill {
-  background: linear-gradient(90deg, var(--accent), #e0aaff);
-}
+body.xmode .bar-fill { background: linear-gradient(90deg, var(--accent), #e0aaff); }
 
 /* LOADING ANIMATION */
-.loading-wave {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  height: 10px;
-  opacity: 0;
-  transition: opacity 0.3s;
-}
+.loading-wave { display: flex; align-items: center; gap: 3px; height: 10px; opacity: 0; transition: opacity 0.3s; }
 .loading-wave.active { opacity: 1; }
-.loading-bar {
-  width: 3px;
-  height: 6px;
-  background: var(--accent);
-  border-radius: 2px;
-  animation: wave 1s infinite ease-in-out;
-}
+.loading-bar { width: 3px; height: 6px; background: var(--accent); border-radius: 2px; animation: wave 1s infinite ease-in-out; }
 .loading-bar:nth-child(2) { animation-delay: 0.1s; }
 .loading-bar:nth-child(3) { animation-delay: 0.2s; }
-@keyframes wave {
-  0%, 100% { transform: scaleY(1); opacity: 0.5; }
-  50% { transform: scaleY(2.5); opacity: 1; }
-}
+@keyframes wave { 0%, 100% { transform: scaleY(1); opacity: 0.5; } 50% { transform: scaleY(2.5); opacity: 1; } }
 
 /* CHAT AREA */
-.chat {
-  flex: 1;
-  padding: 20px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  scroll-behavior: smooth;
-}
+.chat { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth; }
 
 .msg {
-  max-width: 96%;
-  padding: 12px 16px;
-  border-radius: 12px;
-  font-size: 13px;
-  line-height: 1.5;
-  word-break: break-word;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  animation: fadeIn 0.3s ease-out;
+  max-width: 96%; padding: 12px 16px; border-radius: 12px; font-size: 13px; line-height: 1.5; word-break: break-word;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1); animation: fadeIn 0.3s ease-out;
 }
 @keyframes fadeIn { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
 
-.msg.user { 
-  align-self: flex-end; 
-  background: var(--accent);
-  color: #fff;
-  border: 1px solid rgba(255,255,255,0.1);
-}
+.msg.user { align-self: flex-end; background: var(--accent); color: #fff; border: 1px solid rgba(255,255,255,0.1); }
+.msg.agent, .msg.assistant { align-self: flex-start; background: var(--panel-light); border: 1px solid var(--border); }
+.msg.coder { align-self: flex-start; background: var(--coder-bg); border: 1px solid var(--coder-border); border-left-width: 3px; }
+.msg.planner { align-self: flex-start; background: var(--planner-bg); border: 1px solid var(--planner-border); border-left-width: 3px; }
+.msg.system { align-self: center; font-size: 11px; color: var(--text-muted); background: none; border: none; box-shadow: none; padding: 0; margin: 4px 0; }
 
-.msg.agent, .msg.assistant {
-  align-self: flex-start;
-  background: var(--panel-light);
-  border: 1px solid var(--border);
-}
-
-.msg.coder {
-  align-self: flex-start;
-  background: var(--coder-bg);
-  border: 1px solid var(--coder-border);
-  border-left-width: 3px;
-}
-
-.msg.planner {
-  align-self: flex-start;
-  background: var(--planner-bg);
-  border: 1px solid var(--planner-border);
-  border-left-width: 3px;
-}
-
-.msg.system {
-  align-self: center;
-  font-size: 11px;
-  color: var(--text-muted);
-  background: none;
-  border: none;
-  box-shadow: none;
-  padding: 0;
-  margin: 4px 0;
-}
-
-.meta {
-  font-size: 10px;
-  opacity: 0.8;
-  margin-bottom: 6px;
-  text-transform: uppercase;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
+.meta { font-size: 10px; opacity: 0.8; margin-bottom: 6px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px; }
 .msg.coder .meta { color: var(--coder-text); }
 .msg.planner .meta { color: var(--planner-text); }
 
@@ -346,154 +258,53 @@ body.xmode .bar-fill {
 .md pre { background: #080c16; padding: 10px; border-radius: 8px; overflow-x: auto; border: 1px solid var(--border); }
 
 /* INPUT AREA */
-.agent-input {
-  padding: 16px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  gap: 12px;
-  background: var(--panel);
-}
-
+.agent-input { padding: 16px; border-top: 1px solid var(--border); display: flex; gap: 12px; background: var(--panel); }
 .agent-input textarea {
-  flex: 1;
-  height: 50px;
-  min-height: 50px;
-  max-height: 120px;
-  resize: vertical;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: #050810;
-  color: #fff;
-  padding: 12px;
-  font-size: 13px;
-  outline: none;
-  transition: border-color 0.2s;
+  flex: 1; height: 50px; min-height: 50px; max-height: 120px; resize: vertical;
+  border-radius: 10px; border: 1px solid var(--border); background: #050810; color: #fff; padding: 12px;
+  font-size: 13px; outline: none; transition: border-color 0.2s;
 }
 .agent-input textarea:focus { border-color: var(--accent); }
-
 .agent-input button {
-  background: var(--accent);
-  border: none;
-  color: #fff;
-  border-radius: 10px;
-  width: 50px;
-  height: 50px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s;
-  box-shadow: 0 4px 12px var(--accent-glow);
+  background: var(--accent); border: none; color: #fff; border-radius: 10px; width: 50px; height: 50px;
+  display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px var(--accent-glow);
 }
 .agent-input button:hover { transform: scale(1.05); filter: brightness(1.1); }
 
 /* --- MAIN AREA --- */
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
 
-.topbar {
-  height: 56px;
-  padding: 0 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel);
-}
-
+.topbar { height: 56px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); background: var(--panel); }
 .tabs { display: flex; gap: 6px; }
 .tab {
-  padding: 8px 16px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text-muted);
-  transition: all 0.2s;
+  padding: 8px 16px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; font-size: 13px; color: var(--text-muted); transition: all 0.2s;
 }
 .tab:hover { background: rgba(255,255,255,0.03); color: #fff; }
-.tab.active { 
-  background: rgba(59, 108, 255, 0.1); 
-  border-color: rgba(59, 108, 255, 0.3); 
-  color: #fff; 
-}
-body.xmode .tab.active {
-  background: rgba(189, 0, 255, 0.1);
-  border-color: rgba(189, 0, 255, 0.3);
-}
+.tab.active { background: rgba(59, 108, 255, 0.1); border-color: rgba(59, 108, 255, 0.3); color: #fff; }
+body.xmode .tab.active { background: rgba(189, 0, 255, 0.1); border-color: rgba(189, 0, 255, 0.3); }
 
 .tab.link { text-decoration: none; display: flex; align-items: center; gap: 6px; }
-
 .previewMode { display: flex; gap: 8px; align-items: center; margin-left: 16px; padding-left: 16px; border-left: 1px solid var(--border); }
-
-.select {
-  background: #050810;
-  border: 1px solid var(--border);
-  color: #fff;
-  border-radius: 6px;
-  padding: 6px 10px;
-  font-size: 12px;
-  outline: none;
-}
-
-.smallbtn {
-  border: 1px solid var(--border);
-  background: rgba(255,255,255,0.03);
-  color: #fff;
-  border-radius: 6px;
-  padding: 6px 12px;
-  font-size: 11px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
+.select { background: #050810; border: 1px solid var(--border); color: #fff; border-radius: 6px; padding: 6px 10px; font-size: 12px; outline: none; }
+.smallbtn { border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: #fff; border-radius: 6px; padding: 6px 12px; font-size: 11px; cursor: pointer; transition: all 0.2s; }
 .smallbtn:hover { background: rgba(255,255,255,0.08); }
 .smallbtn.danger { border-color: rgba(255, 77, 109, 0.3); color: var(--danger); }
 .smallbtn.danger:hover { background: rgba(255, 77, 109, 0.1); }
-
 .badge { font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
 
 /* CONTENT AREA */
 .content { flex: 1; display: flex; min-height: 0; }
-
-.files {
-  width: 260px;
-  min-width: 220px;
-  background: var(--panel-light);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-}
-
-.tree-header {
-  padding: 12px 16px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid var(--border);
-}
+.files { width: 260px; min-width: 220px; background: var(--panel-light); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+.tree-header { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
 .treeTitle { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; }
-
-.upload-btn {
-  background: none; border: none; color: var(--accent); cursor: pointer; font-size: 12px;
-  padding: 4px 8px; border-radius: 4px; transition: background 0.2s;
-}
+.upload-btn { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 12px; padding: 4px 8px; border-radius: 4px; transition: background 0.2s; }
 .upload-btn:hover { background: rgba(59, 108, 255, 0.1); }
 body.xmode .upload-btn:hover { background: rgba(189, 0, 255, 0.1); }
-
 .file-list { padding: 10px; overflow-y: auto; flex: 1; }
-
-.node {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 13px;
-  color: #cbd5e1;
-  transition: all 0.1s;
-}
+.node { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; color: #cbd5e1; transition: all 0.1s; }
 .node:hover { background: rgba(255,255,255,0.04); color: #fff; }
 .node.active { background: rgba(59, 108, 255, 0.15); color: #fff; border-left: 2px solid var(--accent); }
 .indent { padding-left: 20px; }
-
 .ico { opacity: 0.6; font-size: 14px; }
 
 /* STAGE */
@@ -506,7 +317,6 @@ body.xmode .upload-btn:hover { background: rgba(189, 0, 255, 0.1); }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
-
 </style>
 </head>
 
@@ -636,10 +446,11 @@ body.xmode .upload-btn:hover { background: rgba(189, 0, 255, 0.1); }
 
 <script>
 const PROJECT_ID = "{{ project_id }}";
+const INITIAL_PROMPT = "{{ initial_prompt or '' }}"; // Get the prompt from template context
 const CHAT_KEY = `gorilla_chat_${PROJECT_ID}`;
 
 let editorView = null;
-let currentFile = "index.html";
+let currentFile = "index.html"; // Default file, changed if not found
 let currentContent = "";
 let dirty = false;
 let es = null;
@@ -701,7 +512,6 @@ function setProgress(text, pct){
     $("progressBar").style.width = v + "%";
   }
   
-  // Toggle loading wave
   const wave = $("loadingWave");
   if(wave) {
       const isWorking = text && !text.includes("Idle") && !text.includes("Done") && !text.includes("Complete");
@@ -723,27 +533,20 @@ function setSaveStatus(){
 function updateTokens(newTotal) {
   const el = $("tokenDisplay");
   if(el) {
-    // Check if message implies an error or limit reached
     const isError = String(newTotal).toLowerCase().includes("error") || String(newTotal).toLowerCase().includes("limit");
     el.textContent = isError ? "Limit Reached" : (newTotal + " used");
     el.style.color = isError ? "var(--danger)" : "var(--ok)";
-    
-    // Only fade color back if it's NOT an error
-    if(!isError) {
-       setTimeout(() => el.style.color = "", 1000); 
-    }
+    if(!isError) setTimeout(() => el.style.color = "", 1000); 
   }
 }
 
 function addMessage(role, text, save=true){
   const el = document.createElement("div");
-  // Ensure roles like 'coder' get their specific class
   el.className = "msg " + role;
 
   if(role === "system"){
     el.textContent = text;
   } else {
-    // Render Markdown for user, agent, coder, planner
     const safeHtml = DOMPurify.sanitize(marked.parse(text || ""));
     el.innerHTML = `<div class="meta">${role}</div><div class="md">${safeHtml}</div>`;
   }
@@ -790,8 +593,6 @@ function renderTree(container, nodeObj, depth){
 
     const row = document.createElement("div");
     row.className = "node" + ((isFile && meta.__path === currentFile) ? " active" : "");
-    
-    // Dynamic Indentation: 10px base padding + 20px per depth level
     row.style.paddingLeft = (10 + (depth * 20)) + "px";
 
     const ico = document.createElement("span");
@@ -830,6 +631,15 @@ function renderTree(container, nodeObj, depth){
 async function refreshFiles(){
   const data = await fetchJSON(`/api/project/${PROJECT_ID}/files`);
   const paths = (data.files || []).map(x => x.path);
+  
+  if (paths.length > 0 && !paths.includes(currentFile)) {
+      // If currentFile is missing (e.g. initial load), try to find a sensible default
+      if (paths.includes('README.md')) currentFile = 'README.md';
+      else if (paths.includes('package.json')) currentFile = 'package.json';
+      else if (paths.includes('server.js')) currentFile = 'server.js';
+      else currentFile = paths[0];
+  }
+
   const tree = buildTree(paths);
   const mount = $("filetree");
   mount.innerHTML = "";
@@ -837,7 +647,7 @@ async function refreshFiles(){
 }
 
 /* --- EDITOR --- */
-function buildEditor(content){
+function buildEditor(content, fileName){
   $("editor").innerHTML = "";
   currentContent = content || "";
   dirty = false;
@@ -854,14 +664,14 @@ function buildEditor(content){
     setSaveStatus();
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => saveCurrentFile(), 800);
-  });
+  }, fileName);
 }
 
 async function loadFile(path){
   currentFile = path;
   const data = await fetchJSON(`/api/project/${PROJECT_ID}/file?path=${encodeURIComponent(path)}`);
-  buildEditor(data.content || "");
-  await refreshFiles();
+  buildEditor(data.content || "", path);
+  await refreshFiles(); // Refresh to update active state in tree
 }
 
 async function saveCurrentFile(){
@@ -906,12 +716,11 @@ $("uploadInput").onchange = (e) => {
   reader.readAsText(file);
 };
 
-/* --- EXPORT ZIP (Fixed) --- */
+/* --- EXPORT ZIP --- */
 const btnZip = $("btnExportZip");
 if (btnZip) {
   btnZip.onclick = async () => {
     addMessage("system", "Preparing ZIP download...");
-    // Redirect browser to download the zip
     window.location.href = `/api/project/${PROJECT_ID}/export`;
   };
 }
@@ -939,6 +748,7 @@ $("tabPreview").onclick = () => switchTab("preview");
 function refreshPreview(){
   const mode = $("previewMode").value;
   const ts = Date.now();
+  // Ensure we hit the correct endpoint. Assuming /run/ for Node apps
   $("preview").src = (mode === "server") ? `/run/${PROJECT_ID}/?ts=${ts}` : `/app/${PROJECT_ID}/index.html?ts=${ts}`;
 }
 $("previewMode").onchange = refreshPreview;
@@ -978,41 +788,30 @@ function startStream(){
   es.onmessage = (e) => {
     const m = JSON.parse(e.data);
     
-    // Status update (system message)
     if(m.type === "status") {
       addMessage("system", m.text);
       setProgress(m.text);
-      
-      // AUTO RELOAD PREVIEW IF SERVER IS READY
       if (m.text === "Server Running" || m.text === "Server Fixed & Running") {
-          // If we are currently on the preview tab, reload it
           if ($("tabPreview").classList.contains("active")) {
               refreshPreview();
           }
       }
     }
     
-    // Phase change
     if(m.type === "phase") setPhase(m.value);
-    
-    // Progress bar update
     if(m.type === "progress") setProgress(m.text, m.pct);
     
-    // Agent message (User, Planner, Coder, Assistant)
     if(m.type === "log") {
-      // Ensure role is valid
       const role = m.role || "agent";
       addMessage(role, m.text);
     }
     
-    // File changed by agent
     if(m.type === "file_changed") {
       setPhase("files");
       refreshFiles();
       if(m.path === currentFile) loadFile(currentFile);
     }
     
-    // Token usage update
     if(m.type === "token_usage") {
       updateTokens(m.used);
     }
@@ -1034,7 +833,6 @@ async function triggerAgent(promptText) {
     startStream();
 }
 
-// 1. Click Listener
 $("runAgent").onclick = () => {
   const p = $("prompt").value.trim();
   if(!p) return;
@@ -1042,10 +840,9 @@ $("runAgent").onclick = () => {
   triggerAgent(p);
 };
 
-// 2. Enter Key Listener
 $("prompt").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault(); // Prevent new line
+        e.preventDefault(); 
         $("runAgent").click();
     }
 });
@@ -1054,23 +851,24 @@ $("prompt").addEventListener("keydown", (e) => {
 (async () => {
   loadChatHistory();
   await refreshFiles();
-  await loadFile(currentFile);
+  // Try loading initial file, defaulting to something sensible if specific file not present
+  try {
+      await loadFile(currentFile);
+  } catch(e) {
+      console.log("Initial file load failed, waiting for content.");
+  }
+  
   startStream();
   await serverStatus();
   setProgress("Ready", 0);
   
-  // CHECK FOR AUTO-PROMPT FROM DASHBOARD
-  const urlParams = new URLSearchParams(window.location.search);
-  const autoPrompt = urlParams.get('prompt');
-  
-  if (autoPrompt) {
-      // Clear the param from URL without reloading so it doesn't re-trigger on refresh
-      window.history.replaceState({}, document.title, window.location.pathname);
-      
-      // Delay slightly to let socket connect
+  // AUTO-PROMPT FROM DASHBOARD (Using Template Variable)
+  if (INITIAL_PROMPT && INITIAL_PROMPT.length > 0) {
+      console.log("Auto-triggering prompt:", INITIAL_PROMPT);
+      // Wait a moment for socket connection
       setTimeout(() => {
-          triggerAgent(autoPrompt);
-      }, 500);
+          triggerAgent(INITIAL_PROMPT);
+      }, 1000);
   }
 })();
 </script>

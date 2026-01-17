@@ -5,6 +5,7 @@ import shutil
 import socket
 import asyncio
 import sys
+import json
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
 
@@ -12,7 +13,7 @@ import httpx
 from dotenv import dotenv_values 
 
 # --------------------------------------------------------------------------
-# INJECTED SERVER SCRIPT
+# INJECTED SERVER SCRIPT (PYTHON ONLY)
 # This script handles imports safely and catches SyntaxErrors (truncation)
 # --------------------------------------------------------------------------
 SERVER_ENTRY_SCRIPT = """
@@ -74,16 +75,15 @@ class RunInfo:
     port: int
     proc: asyncio.subprocess.Process
     root_dir: str
-    python_bin: str
+    runtime_bin: str # python path or 'node'
 
 class ProjectRunManager:
     """
-    DEV-only runner:
-      - dumps project files to /tmp/gor-a/<project_id>/
-      - installs requirements.txt into a project venv if present
-      - INJECTS `server_entry.py` to handle startup safely
-      - runs `python server_entry.py` instead of `python -m uvicorn`
-      - proxies via FastAPI endpoint (in app.py)
+    Hybrid Runner:
+      - Detects Python (requirements.txt) vs Node.js (package.json)
+      - Python: Installs venv, runs injected server_entry.py
+      - Node: Runs npm install, runs npm start (or node entry)
+      - Proxies traffic to localhost:PORT
     """
 
     def __init__(self, base_dir: str = "/tmp/gor-a"):
@@ -135,7 +135,8 @@ class ProjectRunManager:
         except Exception as e:
             return 1, str(e)
 
-    async def _ensure_venv_and_install(self, root: str) -> str:
+    # --- PYTHON SETUP ---
+    async def _setup_python(self, root: str) -> str:
         req_path = os.path.join(root, "requirements.txt")
         venv_dir = os.path.join(root, ".venv")
         curr_python = sys.executable
@@ -156,14 +157,10 @@ class ProjectRunManager:
 
         pip_bin = [python_bin, "-m", "pip"]
 
-        # 3. Core Deps (Uvicorn/FastAPI/Dotenv)
-        # We try twice. If it fails, we nuke the venv.
+        # 3. Core Deps
         for attempt in range(2):
-            # Note: We install standard uvicorn, not the module version logic
             code, out = await self._run_cmd(root, pip_bin + ["install", "--upgrade", "pip", "uvicorn", "fastapi", "python-dotenv", "aiofiles", "jinja2", "multipart"], timeout_s=300)
-            
-            if code == 0:
-                break
+            if code == 0: break
             
             if attempt == 0:
                 print(f"⚠️ Venv issue. Recreating at {venv_dir}...")
@@ -175,11 +172,53 @@ class ProjectRunManager:
         # 4. User Reqs
         if os.path.exists(req_path):
             code, out = await self._run_cmd(root, pip_bin + ["install", "-r", "requirements.txt"], timeout_s=600)
-            # We log but don't crash on user reqs failure (sometimes they ask for bad versions)
             if code != 0: 
                 print(f"⚠️ Warning: requirements.txt install had issues:\n{out}")
 
+        # 5. Inject Runner
+        server_entry_path = os.path.join(root, "server_entry.py")
+        with open(server_entry_path, "w", encoding="utf-8") as f:
+            f.write(SERVER_ENTRY_SCRIPT)
+
         return python_bin
+
+    # --- NODE.JS SETUP ---
+    async def _setup_node(self, root: str) -> list[str]:
+        """Runs npm install and returns the start command."""
+        pkg_path = os.path.join(root, "package.json")
+        
+        # 1. Install Dependencies
+        if os.path.exists(pkg_path):
+            print("--> Running npm install...")
+            code, out = await self._run_cmd(root, ["npm", "install"], timeout_s=400)
+            if code != 0:
+                raise RuntimeError(f"npm install failed:\n{out}")
+        
+        # 2. Determine Start Command
+        try:
+            with open(pkg_path) as f:
+                pkg_data = json.load(f)
+            
+            scripts = pkg_data.get("scripts", {})
+            
+            if "start" in scripts:
+                return ["npm", "start"]
+            elif "dev" in scripts:
+                return ["npm", "run", "dev"]
+            elif pkg_data.get("main"):
+                return ["node", pkg_data["main"]]
+        except Exception:
+            pass
+            
+        # Fallback heuristics
+        if os.path.exists(os.path.join(root, "server.js")):
+            return ["node", "server.js"]
+        if os.path.exists(os.path.join(root, "index.js")):
+            return ["node", "index.js"]
+        if os.path.exists(os.path.join(root, "app.js")):
+            return ["node", "app.js"]
+            
+        raise RuntimeError("Could not determine Node.js entry point (no 'start' script, server.js, or index.js).")
 
     async def start(self, project_id: str, file_tree: Dict[str, str]) -> RunInfo:
         await self.stop(project_id)
@@ -194,68 +233,74 @@ class ProjectRunManager:
             os.makedirs(os.path.dirname(abs_path), exist_ok=True)
             with open(abs_path, "w", encoding="utf-8") as f: f.write(content or "")
 
-        # 2. Verify app.py
-        entry = os.path.join(root, "app.py")
-        if not os.path.exists(entry):
-            raise RuntimeError("No app.py found.")
+        # 2. Detect Runtime
+        is_node = os.path.exists(os.path.join(root, "package.json"))
+        
+        start_cmd = []
+        runtime_bin = ""
 
-        # 3. Inject SERVER_ENTRY.PY (Method 2)
-        server_entry_path = os.path.join(root, "server_entry.py")
-        with open(server_entry_path, "w", encoding="utf-8") as f:
-            f.write(SERVER_ENTRY_SCRIPT)
+        # 3. Setup Environment
+        if is_node:
+            runtime_bin = "node"
+            start_cmd = await self._setup_node(root)
+        else:
+            # Assume Python if no package.json
+            if not os.path.exists(os.path.join(root, "app.py")):
+                raise RuntimeError("Invalid project structure: No app.py (Python) or package.json (Node) found.")
+            
+            python_bin = await self._setup_python(root)
+            runtime_bin = python_bin
+            start_cmd = [python_bin, "server_entry.py"]
 
-        # 4. Setup Venv
-        python_bin = await self._ensure_venv_and_install(root)
         port = _pick_free_port()
 
-        # 5. Env Vars
+        # 4. Prepare Env Vars
         env_vars = os.environ.copy()
-        
+        # Remove sensitive keys from host
         sensitive_keys = [
             "FIREWORKS_API_KEY", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_URL",
-            "RESEND_API_KEY", "AUTH_SECRET_KEY", "GROQ_API_KEY",
-            "GOOGLE_CLIENT_SECRET", "GOOGLE_CLIENT_ID", "FIREWORKS_URL"
+            "RESEND_API_KEY", "AUTH_SECRET_KEY", "GROQ_API_KEY"
         ]
-        for k in sensitive_keys:
-            env_vars.pop(k, None)
+        for k in sensitive_keys: env_vars.pop(k, None)
 
         env_vars.update(self.injected_secrets)
         env_vars["PYTHONUNBUFFERED"] = "1"
-        env_vars["PORT"] = str(port)
+        env_vars["PORT"] = str(port) # Both Uvicorn and standard Node apps listen on PORT
 
-        # 6. RUN THE INJECTED SCRIPT (Not -m uvicorn)
+        # 5. Launch Process
+        print(f"--> Launching {project_id} on port {port} using {start_cmd}...")
         proc = await asyncio.create_subprocess_exec(
-            python_bin, "server_entry.py",  # <--- MAGIC FIX
+            *start_cmd, 
             cwd=root, env=env_vars,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
 
-        info = RunInfo(project_id=project_id, port=port, proc=proc, root_dir=root, python_bin=python_bin)
+        info = RunInfo(project_id=project_id, port=port, proc=proc, root_dir=root, runtime_bin=runtime_bin)
         self._runs[project_id] = info
 
-        # 7. Health Check
+        # 6. Health Check
         startup_error = None
         for _ in range(60): 
             await asyncio.sleep(0.5)
             
             if proc.returncode is not None:
-                # Process died. Read stderr to see why.
+                # Died
                 raw_err = await proc.stderr.read()
-                raw_out = await proc.stdout.read() # Sometimes error is in stdout due to our script
-                
+                raw_out = await proc.stdout.read()
                 full_log = (raw_out.decode() + "\n" + raw_err.decode()).strip()
                 
-                # Check for our custom markers
-                if "CRITICAL: APP.PY SYNTAX ERROR" in full_log:
+                # Check for common errors
+                if "CRITICAL:" in full_log:
                     startup_error = full_log
-                elif "frozen runpy" in full_log:
-                     startup_error = "System Error: Python environment corrupted. Please retry."
+                elif "Error:" in full_log:
+                    startup_error = full_log
                 else:
-                    startup_error = full_log or "Unknown crash."
+                    startup_error = full_log or "Unknown crash (process exited)."
                 break
             
             try:
+                # Try to hit the root
                 async with httpx.AsyncClient(timeout=1.0) as client:
                     await client.get(f"http://127.0.0.1:{port}/")
                 return info
@@ -263,18 +308,14 @@ class ProjectRunManager:
                 continue
         
         if startup_error:
-            # Clean up the error message for the user
             clean_err = startup_error
             if "CRITICAL:" in clean_err:
-                # Extract just the critical part
-                try:
-                    clean_err = clean_err.split("="*40)[1].strip()
-                except:
-                    pass
+                try: clean_err = clean_err.split("="*40)[1].strip()
+                except: pass
             raise RuntimeError(f"App crashed during startup:\n{clean_err}")
         
         await self.stop(project_id)
-        raise RuntimeError("Server started but timed out (port not reachable).")
+        raise RuntimeError("Server started but timed out (port not reachable). Did you listen on process.env.PORT?")
 
     async def proxy(self, project_id: str, path: str, method: str, headers: dict, body: bytes, query: str) -> httpx.Response:
         running, port = self.is_running(project_id)

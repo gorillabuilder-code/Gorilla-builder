@@ -56,8 +56,10 @@ if not os.path.isdir(FRONTEND_DIR):
     FRONTEND_STYLES_DIR = os.path.join(FRONTEND_DIR, "styles")
 
 DEV_MODE = os.getenv("DEV_MODE", "1") == "1"
-# Default limit for new users if not in DB
-DEFAULT_TOKEN_LIMIT = int(os.getenv("MONTHLY_TOKEN_LIMIT", "100000"))
+
+# --- UPDATED: DEFAULT LIMIT IS NOW 250k ---
+DEFAULT_TOKEN_LIMIT = int(os.getenv("MONTHLY_TOKEN_LIMIT", "250000"))
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # GOOGLE AUTH
@@ -309,7 +311,7 @@ def send_otp_email(to_email: str, code: str):
 # PUBLIC ROUTES (Templates)
 # ==========================================================================
 PUBLIC_PAGES = {
-    "/": "index.html",
+    "/": "landing/index.html",
     "/login": "auth/login.html",
     "/signup": "auth/signup.html", # Used for both steps
     "/forgot-password": "forgot.html",
@@ -319,6 +321,7 @@ PUBLIC_PAGES = {
     "/help": "help.html",
     "/about": "about.html",
 }
+app.mount("/assets", StaticFiles(directory="frontend/templates/landing/assets"), name="assets")
 
 for route, template_name in PUBLIC_PAGES.items():
     def make_handler(t_name):
@@ -600,7 +603,7 @@ async def workspace(request: Request):
 import io
 import zipfile
 
-# --- UPDATED CREATE ROUTE FOR DASHBOARD PROMPTS ---
+# --- UPDATED CREATE ROUTE: INTERCEPT DASHBOARD PROMPTS ---
 @app.post("/projects/create")
 async def create_project(
     request: Request, 
@@ -611,19 +614,20 @@ async def create_project(
     user = get_current_user(request)
     ensure_public_user(user["id"], user.get("email") or "unknown@local")
 
-    # 1. Determine Project Name
-    # If using the dashboard input, 'name' is empty but 'prompt' has text.
-    project_name = name
-    if not project_name:
-        if prompt:
-             # Auto-generate name based on timestamp
-             project_name = f"Project {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        else:
-             project_name = "Untitled Project"
+    # CASE A: Request coming from DASHBOARD input (has prompt, no name)
+    # Action: Redirect to 'Create Project' page so user can type the name
+    if prompt and not name:
+        # Safe URL encoding for the prompt
+        safe_prompt = urllib.parse.quote(prompt)
+        # Redirect to the creation form, pre-filling the prompt
+        return RedirectResponse(f"/projects/createit?prompt={safe_prompt}", status_code=303)
+
+    # CASE B: Request coming from CREATE PAGE (has name, optional prompt)
+    # Action: Actually create the project in DB
+    project_name = name or "Untitled Project"
     
-    # 2. Insert into DB
     try:
-        # We store the initial prompt in the description for now, or just keep it for the redirects
+        # Store the prompt in description if provided
         desc_to_save = description or (prompt[:200] if prompt else "")
         
         res = (
@@ -637,11 +641,10 @@ async def create_project(
         project = res.data[0]
         pid = project['id']
         
-        # 3. Redirect to Editor
-        # If we have a prompt, pass it as a query param so the frontend can read it and auto-start.
+        # Redirect to Editor
+        # Pass the prompt along so the Agent starts building immediately
         target_url = f"/projects/{pid}/editor"
         if prompt:
-            # Safe URL encoding
             safe_prompt = urllib.parse.quote(prompt)
             target_url += f"?prompt={safe_prompt}"
             
@@ -659,7 +662,7 @@ async def project_create(request: Request):
     )
     
 @app.get("/projects/{project_id}/editor", response_class=HTMLResponse)
-async def project_editor(request: Request, project_id: str, file: str = "index.html"):
+async def project_editor(request: Request, project_id: str, file: str = "index.html", prompt: Optional[str] = None):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
@@ -675,9 +678,17 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
     used, limit = get_token_usage_and_limit(user["id"])
     user["tokens"] = {"used": used, "limit": limit}
 
+    # Pass the 'prompt' (from URL query param) to the template
+    # This allows the frontend to auto-trigger the agent build
     return templates.TemplateResponse(
         "projects/project-editor.html",
-        {"request": request, "project_id": project_id, "file": file, "user": user}
+        {
+            "request": request, 
+            "project_id": project_id, 
+            "file": file, 
+            "user": user,
+            "INITIAL_PROMPT": prompt  # <--- CRITICAL FIX
+        }
     )
 
 @app.get("/projects/{project_id}/xmode", response_class=HTMLResponse)
