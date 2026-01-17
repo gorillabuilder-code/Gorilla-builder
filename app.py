@@ -604,6 +604,21 @@ import io
 import zipfile
 
 # --- UPDATED CREATE ROUTE: INTERCEPT DASHBOARD PROMPTS ---
+# 1. When they land on the page: STASH the prompt in the session
+@app.get("/projects/createit", response_class=HTMLResponse)
+async def project_create_page(request: Request, prompt: Optional[str] = None):
+    user = get_current_user(request)
+    
+    # --- FIX: Save prompt to session so it survives the form submit ---
+    if prompt:
+        request.session["stashed_prompt"] = prompt
+        
+    return templates.TemplateResponse(
+        "projects/project-create.html", 
+        {"request": request, "user": user, "initial_prompt": prompt}
+    )
+
+# 2. When they click 'Create': POP the prompt from the session
 @app.post("/projects/create")
 async def create_project(
     request: Request, 
@@ -612,54 +627,46 @@ async def create_project(
     description: str = Form("")
 ):
     user = get_current_user(request)
-    ensure_public_user(user["id"], user.get("email") or "unknown@local")
 
-    # CASE A: Request coming from DASHBOARD input (has prompt, no name)
-    # Action: Redirect to 'Create Project' page so user can type the name
+    # CHECK 1: Is this a direct request from Dashboard? (Has prompt, no name)
     if prompt and not name:
-        # Safe URL encoding for the prompt
         safe_prompt = urllib.parse.quote(prompt)
-        # Redirect to the creation form, pre-filling the prompt
         return RedirectResponse(f"/projects/createit?prompt={safe_prompt}", status_code=303)
 
-    # CASE B: Request coming from CREATE PAGE (has name, optional prompt)
-    # Action: Actually create the project in DB
+    # CHECK 2: Is the prompt missing? Check the session stash!
+    final_prompt = prompt
+    if not final_prompt:
+        final_prompt = request.session.pop("stashed_prompt", None)
+
+    # Proceed with creation
     project_name = name or "Untitled Project"
     
     try:
-        # Store the prompt in description if provided
-        desc_to_save = description or (prompt[:200] if prompt else "")
+        # Use final_prompt here
+        desc_to_save = description or (final_prompt[:200] if final_prompt else "")
         
-        res = (
-            supabase.table("projects")
-            .insert({"owner_id": user["id"], "name": project_name, "description": desc_to_save})
-            .execute()
-        )
+        res = supabase.table("projects").insert({
+            "owner_id": user["id"], 
+            "name": project_name, 
+            "description": desc_to_save
+        }).execute()
+        
         if not res or not res.data:
-            raise Exception("No data returned from insert")
+            raise Exception("DB Insert Failed")
             
-        project = res.data[0]
-        pid = project['id']
+        pid = res.data[0]['id']
         
-        # Redirect to Editor
-        # Pass the prompt along so the Agent starts building immediately
+        # Build URL with the recovered prompt
         target_url = f"/projects/{pid}/editor"
-        if prompt:
-            safe_prompt = urllib.parse.quote(prompt)
+        if final_prompt:
+            safe_prompt = urllib.parse.quote(final_prompt)
             target_url += f"?prompt={safe_prompt}"
             
         return RedirectResponse(target_url, status_code=303)
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Create failed: {e}")
-
-@app.get("/projects/createit", response_class=HTMLResponse)
-async def project_create(request: Request):
-    user = get_current_user(request)
-    return templates.TemplateResponse(
-        "projects/project-create.html", 
-        {"request": request, "user": user}
-    )
+        print(f"Create Project Error: {e}")
+        return RedirectResponse("/dashboard?error=creation_failed", status_code=303)
     
 @app.get("/projects/{project_id}/editor", response_class=HTMLResponse)
 async def project_editor(request: Request, project_id: str, file: str = "index.html", prompt: Optional[str] = None):
@@ -687,7 +694,7 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
             "project_id": project_id, 
             "file": file, 
             "user": user,
-            "INITIAL_PROMPT": prompt  # <--- CRITICAL FIX
+            "initial_prompt": prompt  # <--- CRITICAL FIX
         }
     )
 
@@ -981,7 +988,7 @@ async def _start_server_with_retry(project_id: str):
     """
     emit_status(project_id, "Booting server...")
     
-    max_retries = 8
+    max_retries = 15
     history = []
     
     # Initial attempt to start
