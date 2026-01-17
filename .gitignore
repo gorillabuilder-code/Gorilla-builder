@@ -64,3 +64,4 @@ Backup_*
 # Python bytecode and cache files
 __pycache__/
 *.py[cod]
+.env
