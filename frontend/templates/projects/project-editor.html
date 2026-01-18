@@ -446,7 +446,7 @@ body.xmode .upload-btn:hover { background: rgba(189, 0, 255, 0.1); }
 
 <script>
 const PROJECT_ID = "{{ project_id }}";
-const INITIAL_PROMPT = "{{ initial_prompt }}"; // Get the prompt from template context
+const INITIAL_PROMPT = "{{ initial_prompt or '' }}"; // Get the prompt from template context
 const CHAT_KEY = `gorilla_chat_${PROJECT_ID}`;
 
 let editorView = null;
