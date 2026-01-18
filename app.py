@@ -695,23 +695,30 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
     except Exception:
         pass
     # --- FIX END ---
+
+    # --- NEW FIX: FETCH PROJECT DETAILS FOR TEMPLATE ---
+    try:
+        res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
+        project = res.data
+    except Exception:
+        project = {} # Fallback to empty dict to prevent Jinja crash
+    # ---------------------------------------------------
     
     used, limit = get_token_usage_and_limit(user["id"])
     user["tokens"] = {"used": used, "limit": limit}
 
-    # Pass the 'prompt' (from URL query param) to the template
-    # This allows the frontend to auto-trigger the agent build
     return templates.TemplateResponse(
         "projects/project-editor.html",
         {
             "request": request, 
             "project_id": project_id, 
+            "project": project,  # <--- THIS WAS MISSING
             "file": file, 
             "user": user,
-            "initial_prompt": prompt  # <--- CRITICAL FIX
+            "initial_prompt": prompt
         }
     )
-
+    
 @app.get("/projects/{project_id}/xmode", response_class=HTMLResponse)
 async def project_xmode(request: Request, project_id: str, file: str = "index.html"):
     """

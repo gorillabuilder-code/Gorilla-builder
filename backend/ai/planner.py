@@ -18,7 +18,7 @@ import httpx
 # -------------------------------------------------
 
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "accounts/fireworks/models/glm-4p7") 
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "accounts/fireworks/models/minimax-m2p1") 
 FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
 
 if not FIREWORKS_API_KEY:
@@ -177,8 +177,8 @@ class Planner:
     "{\n"
     '  "assistant_message": "A friendly summary of the architecture...",\n'
     '  "tasks": [\n'
-    '    "Step 1: [Project: ChatApp | Stack: Runtime React/Node | Description: ChatApp is a freindly chatbot...] Create package.json... (make this really big for the Coder to know what to do)",\n'
-    '    "Step 2: [Project: ChatApp | Stack: Runtime React/Node | Description: ChatApp is a freindly chatbot...] Create index.html with CDNs...(make this really big for the Coder to know what to do)"\n'
+    '    "Step 1: [Project: ChatApp | Stack: Runtime React/Node | Description: ChatApp is a freindly chatbot...(this is *very important* as the coder needs to know what we are building and has no chat history)] Create package.json... (make this really big for the Coder to know what to do)",\n'
+    '    "Step 2: [Project: ChatApp | Stack: Runtime React/Node | Description: ChatApp is a freindly chatbot...(this is *very important* as the coder needs to know what we are building and has no chat history)] Create index.html with CDNs...(make this really big for the Coder to know what to do)"\n'
     "  ]\n"
     "}\n\n"
 
