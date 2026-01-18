@@ -1091,11 +1091,36 @@ async def agent_start(
     emit_log(project_id, "user", prompt)
 
     async def _run():
+        nonlocal prompt
         total_run_tokens = 0
         try:
             await asyncio.sleep(0.5)
             emit_progress(project_id, "Reading project files...", 5)
             file_tree = await _fetch_file_tree(project_id)
+
+            # --- [SELF-HEALING] INJECT RUNTIME ERRORS INTO PROMPT ---
+            # Try to read server_errors.txt from the runtime directory
+            try:
+                # We assume run_manager stores projects in ROOT_DIR/projects/{project_id}
+                # or a similar accessible local path since it writes server_errors.txt locally.
+                projects_dir = os.path.join(ROOT_DIR, "projects")
+                error_log_path = os.path.join(projects_dir, project_id, "server_errors.txt")
+                
+                if os.path.exists(error_log_path):
+                    with open(error_log_path, 'r', encoding="utf-8") as f:
+                        errors = f.read().strip()
+                        if errors:
+                            # Append error context to the prompt
+                            prompt += f"\n\n[CRITICAL RUNTIME ERRORS DETECTED]\nThe following errors were logged by the server. You MUST fix them:\n{errors}\n"
+                            emit_log(project_id, "system", "🩺 Auto-Healing: Found crash logs. Instructing AI to fix.")
+                    
+                    # Clear the log after reading so we don't loop on old errors
+                    with open(error_log_path, 'w', encoding="utf-8") as f:
+                        f.write("")
+            except Exception as e:
+                # Fail silently if logs aren't found or accessible
+                pass
+            # --------------------------------------------------------
             
             planner = Planner()
             

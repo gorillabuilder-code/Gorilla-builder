@@ -168,7 +168,7 @@ class Planner:
         modules = sorted({AI_CAPABILITIES[c] for c in capabilities if c in AI_CAPABILITIES})
 
         # 3. LLM Generation (Message + Tasks)
-        system_prompt = (
+       system_prompt = (
     "You are the Lead Architect for a high-performance web application. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in Node.js and **Runtime React** (No-Build).\n"
     "CRITICAL CONTEXT: The AI Coder executes tasks in isolation. It has NO memory of previous files unless you provide context in *every single task description*.\n\n"
 
@@ -186,18 +186,19 @@ class Planner:
     "1. **Stack:** \n"
     "   - Backend: Node.js with Express (`server.js`).\n"
     "   - Frontend: React (Runtime/CDN-based). NO Vite, NO Webpack, NO `src` folder.\n"
-    "   - Database: Supabase (using `@supabase/supabase-js`).\n"
+    "   - Database: **Local SQLite** (using `better-sqlite3`) OR **JSON File Storage** (using `fs`). Do NOT use external DBs like Supabase unless explicitly asked.\n"
     "2. **Strict Separation:**\n"
-    "   - `server.js` serves the API and the `static/` folder.\n"
+    "   - `server.js` serves the API, the `static/` folder, and **Handles Error Logging**.\n"
     "   - `index.html` lives in the root.\n"
     "   - All React code lives in `static/main.js` (and other `.js` files in `static/`).\n"
     "3. **The Build Sequence (Runtime React Edition):**\n"
-    "   - Phase 1: `package.json`. Define `scripts` ('start': 'node server.js') and `dependencies` ('express', 'cors', 'dotenv', 'fireworks-ai', '@supabase/supabase-js'). Do NOT include 'vite' or 'react' here (they are CDNs).\n"
-    "   - Phase 2: `server.js` (Backend Skeleton). Setup Express, API placeholders, and **critical** static file serving (`app.use('/static', ...)` and root route for `index.html`).\n"
-    "   - Phase 3: `index.html` (The Shell). Create the root HTML. **CRITICAL:** Must include Babel, React, and Tailwind CDNs. Must link to `static/main.js` with `type='text/babel'`.\n"
-    "   - Phase 4: `static/main.js` (The App). Initialize the React Root (`ReactDOM.createRoot`) and main App component.\n"
-    "   - Phase 5: `static/components/...`. Create specific UI components. (e.g., `static/components/ChatBox.js`). NOTE: Use `.js` extension, NOT `.jsx`.\n"
-    "   - Phase 6: `server.js` (Final Logic). Implement the actual API endpoints.\n"
+    "   - Phase 1: `package.json`. Define `scripts` ('start': 'node server.js') and `dependencies` ('express', 'cors', 'dotenv', 'fireworks-ai', 'better-sqlite3'). **Do NOT include** 'vite' or 'react' here.\n"
+    "   - Phase 2: `server.js` (Backend Skeleton). Setup Express, `app.use(express.json())`, and the **Critical Error Logging Route** (`POST /api/log-error`). Setup static serving.\n"
+    "   - Phase 3: `database.js` (The Adapter). Create local DB setup.\n"
+    "   - Phase 4: `index.html` (The Shell). Create root HTML with Babel/React CDNs. **CRITICAL:** Include the `window.onerror` Spy Script in the `<head>`.\n"
+    "   - Phase 5: `static/main.js` (The App). Initialize React Root.\n"
+    "   - Phase 6+: `static/components/...`. Create specific UI components. Use `.js` extension.\n"
+    "   - Final Phase: `server.js` (Final Logic). Implement API endpoints.\n"
     "4. **The 'Global Blueprint' Rule:**\n"
     "   - Every task string MUST start with: `[App: {Name} | Stack: Runtime React/Node] ...`\n\n"
 
@@ -211,7 +212,9 @@ class Planner:
     "   - Vision: 'accounts/fireworks/models/qwen3-vl-30b-a3b-instruct'\n"
     "   - Image Gen: 'accounts/fireworks/models/stable-diffusion-xl-1024-v1-0'\n"
     "   - BG Removal: Use `process.env.REM_BG_API_KEY`.\n"
-    "3. **Volume:** 7-10 tasks for a standard app."
+    "3. **Volume:** \n"
+    "   - **Complex Apps: 20-23 tasks.** Break down every component and API route into its own task.\n"
+    "   - Simple Apps: 7-10 tasks."
         )
         
         # Prepare context
