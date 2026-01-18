@@ -18,7 +18,7 @@ import httpx
 # -------------------------------------------------
 
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "accounts/fireworks/models/glm-4p7") 
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "accounts/fireworks/models/kimi-k2-thinking") 
 FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
 
 if not FIREWORKS_API_KEY:
@@ -249,27 +249,27 @@ class Planner:
             "Authorization": f"Bearer {FIREWORKS_API_KEY}"
         }
 
-        # --- RETRY LOGIC FOR 503 ERRORS ---
-        max_retries = 1
+        # --- RETRY LOGIC (503s AND Invalid JSON) ---
+        max_retries = 2
         for attempt in range(max_retries + 1):
             try:
                 with httpx.Client(timeout=120.0) as client:
                     resp = client.post(FIREWORKS_URL, json=payload, headers=headers)
                     
-                    # Handle 503 explicitly
+                    # 1. Handle 503 Service Unavailable (Retry Loop)
                     if resp.status_code == 503:
                         if attempt < max_retries:
                             print(f"Planner encountered 503. Retrying ({attempt+1}/{max_retries})...")
                             time.sleep(1) # Wait a sec before retry
                             continue
                         else:
-                            # Final failure logic
+                            # Final failure logic for 503
                             error_msg = "Service Unavailable (503). I am very sorry for the inconvenience."
                             _append_history(project_id, "system", error_msg)
                             return {
                                 "assistant_message": error_msg,
                                 "plan": {"todo": []},
-                                "todo_md": "# Service Unavailable\n\nThe AI planner is currently overloaded. Please try again shortly. If this continues blame [FIREWORKS.AI](https://fireworks.ai)",
+                                "todo_md": "# Service Unavailable\n\nThe AI planner is currently overloaded. Please try again shortly.",
                                 "usage": {"total_tokens": 0} 
                             }
                             
@@ -278,17 +278,19 @@ class Planner:
 
                 raw = data_api["choices"][0]["message"]["content"]
                 
+                # 2. Extract JSON
                 data = _extract_json(raw)
                 
-                # --- NEW: RETRY IF JSON EXTRACTION FAILS ---
+                # 3. Handle Invalid JSON (Re-prompt / Retry Loop)
                 if not data:
                     if attempt < max_retries:
-                        print(f"Planner JSON extraction failed. Retrying ({attempt+1}/{max_retries})...")
+                        print(f"Planner JSON extraction failed. Reprompting AI ({attempt+1}/{max_retries})...")
                         time.sleep(1) 
-                        continue
+                        continue # This triggers the loop to call client.post() again (Reprompt)
                     else:
-                        raise ValueError(f"Could not extract JSON from response: {raw[:100]}...")
+                        raise ValueError(f"Could not extract JSON from response after {max_retries+1} attempts: {raw[:100]}...")
                 
+                # --- Success Path ---
                 tasks = data.get("tasks", [])
                 assistant_message = data.get("assistant_message", "I have updated the plan.")
                 
@@ -296,7 +298,7 @@ class Planner:
                 usage = data_api.get("usage", {})
                 total_tokens = int(usage.get("total_tokens", 0))*3.25
 
-                # 4. Construct response objects
+                # Construct response objects
                 base_plan = {
                     "capabilities": capabilities,
                     "ai_modules": modules,
@@ -304,7 +306,7 @@ class Planner:
                     "todo": tasks,
                 }
 
-                # 5. Save assistant reply to history
+                # Save assistant reply to history
                 if project_id:
                     _append_history(project_id, "assistant", assistant_message)
 
@@ -316,9 +318,14 @@ class Planner:
                 }
 
             except Exception as e:
-                # If we are in the loop and it's not the last attempt, we might want to retry network errors too
-                # But strict requirement was "if 503 occurs". For generic exceptions:
-                print(f"Planner Error: {e}")
+                # If an error occurs that isn't caught by the retry logic (e.g. 500, 400, or network error),
+                # check if we should retry or fail immediately.
+                if attempt < max_retries:
+                     print(f"Planner Generic Error: {e}. Retrying ({attempt+1}/{max_retries})...")
+                     time.sleep(1)
+                     continue
+                
+                print(f"Planner Final Error: {e}")
                 
                 fallback_msg = f"I encountered an error generating the plan: {str(e)}"
                 if project_id:
