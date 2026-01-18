@@ -175,7 +175,7 @@ class Coder:
         file_list_txt = "\n".join(f"- {p}" for p in file_list[:300])
         
         context_snippets: List[str] = []
-        for p in ["app.py", "main.py", "index.html", "requirements.txt", "styles.css", "script.js"]:
+        for p in ["app.jsx", "main.jsx", "index.html", "package.json", "styles.css", "server.js"]:
             if p in file_tree:
                 c = file_tree[p]
                 context_snippets.append(f"--- {p} ---\n{c[:8000]}\n")

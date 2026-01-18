@@ -177,8 +177,8 @@ class Planner:
     "{\n"
     '  "assistant_message": "A friendly summary of the architecture...",\n'
     '  "tasks": [\n'
-    '    "Step 1: [Project: ChatApp | Stack: Runtime React/Node] Create package.json...",\n'
-    '    "Step 2: [Project: ChatApp | Stack: Runtime React/Node] Create index.html with CDNs..."\n'
+    '    "Step 1: [Project: ChatApp | Stack: Runtime React/Node | Description: ChatApp is a freindly chatbot...] Create package.json... (make this really big for the Coder to know what to do)",\n'
+    '    "Step 2: [Project: ChatApp | Stack: Runtime React/Node | Description: ChatApp is a freindly chatbot...] Create index.html with CDNs...(make this really big for the Coder to know what to do)"\n'
     "  ]\n"
     "}\n\n"
 
