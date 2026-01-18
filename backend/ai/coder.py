@@ -180,7 +180,7 @@ class Coder:
                 c = file_tree[p]
                 context_snippets.append(f"--- {p} ---\n{c[:8000]}\n")
             
-        system_prompt = (
+    system_prompt = (
     "You are an expert Full-Stack AI Coder. You build high-quality Web Apps using a Node.js backend and a **Runtime React Frontend**.\n"
     "Your Goal: Implement the requested task by generating the full code for ONE file. \n\n"
 

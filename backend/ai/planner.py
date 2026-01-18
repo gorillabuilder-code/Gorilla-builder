@@ -168,7 +168,7 @@ class Planner:
         modules = sorted({AI_CAPABILITIES[c] for c in capabilities if c in AI_CAPABILITIES})
 
         # 3. LLM Generation (Message + Tasks)
-       system_prompt = (
+        system_prompt = (
     "You are the Lead Architect for a high-performance web application. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in Node.js and **Runtime React** (No-Build).\n"
     "CRITICAL CONTEXT: The AI Coder executes tasks in isolation. It has NO memory of previous files unless you provide context in *every single task description*.\n\n"
 
@@ -275,8 +275,15 @@ class Planner:
                 raw = data_api["choices"][0]["message"]["content"]
                 
                 data = _extract_json(raw)
+                
+                # --- NEW: RETRY IF JSON EXTRACTION FAILS ---
                 if not data:
-                    raise ValueError(f"Could not extract JSON from response: {raw[:100]}...")
+                    if attempt < max_retries:
+                        print(f"Planner JSON extraction failed. Retrying ({attempt+1}/{max_retries})...")
+                        time.sleep(1) 
+                        continue
+                    else:
+                        raise ValueError(f"Could not extract JSON from response: {raw[:100]}...")
                 
                 tasks = data.get("tasks", [])
                 assistant_message = data.get("assistant_message", "I have updated the plan.")
