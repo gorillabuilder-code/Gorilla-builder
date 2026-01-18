@@ -115,6 +115,15 @@ hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:14px 0}
   padding: 2px 6px; border-radius: 4px; background: rgba(255,215,0,0.05);
   margin-bottom: 8px;
 }
+
+.url-preview {
+    font-family: monospace;
+    font-size: 12px;
+    color: var(--accent);
+    margin-top: 4px;
+    display: block;
+    word-break: break-all;
+}
 </style>
 </head>
 
@@ -128,7 +137,7 @@ hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:14px 0}
     </div>
     <div style="display:flex;gap:10px">
       <a class="btn" href="/projects/{{ project_id }}/editor">← Back to editor</a>
-      <a class="btn" href="/projects/{{ project_id }}/preview" target="_blank">Open preview ↗</a>
+      <a class="btn" href="/app/{{ project.subdomain if project.subdomain else project_id }}/" target="_blank">Open Live App ↗</a>
     </div>
   </div>
 
@@ -159,6 +168,13 @@ hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:14px 0}
     <div class="card">
       <h2>Deployment & Hosting</h2>
 
+      <label>Live URL (Slug)</label>
+      <input type="text" value="{{ project.subdomain if project.subdomain else project_id }}" disabled style="opacity:0.7; cursor:text;" />
+      <span class="url-preview">https://gorillabuilder.dev/app/{{ project.subdomain if project.subdomain else project_id }}</span>
+      <div class="note">This is your permanent public URL. It automatically wakes up your app when visited.</div>
+
+      <hr/>
+
       {% if user.plan != 'premium' %}
       <div class="premium-lock">
         🔒 Upgrade to Premium to unlock
@@ -169,14 +185,6 @@ hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:14px 0}
       <input type="text" placeholder="e.g. myapp.com" 
              {% if user.plan != 'premium' %}disabled{% endif %} />
       <div class="note">Connect your own domain name. DNS verification required.</div>
-
-      <label>Hosting Region</label>
-      <select {% if user.plan != 'premium' %}disabled{% endif %}>
-        <option>US East (N. Virginia)</option>
-        <option>US West (Oregon)</option>
-        <option>EU Central (Frankfurt)</option>
-        <option>Asia Pacific (Singapore)</option>
-      </select>
 
       <hr/>
 

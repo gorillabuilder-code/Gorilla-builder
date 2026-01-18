@@ -10,6 +10,7 @@ import mimetypes
 import traceback
 import random
 import string
+import re
 import urllib.parse  # Added for safe URL redirection
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -38,6 +39,7 @@ from backend.run_manager import ProjectRunManager
 from backend.ai.planner import Planner
 from backend.ai.coder import Coder
 from backend.ai.Xcoder import XCoder
+from backend.deployer import Deployer # <--- NEW IMPORT
 
 
 # ==========================================================================
@@ -642,21 +644,33 @@ async def create_project(
     project_name = name or "Untitled Project"
     
     try:
-        # Use final_prompt here
-        desc_to_save = description or (final_prompt[:200] if final_prompt else "")
-        
+        # STEP 1: Insert Project (Get the ID)
         res = supabase.table("projects").insert({
             "owner_id": user["id"], 
             "name": project_name, 
-            "description": desc_to_save
+            "description": description or (final_prompt[:200] if final_prompt else "")
         }).execute()
         
         if not res or not res.data:
             raise Exception("DB Insert Failed")
             
-        pid = res.data[0]['id']
+        new_project = res.data[0]
+        pid = new_project['id']
         
-        # Build URL with the recovered prompt
+        # STEP 2: Format the Subdomain (projectname-projectid)
+        # Clean the name: "My Cool App" -> "my-cool-app"
+        clean_name = re.sub(r'[^a-z0-9-]', '-', project_name.lower()).strip('-')
+        if not clean_name: clean_name = "app"
+        
+        # Combine: "my-cool-app" + "-" + "uuid"
+        final_subdomain = f"{clean_name}-{pid}" 
+        
+        # STEP 3: Update the Project with the Subdomain
+        supabase.table("projects").update({
+            "subdomain": final_subdomain
+        }).eq("id", pid).execute()
+        
+        # Redirect to Editor
         target_url = f"/projects/{pid}/editor"
         if final_prompt:
             safe_prompt = urllib.parse.quote(final_prompt)
@@ -1256,6 +1270,7 @@ async def agent_events(request: Request, project_id: str):
 # SERVER PREVIEW RUNNER
 # ==========================================================================
 run_manager = ProjectRunManager()
+deployer = Deployer(run_manager, supabase) # <--- Initialize Deployer
 
 @app.post("/api/project/{project_id}/run/start")
 async def run_start(request: Request, project_id: str):
@@ -1361,6 +1376,21 @@ async def project_game(request: Request, project_id: str):
         "projects/game.html",
         {"request": request, "project_id": project_id, "user": user}
     )
+
+# ==========================================================================
+# 🚀 PUBLIC APP HOSTING (Path Based)
+# ==========================================================================
+@app.api_route("/app/{project_slug}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"])
+async def public_app_route(request: Request, project_slug: str, path: str):
+    """
+    Public access route: /app/my-cool-project-123/index.html
+    """
+    return await deployer.handle_request(request, project_slug, path)
+
+# Redirect root /app/{slug} to /app/{slug}/ (trailing slash) for relative paths to work
+@app.get("/app/{project_slug}")
+async def public_app_redirect(project_slug: str):
+    return RedirectResponse(f"/app/{project_slug}/")
 
 # ==========================================================================
 # HEALTH CHECK

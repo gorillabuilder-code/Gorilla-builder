@@ -91,6 +91,8 @@ class ProjectRunManager:
         
         # 1. Install Dependencies
         if os.path.exists(pkg_path):
+            # optimization: check if node_modules exists to skip install? 
+            # For now, we run it to ensure consistency, but standard npm is smart enough not to redo everything.
             print("--> Running npm install...")
             code, out = await self._run_cmd(root, ["npm", "install"], timeout_s=400)
             if code != 0:
@@ -126,6 +128,13 @@ class ProjectRunManager:
         return ["node", "index.js"]
 
     async def start(self, project_id: str, file_tree: Dict[str, str]) -> RunInfo:
+        # OPTIMIZATION: If already running and healthy, do not restart.
+        # This prevents "Live URL" visitors from killing the server if they arrive simultaneously.
+        if project_id in self._runs:
+            existing = self._runs[project_id]
+            if existing.proc.returncode is None:
+                return existing
+
         await self.stop(project_id)
 
         root = os.path.join(self.base_dir, project_id)
@@ -147,7 +156,7 @@ class ProjectRunManager:
         
         # Remove sensitive keys from host
         sensitive_keys = [
-            "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_URL",
+            "FIREWORKS_API_KEY", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_URL",
             "RESEND_API_KEY", "AUTH_SECRET_KEY", "GROQ_API_KEY"
         ]
         for k in sensitive_keys: env_vars.pop(k, None)

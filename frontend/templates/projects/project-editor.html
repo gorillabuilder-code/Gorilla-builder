@@ -419,8 +419,8 @@ body.xmode .upload-btn:hover { background: rgba(189, 0, 255, 0.1); }
           Go into Xmode
       </a>
       
-      <a class="pill" href="/projects/{{ project_id }}/preview" target="_blank">
-        Open ↗
+      <a class="pill" href="/app/{{ project_id if not project.subdomain else project.subdomain }}/" target="_blank">
+        Open Live App ↗
       </a>
     </div>
   </div>
