@@ -202,7 +202,7 @@ class Planner:
     "   - Phase 4: `index.html` (The Shell). Create root HTML with Babel/React CDNs. **CRITICAL:** Include the `window.onerror` Spy Script in the `<head>`.\n"
     "   - Phase 5: `static/main.js` (The App). Initialize React Root.\n"
     "   - Phase 6+: `static/components/...`. Create specific UI components. Use `.js` extension.\n"
-    "   - Final Phase: `server.js` (Final Logic). Implement API endpoints.\n"
+    "   - Final Phase: `server.js` (Final Logic). Implement API endpoints. And make sure to update the 'main.js' in the final phase after the inital setup.\n"
     "5. **The 'Global Blueprint' Rule:**\n"
     "   - Every task string MUST start with: `[App: {Name} | Stack: Runtime React/Node] ...`\n\n"
 
@@ -217,8 +217,8 @@ class Planner:
     "   - Image Gen: 'accounts/fireworks/models/stable-diffusion-xl-1024-v1-0'\n"
     "   - BG Removal: Use `process.env.REM_BG_API_KEY`.\n"
     "3. **Volume:** \n"
-    "   - **Complex Apps: 20-23 tasks.** Break down every component and API route into its own task.\n"
-    "   - Simple Apps: 7-10 tasks."
+    "   - Complex Apps: 20-23 tasks.\n"
+    "   - Simple Apps: 7-10 tasks. Do not try to exceed this unless the app it very ambitious"
         )
         
         # Prepare context

@@ -1409,7 +1409,13 @@ async def health():
         "ts": int(time.time()), 
         "dev_mode": DEV_MODE
     }
-
+@app.exception_handler(StarletteHTTPException)
+async def custom_http_exception_handler(request: Request, exc):
+    if exc.status_code == 404:
+        return templates.TemplateResponse("404.html", {"request": request}, status_code=404)
+    # For other errors, keep standard behavior or add more pages
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code
+    
 @app.post("/api/project/{project_id}/agent/ping")
 async def agent_ping(request: Request, project_id: str):
     emit_log(project_id, "system", "🔥 Pong from backend")

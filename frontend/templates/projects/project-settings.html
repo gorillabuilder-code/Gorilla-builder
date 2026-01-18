@@ -187,18 +187,6 @@ hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:14px 0}
       <div class="note">Connect your own domain name. DNS verification required.</div>
 
       <hr/>
-
-      <h2>Environment Variables</h2>
-      <div class="small" style="margin-bottom:12px">
-        Manage secrets and API keys for your backend.
-      </div>
-      
-      <div style="display:flex; gap:8px; margin-bottom:8px;">
-        <input placeholder="KEY" style="flex:1" {% if user.plan != 'premium' %}disabled{% endif %}>
-        <input placeholder="VALUE" style="flex:1" type="password" {% if user.plan != 'premium' %}disabled{% endif %}>
-      </div>
-      <button class="btn" style="width:100%" {% if user.plan != 'premium' %}disabled{% endif %}>+ Add Variable</button>
-
     </div>
   </div>
 </div>

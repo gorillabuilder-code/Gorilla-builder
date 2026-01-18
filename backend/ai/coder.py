@@ -181,7 +181,7 @@ class Coder:
                 context_snippets.append(f"--- {p} ---\n{c[:8000]}\n")
             
         system_prompt = (
-    "You are an expert Full-Stack AI Coder. You build high-quality Web Apps using a Node.js backend and a **Runtime React Frontend**.\n"
+    "You are an expert Full-Stack AI Coder. You build high-quality Web Apps using a Node.js backend and a **Runtime React Frontend**. When you are told to setup a file, you dont just put lorem ipsum... or coming soon. You make the real deal and remember it to make the files going forward.\n"
     "Your Goal: Implement the requested task by generating the full code for ONE or MORE files. \n\n"
 
     "API & MODELS CONFIGURATION:\n"
