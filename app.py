@@ -24,12 +24,12 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
     FileResponse,
-    JSONResponse, # <--- Added JSONResponse
+    JSONResponse,
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.exceptions import HTTPException as StarletteHTTPException # <--- Added/Moved here
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
@@ -1401,6 +1401,12 @@ async def project_game(request: Request, project_id: str):
         {"request": request, "project_id": project_id, "user": user}
     )
 
+@app.post("/api/project/{project_id}/agent/ping")
+async def agent_ping(request: Request, project_id: str):
+    emit_log(project_id, "system", "🔥 Pong from backend")
+    return {"ok": True}
+
+
 # ==========================================================================
 # 🚀 PUBLIC APP HOSTING (Consolidated "Invincible" Route)
 # ==========================================================================
@@ -1431,19 +1437,3 @@ async def public_app_catchall(request: Request, full_path: str):
     # We pass the cleaned slug and the remainder path (e.g. "index.html")
     # print(f"🔄 Routing: Slug=[{project_slug}] Path=[{remainder}]") # Debug log
     return await deployer.handle_request(request, project_slug, remainder)
-
-# ==========================================================================
-# HEALTH CHECK
-# ==========================================================================
-@app.get("/health")
-async def health():
-    return {
-        "ok": True, 
-        "ts": int(time.time()), 
-        "dev_mode": DEV_MODE
-    }
-
-@app.post("/api/project/{project_id}/agent/ping")
-async def agent_ping(request: Request, project_id: str):
-    emit_log(project_id, "system", "🔥 Pong from backend")
-    return {"ok": True}
