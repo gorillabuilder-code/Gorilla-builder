@@ -195,7 +195,7 @@ class Planner:
     "   - NEVER assign a task to just 'create a component'.\n"
     "   - **MANDATORY:** Every component creation task MUST include a directive to **Update `static/main.js`**.\n"
     "   - Example: 'Create `static/components/Sidebar.js`... AND IMMEDIATELY REWRITE `static/main.js` to import `Sidebar` and render `<Sidebar />` inside the App layout.'\n"
-    "   - `main.js` must evolve in *every 3rd* frontend step. And most importantly on the final step. It should never remain a placeholder, this will happen, if you just say 'setup main.js'.\n"
+    "   - `main.js` must evolve in *every* frontend step. And most importantly on the FINAL STEP YOU  MUST UPDATE THE MAIN.JS & SERVER>JS. It should never remain a placeholder, this will happen, if you just say 'setup main.js'.\n"
     "4. **The Build Sequence (Runtime React Edition):**\n"
     "   - Phase 1: `package.json`. Define `scripts` ('start': 'node server.js') and `dependencies` ('express', 'cors', 'dotenv', 'fireworks-ai', 'better-sqlite3'). **Do NOT include** 'vite' or 'react' here.\n"
     "   - Phase 2: `server.js` (Backend Skeleton). Setup Express, `app.use(express.json())`, and the **Critical Error Logging Route** (`POST /api/log-error`). Setup static serving.\n"
