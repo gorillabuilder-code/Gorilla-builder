@@ -50,19 +50,19 @@ class Deployer:
         """
         Handles traffic for /app/{project_slug}/{path}
         """
-        # 1. Lookup Project by Slug (name-id) or ID
+        # 1. Lookup Project by Slug (name-id) OR ID directly
         try:
-            # Try matching the new slug format first
+            # A. Try matching the 'subdomain' column first (preferred)
             res = self.supabase.table("projects").select("id, owner_id, subdomain").eq("subdomain", project_slug).maybe_single().execute()
             project = res.data
             
-            # Fallback: Try ID directly (for older links)
+            # B. Fallback: Check if the slug IS the ID (legacy support)
             if not project:
                 res = self.supabase.table("projects").select("id, owner_id").eq("id", project_slug).maybe_single().execute()
                 project = res.data
             
             if not project:
-                return HTMLResponse("<h1>404 - App Not Found</h1>", status_code=404)
+                return HTMLResponse("<h1>404 - App Not Found</h1><p>We couldn't find a project with this URL.</p>", status_code=404)
             
             project_id = project['id']
             owner_id = project['owner_id']
@@ -84,27 +84,32 @@ class Deployer:
         is_running, port = self.run_manager.is_running(project_id)
         if not is_running:
             try:
-                # We need to import this function dynamically or pass it in to avoid circular imports
-                # For now, assuming run_manager has access or we fetch files here
+                # Fetch files from DB to ensure we have the latest code
                 files_res = self.supabase.table("files").select("path,content").eq("project_id", project_id).execute()
                 file_tree = {r["path"]: (r.get("content") or "") for r in (files_res.data or [])}
                 
+                if not file_tree:
+                     return HTMLResponse("<h1>Boot Failed</h1><p>This project has no files to run.</p>", status_code=500)
+
                 await self.run_manager.start(project_id, file_tree)
-                await asyncio.sleep(1.5) # Give it a moment to bind port
+                await asyncio.sleep(2.0) # Give it a moment to bind port
             except Exception as e:
                 return HTMLResponse(f"<h1>Boot Failed</h1><pre>{e}</pre>", status_code=500)
 
         # 4. Proxy Request
+        # We need to forward the request to localhost:PORT
+        
+        # Strip the /app/slug prefix? No, usually run_manager.proxy expects the path relative to root.
+        # The 'path' argument passed from FastAPI is already stripping /app/slug if defined correctly.
+        target_path = path if path else "" 
+        
         body = await request.body()
         query_params = request.url.query
         
         try:
-            # We strip the /app/project-slug prefix for the proxy
-            # But usually the path argument comes in clean if using FastAPI path parameters
-            
             resp = await self.run_manager.proxy(
                 project_id=project_id,
-                path=path,
+                path=target_path,
                 method=request.method,
                 headers=dict(request.headers),
                 body=body,
@@ -118,8 +123,11 @@ class Deployer:
             if show_badge and "text/html" in content_type and b"</body>" in content:
                 # Inject before </body>
                 content = content.replace(b"</body>", f"{BADGE_HTML}</body>".encode("utf-8"))
-                # Update Content-Length
-                resp.headers["content-length"] = str(len(content))
+                
+                # IMPORTANT: Update Content-Length because we changed the size
+                # OR delete it so the client calculates it automatically (chunked)
+                if "content-length" in resp.headers:
+                    del resp.headers["content-length"]
 
             # Exclude hop-by-hop headers
             excluded_headers = {"content-encoding", "content-length", "transfer-encoding", "connection"}
@@ -133,4 +141,4 @@ class Deployer:
             )
 
         except RuntimeError as e:
-            return HTMLResponse(f"<h1>Application Error</h1><p>{e}</p>", status_code=502)
+            return HTMLResponse(f"<h1>Application Error</h1><p>Runtime error: {e}</p>", status_code=502)

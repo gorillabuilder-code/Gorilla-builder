@@ -177,8 +177,8 @@ class Planner:
     "{\n"
     '  "assistant_message": "A friendly summary of the architecture...",\n'
     '  "tasks": [\n'
-    '    "Step 1: [Project: ChatApp | Stack: Runtime React/Node | Description: ChatApp is a freindly chatbot...(this is *very important* as the coder needs to know what we are building and has no chat history)] Create package.json... (make this really big for the Coder to know what to do)",\n'
-    '    "Step 2: [Project: ChatApp | Stack: Runtime React/Node | Description: ChatApp is a freindly chatbot...(this is *very important* as the coder needs to know what we are building and has no chat history)] Create index.html with CDNs...(make this really big for the Coder to know what to do)"\n'
+    '    "Step 1: [Project: ChatApp | Stack: Runtime React/Node | Context: ChatApp is a friendly chatbot...] Create package.json... (include all dependencies)",\n'
+    '    "Step 2: [Project: ChatApp | Stack: Runtime React/Node | Context: ChatApp is a friendly chatbot...] Create index.html with CDNs... (include window.onerror)"\n'
     "  ]\n"
     "}\n\n"
 
@@ -191,19 +191,23 @@ class Planner:
     "   - `server.js` serves the API, the `static/` folder, and **Handles Error Logging**.\n"
     "   - `index.html` lives in the root.\n"
     "   - All React code lives in `static/main.js` (and other `.js` files in `static/`).\n"
-    "3. **The Wiring Rule (CRITICAL):**\n"
+    "3. **The Wiring & Evolution Rule (CRITICAL - NO BLANK SCREENS):**\n"
     "   - NEVER assign a task to just 'create a component'.\n"
-    "   - ALWAYS pair creation with integration: 'Create `static/components/Sidebar.js` AND update `static/main.js` to import and use `<Sidebar />`.'\n"
-    "   - This ensures the Coder connects the components immediately.\n"
+    "   - **MANDATORY:** Every component creation task MUST include a directive to **Update `static/main.js`**.\n"
+    "   - Example: 'Create `static/components/Sidebar.js`... AND IMMEDIATELY REWRITE `static/main.js` to import `Sidebar` and render `<Sidebar />` inside the App layout.'\n"
+    "   - `main.js` must evolve in *every 3rd* frontend step. It should never remain a placeholder.\n"
     "4. **The Build Sequence (Runtime React Edition):**\n"
     "   - Phase 1: `package.json`. Define `scripts` ('start': 'node server.js') and `dependencies` ('express', 'cors', 'dotenv', 'fireworks-ai', 'better-sqlite3'). **Do NOT include** 'vite' or 'react' here.\n"
     "   - Phase 2: `server.js` (Backend Skeleton). Setup Express, `app.use(express.json())`, and the **Critical Error Logging Route** (`POST /api/log-error`). Setup static serving.\n"
     "   - Phase 3: `database.js` (The Adapter). Create local DB setup.\n"
     "   - Phase 4: `index.html` (The Shell). Create root HTML with Babel/React CDNs. **CRITICAL:** Include the `window.onerror` Spy Script in the `<head>`.\n"
-    "   - Phase 5: `static/main.js` (The App). Initialize React Root.\n"
-    "   - Phase 6+: `static/components/...`. Create specific UI components. Use `.js` extension.\n"
-    "   - Final Phase: `server.js` (Final Logic). Implement API endpoints. And make sure to update the 'main.js' in the final phase after the inital setup.\n"
-    "5. **The 'Global Blueprint' Rule:**\n"
+    "   - Phase 5: `static/main.js` (The Entry Point). Create the initial App shell (e.g., A layout div with State management). **Do NOT just write 'Hello World'**; set up the actual container structure.\n"
+    "   - Phase 6+: `static/components/...`. Create specific UI components AND **Wire them into `main.js`** immediately.\n"
+    "   - Final Phase: `server.js` (Final Logic). Implement API endpoints.\n"
+    "5. **The 'No-Placeholder' Rule:**\n"
+    "   - The Coder is forbidden from writing comments like `// code goes here`. You must describe the logic needed.\n"
+    "   - Every step must result in a **rendering** application. Never leave the app in a broken state between steps.\n"
+    "6. **The 'Global Blueprint' Rule:**\n"
     "   - Every task string MUST start with: `[App: {Name} | Stack: Runtime React/Node] ...`\n\n"
 
     "TASK WRITING GUIDELINES:\n"
@@ -218,7 +222,7 @@ class Planner:
     "   - BG Removal: Use `process.env.REM_BG_API_KEY`.\n"
     "3. **Volume:** \n"
     "   - Complex Apps: 20-23 tasks.\n"
-    "   - Simple Apps: 7-10 tasks. Do not try to exceed this unless the app it very ambitious"
+    "   - Simple Apps: 7-10 tasks. Do not try to exceed this unless the app it very ambitious."
         )
         
         # Prepare context
