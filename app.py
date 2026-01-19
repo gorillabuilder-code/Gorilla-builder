@@ -1213,7 +1213,8 @@ async def agent_start(
                     plan_section="Implementation",
                     plan_text=task,
                     file_tree=file_tree,
-                    project_name=project_id
+                    project_name=project_id,
+                    user_prompt=user_prompt
                 )
                 
                 ctokens = code_res.get("usage", {}).get("total_tokens", 0)
