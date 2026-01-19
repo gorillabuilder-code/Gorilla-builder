@@ -11,12 +11,12 @@ import traceback
 import random
 import string
 import re
-import urllib.parse  # Added for safe URL redirection
+import urllib.parse
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
-import resend  # pip install resend
+import resend
 from fastapi import FastAPI, Request, HTTPException, Form, BackgroundTasks
 from fastapi.responses import (
     HTMLResponse,
@@ -24,10 +24,12 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
     FileResponse,
+    JSONResponse, # <--- Added JSONResponse
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException # <--- Added/Moved here
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
@@ -39,7 +41,7 @@ from backend.run_manager import ProjectRunManager
 from backend.ai.planner import Planner
 from backend.ai.coder import Coder
 from backend.ai.Xcoder import XCoder
-from backend.deployer import Deployer # <--- NEW IMPORT
+from backend.deployer import Deployer
 
 
 # ==========================================================================
@@ -101,6 +103,21 @@ if os.path.isdir(FRONTEND_STYLES_DIR):
     app.mount("/styles", StaticFiles(directory=FRONTEND_STYLES_DIR), name="styles")
 
 templates = Jinja2Templates(directory=FRONTEND_TEMPLATES_DIR)
+
+
+# ==========================================================================
+# EXCEPTION HANDLERS
+# ==========================================================================
+@app.exception_handler(StarletteHTTPException)
+async def custom_http_exception_handler(request: Request, exc):
+    if exc.status_code == 404:
+        # Check if template exists, fallback if not
+        if os.path.exists(os.path.join(FRONTEND_TEMPLATES_DIR, "404.html")):
+             return templates.TemplateResponse("404.html", {"request": request}, status_code=404)
+        return HTMLResponse("<h1>404 - Not Found</h1>", status_code=404)
+    
+    # For other errors, return JSON
+    return JSONResponse({"detail": str(exc.detail)}, status_code=exc.status_code)
 
 
 # ==========================================================================
@@ -712,7 +729,7 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
         {
             "request": request, 
             "project_id": project_id, 
-            "project": project,  # <--- THIS WAS MISSING
+            "project": project, 
             "file": file, 
             "user": user,
             "initial_prompt": prompt
@@ -1385,19 +1402,35 @@ async def project_game(request: Request, project_id: str):
     )
 
 # ==========================================================================
-# 🚀 PUBLIC APP HOSTING (Path Based)
+# 🚀 PUBLIC APP HOSTING (Consolidated "Invincible" Route)
 # ==========================================================================
-@app.api_route("/app/{project_slug}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"])
-async def public_app_route(request: Request, project_slug: str, path: str):
+@app.api_route("/app/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"])
+async def public_app_catchall(request: Request, full_path: str):
     """
-    Public access route: /app/my-cool-project-123/index.html
+    Catches ALL traffic to /app/..., parses the slug manually, and routes it.
+    This avoids FastAPI strict-slash confusion.
     """
-    return await deployer.handle_request(request, project_slug, path)
+    # 1. Clean the path and split it
+    # full_path is "my-slug/static/main.js" or "my-slug/"
+    clean_path = full_path.strip("/")
+    parts = clean_path.split("/", 1)
+    
+    if not clean_path:
+        return HTMLResponse("<h1>404 - Not Found</h1>", status_code=404)
+        
+    project_slug = parts[0]
+    remainder = parts[1] if len(parts) > 1 else ""
 
-# Redirect root /app/{slug} to /app/{slug}/ (trailing slash) for relative paths to work
-@app.get("/app/{project_slug}")
-async def public_app_redirect(project_slug: str):
-    return RedirectResponse(f"/app/{project_slug}/")
+    # 2. Handle Root Redirection Logic
+    # If the user visits "/app/my-slug" (no slash), we MUST redirect to "/app/my-slug/"
+    # Otherwise relative paths in index.html will break.
+    if len(parts) == 1 and not str(request.url.path).endswith("/"):
+         return RedirectResponse(url=f"/app/{project_slug}/")
+
+    # 3. Hand off to Deployer
+    # We pass the cleaned slug and the remainder path (e.g. "index.html")
+    # print(f"🔄 Routing: Slug=[{project_slug}] Path=[{remainder}]") # Debug log
+    return await deployer.handle_request(request, project_slug, remainder)
 
 # ==========================================================================
 # HEALTH CHECK
@@ -1409,15 +1442,7 @@ async def health():
         "ts": int(time.time()), 
         "dev_mode": DEV_MODE
     }
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
-@app.exception_handler(StarletteHTTPException)
-async def custom_http_exception_handler(request: Request, exc):
-    if exc.status_code == 404:
-        return templates.TemplateResponse("404.html", {"request": request}, status_code=404)
-    # For other errors, keep standard behavior or add more pages
-    return JSONResponse ({"detail": exc.detail}, status_code=exc.status_code)
-    
 @app.post("/api/project/{project_id}/agent/ping")
 async def agent_ping(request: Request, project_id: str):
     emit_log(project_id, "system", "🔥 Pong from backend")
