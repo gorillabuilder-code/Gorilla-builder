@@ -222,7 +222,7 @@ class Planner:
     "   - BG Removal: Use `process.env.REM_BG_API_KEY`.\n"
     "3. **Volume:** \n"
     "   - Complex Apps: 20-23 tasks.\n"
-    "   - Simple Apps: 7-10 tasks. Do not try to exceed this unless the app it very ambitious."
+    "   - Simple Apps: 7-10 tasks. *Do not exceed this 10 task limit for simple apps unless* the app it very ambitious."
         )
         
         # Prepare context
