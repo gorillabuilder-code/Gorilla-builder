@@ -1164,7 +1164,7 @@ async def agent_start(
             
             # CHOOSE CODER BASED ON XMODE
             if xmode:
-                emit_status(project_id, "🔮 X-MODE ENGAGED")
+                emit_status(project_id, "X-MODE ENGAGED")
                 coder = XCoder()
             else:
                 coder = Coder()
@@ -1213,8 +1213,7 @@ async def agent_start(
                     plan_section="Implementation",
                     plan_text=task,
                     file_tree=file_tree,
-                    project_name=project_id,
-                    user_prompt=user_prompt
+                    project_name=project_id
                 )
                 
                 ctokens = code_res.get("usage", {}).get("total_tokens", 0)

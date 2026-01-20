@@ -5,6 +5,8 @@
 <title>Editor · {{ project_id }} · gor://a</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1594181130407895" crossorigin="anonymous"></script>
+
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 
@@ -37,7 +39,6 @@
         })
     ];
 
-    // Auto-detect language based on extension
     if (fileName) {
         if (fileName.endsWith('.js') || fileName.endsWith('.jsx') || fileName.endsWith('.ts') || fileName.endsWith('.json')) {
             extensions.push(javascript());
@@ -58,44 +59,64 @@
 </script>
 
 <style>
-@font-face{
-  font-family:'din-next-w01-light';
-  src:url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2');
-  font-display:swap;
+/* --- 1. FONTS & RESETS --- */
+@font-face {
+  font-family: 'din-next-w01-light';
+  src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2');
+  font-display: swap;
 }
 
 :root {
+  /* Core Palette */
   --bg: #050810;
   --panel: #0e1324;
   --panel-light: #131a2e;
   --border: rgba(255, 255, 255, 0.08);
-  --accent: #3b6cff;
-  --accent-glow: rgba(59, 108, 255, 0.2);
-  --text: #ffffff;
-  --text-muted: rgba(255, 255, 255, 0.5);
   
-  --coder-bg: rgba(157, 0, 255, 0.1);
-  --coder-border: rgba(157, 0, 255, 0.4);
-  --coder-text: #d08fff;
-  
-  --planner-bg: rgba(255, 204, 0, 0.08);
-  --planner-border: rgba(255, 204, 0, 0.4);
-  --planner-text: #ffe580;
-  
+  /* Status Colors */
   --danger: #ff4d6d;
   --ok: #2bd97c;
   --warn: #ffcc00;
+  
+  /* Text */
+  --text: #ffffff;
+  --text-muted: rgba(255, 255, 255, 0.5);
+
+  /* Default Theme (Blue) */
+  --accent: #3b6cff;
+  --accent-glow: rgba(59, 108, 255, 0.2);
+  --coder-bg: rgba(157, 0, 255, 0.1);
+  --coder-border: rgba(157, 0, 255, 0.4);
+  --coder-text: #d08fff;
+  --planner-bg: rgba(255, 204, 0, 0.08);
+  --planner-border: rgba(255, 204, 0, 0.4);
+  --planner-text: #ffe580;
 }
 
-/* PREMIUM THEME OVERRIDES */
+* { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; }
+
+/* --- 2. LAYOUT & BODY --- */
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+  background-image: radial-gradient(circle at 10% 10%, rgba(59, 108, 255, 0.05) 0%, transparent 40%);
+}
+
+.shell { display: flex; height: 100vh; width: 100%; overflow: hidden; }
+
+/* --- 3. THEME OVERRIDES --- */
 body.premium {
   --accent: #ffd700; 
   --accent-glow: rgba(255, 215, 0, 0.25);
   --panel: #121214; 
   background-image: radial-gradient(circle at 10% 10%, rgba(255, 215, 0, 0.05) 0%, transparent 40%) !important;
 }
+body.premium .msg.user { color: #000; }
+body.premium .agent-input button { color: #000; }
 
-/* XMODE THEME OVERRIDES */
 body.xmode {
   --bg: #0b0214; 
   --panel: #140526; 
@@ -106,26 +127,15 @@ body.xmode {
   --border: rgba(189, 0, 255, 0.15);
   background-image: radial-gradient(circle at 10% 10%, rgba(189, 0, 255, 0.12) 0%, transparent 50%) !important;
 }
-
 body.xmode .agent-input button { box-shadow: 0 0 15px var(--accent-glow); }
 body.xmode .node.active { border-left-color: var(--accent); background: rgba(189, 0, 255, 0.15); }
-body.premium .msg.user { color: #000; }
-body.premium .agent-input button { color: #000; }
+body.xmode .upload-btn:hover { background: rgba(189, 0, 255, 0.1); }
+body.xmode .bar-fill { background: linear-gradient(90deg, var(--accent), #e0aaff); }
+body.xmode .tab.active { background: rgba(189, 0, 255, 0.1); border-color: rgba(189, 0, 255, 0.3); }
+body.xmode .left header { background: rgba(20, 5, 38, 0.85); }
+body.xmode .phase.active { background: rgba(189, 0, 255, 0.1); }
 
-* { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; }
-
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  height: 100vh;
-  overflow: hidden;
-  background-image: radial-gradient(circle at 10% 10%, rgba(59, 108, 255, 0.05) 0%, transparent 40%);
-}
-
-.shell { display: flex; height: 100vh; width: 100%; }
-
-/* --- LEFT SIDEBAR (AGENT) --- */
+/* --- 4. LEFT SIDEBAR (AGENT) --- */
 .left {
   width: 420px;
   min-width: 360px;
@@ -147,11 +157,11 @@ body {
   background: rgba(14, 19, 36, 0.8);
   backdrop-filter: blur(10px);
 }
-body.xmode .left header { background: rgba(20, 5, 38, 0.85); }
 
 .hgroup .t { font-size: 16px; font-weight: 500; letter-spacing: -0.3px; }
 .header-actions { display: flex; gap: 8px; }
 
+/* UI Elements */
 .pill {
   border: 1px solid var(--border);
   background: rgba(255,255,255,0.03);
@@ -173,42 +183,24 @@ body.xmode .left header { background: rgba(20, 5, 38, 0.85); }
 .dot.warn { background: var(--warn); }
 .dot.bad { background: var(--danger); }
 
-/* PHASES */
+/* Phases & Progress */
 .phases {
-  display: flex;
-  gap: 8px;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel-light);
+  display: flex; gap: 8px; padding: 12px 20px;
+  border-bottom: 1px solid var(--border); background: var(--panel-light);
 }
 .phase {
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  opacity: 0.6;
-  transition: all 0.3s;
+  padding: 4px 10px; border-radius: 6px; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  border: 1px solid var(--border); color: var(--text-muted); opacity: 0.6; transition: all 0.3s;
 }
 .phase.active {
-  border-color: var(--accent);
-  background: rgba(59, 108, 255, 0.1);
-  color: var(--accent);
-  opacity: 1;
-  font-weight: 600;
-  box-shadow: 0 0 10px var(--accent-glow);
+  border-color: var(--accent); background: rgba(59, 108, 255, 0.1);
+  color: var(--accent); opacity: 1; font-weight: 600; box-shadow: 0 0 10px var(--accent-glow);
 }
-body.xmode .phase.active { background: rgba(189, 0, 255, 0.1); }
 
-/* PROGRESS */
 .progress {
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  padding: 14px 20px; border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 8px;
 }
 .progress-row { display: flex; align-items: center; justify-content: space-between; }
 .progress-title { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px; }
@@ -218,13 +210,10 @@ body.xmode .phase.active { background: rgba(189, 0, 255, 0.1); }
 .bar-fill {
   height: 100%; width: 0%;
   background: linear-gradient(90deg, var(--accent), #6390ff);
-  border-radius: 999px;
-  transition: width 0.4s ease-out;
-  box-shadow: 0 0 8px var(--accent-glow);
+  border-radius: 999px; transition: width 0.4s ease-out; box-shadow: 0 0 8px var(--accent-glow);
 }
-body.xmode .bar-fill { background: linear-gradient(90deg, var(--accent), #e0aaff); }
 
-/* LOADING ANIMATION */
+/* Loading Animation */
 .loading-wave { display: flex; align-items: center; gap: 3px; height: 10px; opacity: 0; transition: opacity 0.3s; }
 .loading-wave.active { opacity: 1; }
 .loading-bar { width: 3px; height: 6px; background: var(--accent); border-radius: 2px; animation: wave 1s infinite ease-in-out; }
@@ -232,7 +221,7 @@ body.xmode .bar-fill { background: linear-gradient(90deg, var(--accent), #e0aaff
 .loading-bar:nth-child(3) { animation-delay: 0.2s; }
 @keyframes wave { 0%, 100% { transform: scaleY(1); opacity: 0.5; } 50% { transform: scaleY(2.5); opacity: 1; } }
 
-/* CHAT AREA */
+/* Chat Area */
 .chat { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth; }
 
 .msg {
@@ -251,13 +240,13 @@ body.xmode .bar-fill { background: linear-gradient(90deg, var(--accent), #e0aaff
 .msg.coder .meta { color: var(--coder-text); }
 .msg.planner .meta { color: var(--planner-text); }
 
-/* Markdown */
+/* Markdown Styles */
 .md p { margin: 0 0 8px 0; }
 .md p:last-child { margin: 0; }
 .md code { background: rgba(0,0,0,0.3); padding: 2px 5px; border-radius: 4px; font-family: monospace; }
 .md pre { background: #080c16; padding: 10px; border-radius: 8px; overflow-x: auto; border: 1px solid var(--border); }
 
-/* INPUT AREA */
+/* Input Area */
 .agent-input { padding: 16px; border-top: 1px solid var(--border); display: flex; gap: 12px; background: var(--panel); }
 .agent-input textarea {
   flex: 1; height: 50px; min-height: 50px; max-height: 120px; resize: vertical;
@@ -271,7 +260,7 @@ body.xmode .bar-fill { background: linear-gradient(90deg, var(--accent), #e0aaff
 }
 .agent-input button:hover { transform: scale(1.05); filter: brightness(1.1); }
 
-/* --- MAIN AREA --- */
+/* --- 5. MAIN AREA --- */
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
 
 .topbar { height: 56px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); background: var(--panel); }
@@ -281,7 +270,6 @@ body.xmode .bar-fill { background: linear-gradient(90deg, var(--accent), #e0aaff
 }
 .tab:hover { background: rgba(255,255,255,0.03); color: #fff; }
 .tab.active { background: rgba(59, 108, 255, 0.1); border-color: rgba(59, 108, 255, 0.3); color: #fff; }
-body.xmode .tab.active { background: rgba(189, 0, 255, 0.1); border-color: rgba(189, 0, 255, 0.3); }
 
 .tab.link { text-decoration: none; display: flex; align-items: center; gap: 6px; }
 .previewMode { display: flex; gap: 8px; align-items: center; margin-left: 16px; padding-left: 16px; border-left: 1px solid var(--border); }
@@ -292,14 +280,14 @@ body.xmode .tab.active { background: rgba(189, 0, 255, 0.1); border-color: rgba(
 .smallbtn.danger:hover { background: rgba(255, 77, 109, 0.1); }
 .badge { font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
 
-/* CONTENT AREA */
+/* Content Grid */
 .content { flex: 1; display: flex; min-height: 0; }
 .files { width: 260px; min-width: 220px; background: var(--panel-light); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
 .tree-header { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
 .treeTitle { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; }
 .upload-btn { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 12px; padding: 4px 8px; border-radius: 4px; transition: background 0.2s; }
 .upload-btn:hover { background: rgba(59, 108, 255, 0.1); }
-body.xmode .upload-btn:hover { background: rgba(189, 0, 255, 0.1); }
+
 .file-list { padding: 10px; overflow-y: auto; flex: 1; }
 .node { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; color: #cbd5e1; transition: all 0.1s; }
 .node:hover { background: rgba(255,255,255,0.04); color: #fff; }
@@ -307,12 +295,38 @@ body.xmode .upload-btn:hover { background: rgba(189, 0, 255, 0.1); }
 .indent { padding-left: 20px; }
 .ico { opacity: 0.6; font-size: 14px; }
 
-/* STAGE */
 .stage { flex: 1; min-width: 0; background: #1e1e1e; position: relative; }
 #editor { height: 100%; }
 #preview { width: 100%; height: 100%; border: 0; display: none; background: #fff; }
 
-/* Scrollbars */
+/* --- 6. AD STYLES (STRIPS & BOXES) --- */
+.ad-strip-horiz {
+    background: #000;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 10px;
+    width: 100%;
+    min-height: 90px;
+}
+.ad-strip-horiz.bottom {
+    border-top: 1px solid var(--border);
+    border-bottom: none;
+    margin-top: auto;
+}
+.ad-box-square {
+    margin: 10px;
+    background: #000;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 200px;
+}
+
+/* Scrollbar Customization */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
@@ -383,6 +397,17 @@ body.xmode .upload-btn:hover { background: rgba(189, 0, 255, 0.1); }
 </aside>
 
 <section class="main">
+  
+  {% if user.plan != 'premium' %}
+  <div class="ad-strip-horiz">
+      <ins class="adsbygoogle"
+           style="display:inline-block;width:728px;height:90px"
+           data-ad-client="ca-pub-1594181130407895"
+           data-ad-slot="1944431541"></ins>
+      <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+  </div>
+  {% endif %}
+
   <div class="topbar">
     <div class="tabs">
       <div class="tab active" id="tabCode">Code</div>
@@ -411,19 +436,22 @@ body.xmode .upload-btn:hover { background: rgba(189, 0, 255, 0.1); }
       </a>
       {% if user.plan != 'premium' %}
         <a class="tab link" style= "background-color:#3b6cff; color:#fff;" href="/pricing" target="_blank">
-          UPGRADE
+          UPGRADE(No ADs)
         </a>
       {% endif %}
       
+      {% if user.plan != 'free' %}
       <a class="pill" href="/projects/{{ project_id }}/xmode" style="border-color: #d08fff; color: #d08fff;">
           Go into Xmode
       </a>
+      {% endif %}
       
       <a class="pill" href="/app/{{ project_id if not project.subdomain else project.subdomain }}/" target="_blank">
         Open Live App ↗
       </a>
     </div>
   </div>
+
 
   <div class="content">
     <aside class="files">
@@ -433,6 +461,16 @@ body.xmode .upload-btn:hover { background: rgba(189, 0, 255, 0.1); }
         <input type="file" id="uploadInput" hidden />
       </div>
       <div class="file-list" id="filetree"></div>
+
+      {% if user.plan != 'premium' %}
+      <div class="ad-box-square">
+         <ins class="adsbygoogle"
+              style="display:inline-block;width:200px;height:200px"
+              data-ad-client="ca-pub-1594181130407895"
+              data-ad-slot="1944431541"></ins>
+         <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+      </div>
+      {% endif %}
     </aside>
 
     <div class="stage">
@@ -440,17 +478,19 @@ body.xmode .upload-btn:hover { background: rgba(189, 0, 255, 0.1); }
       <iframe id="preview"></iframe>
     </div>
   </div>
+
+
 </section>
 
 </div>
 
 <script>
 const PROJECT_ID = "{{ project_id }}";
-const INITIAL_PROMPT = "{{ initial_prompt or '' }}"; // Get the prompt from template context
+const INITIAL_PROMPT = "{{ initial_prompt or '' }}"; 
 const CHAT_KEY = `gorilla_chat_${PROJECT_ID}`;
 
 let editorView = null;
-let currentFile = "index.html"; // Default file, changed if not found
+let currentFile = "index.html"; 
 let currentContent = "";
 let dirty = false;
 let es = null;
@@ -459,7 +499,6 @@ let saveTimer = null;
 const $ = (id) => document.getElementById(id);
 const chat = $("chat");
 
-/* --- HISTORY --- */
 function loadChatHistory() {
   try {
     const raw = localStorage.getItem(CHAT_KEY);
@@ -483,7 +522,6 @@ function saveChatHistory(role, text) {
   } catch (e) { console.error(e); }
 }
 
-/* --- UI HELPERS --- */
 function setConn(state){
   const dot = $("connDot");
   const txt = $("connText");
@@ -565,7 +603,6 @@ async function fetchJSON(url, opts){
   try { return JSON.parse(t); } catch { return { raw: t, ok: r.ok }; }
 }
 
-/* --- FILES --- */
 function buildTree(paths){
   const root = {};
   for(const p of paths){
@@ -633,7 +670,6 @@ async function refreshFiles(){
   const paths = (data.files || []).map(x => x.path);
   
   if (paths.length > 0 && !paths.includes(currentFile)) {
-      // If currentFile is missing (e.g. initial load), try to find a sensible default
       if (paths.includes('README.md')) currentFile = 'README.md';
       else if (paths.includes('package.json')) currentFile = 'package.json';
       else if (paths.includes('server.js')) currentFile = 'server.js';
@@ -646,7 +682,6 @@ async function refreshFiles(){
   renderTree(mount, tree, 0);
 }
 
-/* --- EDITOR --- */
 function buildEditor(content, fileName){
   $("editor").innerHTML = "";
   currentContent = content || "";
@@ -671,7 +706,7 @@ async function loadFile(path){
   currentFile = path;
   const data = await fetchJSON(`/api/project/${PROJECT_ID}/file?path=${encodeURIComponent(path)}`);
   buildEditor(data.content || "", path);
-  await refreshFiles(); // Refresh to update active state in tree
+  await refreshFiles(); 
 }
 
 async function saveCurrentFile(){
@@ -693,7 +728,6 @@ async function saveCurrentFile(){
   }
 }
 
-/* --- UPLOAD --- */
 $("btnUpload").onclick = () => $("uploadInput").click();
 $("uploadInput").onchange = (e) => {
   const file = e.target.files[0];
@@ -716,7 +750,6 @@ $("uploadInput").onchange = (e) => {
   reader.readAsText(file);
 };
 
-/* --- EXPORT ZIP --- */
 const btnZip = $("btnExportZip");
 if (btnZip) {
   btnZip.onclick = async () => {
@@ -725,7 +758,6 @@ if (btnZip) {
   };
 }
 
-/* --- TABS --- */
 function switchTab(tab){
   if(tab === "preview"){
     $("tabPreview").classList.add("active");
@@ -748,12 +780,10 @@ $("tabPreview").onclick = () => switchTab("preview");
 function refreshPreview(){
   const mode = $("previewMode").value;
   const ts = Date.now();
-  // Ensure we hit the correct endpoint. Assuming /run/ for Node apps
   $("preview").src = (mode === "server") ? `/run/${PROJECT_ID}/?ts=${ts}` : `/app/${PROJECT_ID}/index.html?ts=${ts}`;
 }
 $("previewMode").onchange = refreshPreview;
 
-/* --- SERVER --- */
 async function serverStatus(){
   const s = await fetchJSON(`/api/project/${PROJECT_ID}/run/status`);
   const el = $("serverStatus");
@@ -777,7 +807,6 @@ $("btnStopServer").onclick = async () => {
   await serverStatus();
 };
 
-/* --- AGENT --- */
 function startStream(){
   if(es) es.close();
   setConn("warn");
@@ -819,7 +848,6 @@ function startStream(){
   es.onerror = () => setConn("bad");
 }
 
-/* --- TRIGGER AGENT --- */
 async function triggerAgent(promptText) {
     if(!promptText) return;
     addMessage("user", promptText);
@@ -847,11 +875,9 @@ $("prompt").addEventListener("keydown", (e) => {
     }
 });
 
-/* --- INIT --- */
 (async () => {
   loadChatHistory();
   await refreshFiles();
-  // Try loading initial file, defaulting to something sensible if specific file not present
   try {
       await loadFile(currentFile);
   } catch(e) {
@@ -862,10 +888,7 @@ $("prompt").addEventListener("keydown", (e) => {
   await serverStatus();
   setProgress("Ready", 0);
   
-  // AUTO-PROMPT FROM DASHBOARD (Using Template Variable)
   if (INITIAL_PROMPT && INITIAL_PROMPT.length > 0) {
-      console.log("Auto-triggering prompt:", INITIAL_PROMPT);
-      // Wait a moment for socket connection
       setTimeout(() => {
           triggerAgent(INITIAL_PROMPT);
       }, 1000);
