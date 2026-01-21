@@ -266,8 +266,6 @@ class Coder:
         )
 
         # 4. Construct the User Prompt for THIS SPECIFIC TURN
-        # We combine the task + the current file content.
-        # We do NOT save the file content to history to save tokens.
         current_user_prompt = (
             f"SYSTEM INSTRUCTIONS:\n{system_prompt}\n\n"
             f"CURRENT FILE CONTEXT (For Reference):\n{full_context_text}\n\n"
@@ -276,19 +274,17 @@ class Coder:
         )
 
         # 5. Build Message Chain: [History] + [Current Prompt]
-        # We take the last 10 messages from history to keep context manageable
         past_messages = self.project_states[project_name][-10:]
         
         messages = []
-        # Add past messages (Role: user/assistant)
         for msg in past_messages:
             messages.append(msg)
         
-        # Add current request (Role: user)
         messages.append({"role": "user", "content": current_user_prompt})
 
         last_err: Optional[str] = None
         last_raw: Optional[str] = None
+        cumulative_tokens: float = 0.0
 
         # Retry Loop
         for attempt in range(max_retries + 1):
@@ -296,24 +292,24 @@ class Coder:
                 # Call Fireworks
                 raw, tokens = await self._call_fireworks(messages, temperature=0.6)
                 last_raw = raw
+                cumulative_tokens += tokens * 1.75
                 
                 parsed = _extract_json(raw)
                 if not parsed:
                     raise ValueError("Could not extract JSON from response")
                     
                 canonical = self._normalize_and_validate_ops(parsed)
-                canonical["usage"] = {"total_tokens": tokens * 1.75}
+                # IMPORTANT: Return total cumulative tokens so user is billed for retries
+                canonical["usage"] = {"total_tokens": cumulative_tokens}
 
                 # --- SUCCESS: UPDATE HISTORY ---
-                # We save the logical request (plan) and the result, but NOT the massive context dump
-                # This keeps the history clean and focused on decisions.
                 self.project_states[project_name].append({
                     "role": "user", 
                     "content": f"Task: {plan_section}. Details: {plan_text}"
                 })
                 self.project_states[project_name].append({
                     "role": "assistant", 
-                    "content": raw  # Save raw JSON output as history context
+                    "content": raw
                 })
 
                 return canonical
@@ -322,23 +318,28 @@ class Coder:
                 last_err = str(e)
                 print(f"Coder Attempt {attempt+1}/{max_retries+1} failed: {last_err}")
                 
-                # If we have retries left, append a self-correction message and loop again
                 if attempt < max_retries:
                     correction_msg = (
                         f"Your previous response was invalid (Error: {last_err}).\n"
-                        "Please fix the format. Output valid JSON only. Ensure all brackets are closed."
+                        "Please fix the format. Output valid JSON only. Ensure all brackets are closed.\n"
+                        f"REMEMBER YOUR GOAL: {plan_section}\n"
+                        f"REMEMBER THE SYSTEM RULES: Output valid JSON with 'operations' list."
                     )
-                    # If we got raw text, let the model see what it messed up
-                    if last_raw:
-                        # Append the failure to the CURRENT temporary message list (not the permanent history)
-                        messages.append({"role": "assistant", "content": last_raw[:2000]})
-                        messages.append({"role": "user", "content": correction_msg})
                     
-                    # Small backoff before retry
+                    # --- CRITICAL FIX: RE-INJECT CONTEXT ON RETRY ---
+                    # Instead of just appending "fix it", we treat the next attempt as a fresh turn 
+                    # with the error appended to the user prompt. This forces the model to see the
+                    # full context again, reducing "hallucination loops".
+                    
+                    # We append the failure to the temporary message list
+                    if last_raw:
+                        messages.append({"role": "assistant", "content": last_raw[:5000]})
+                    
+                    messages.append({"role": "user", "content": correction_msg})
+                    
                     await asyncio.sleep(1)
                     continue
                 else:
-                    # No more retries, raise the final error
                     break
         
         safe_raw = (last_raw or "")[:500]

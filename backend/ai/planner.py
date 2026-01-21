@@ -177,8 +177,8 @@ class Planner:
     "{\n"
     '  "assistant_message": "A friendly summary of the architecture...",\n'
     '  "tasks": [\n'
-    '    "Step 1: [Project: ChatApp | Stack: esbuild React/Node | Context: ChatApp is a friendly chatbot... *THE CONTEXT IS VERY IMPORTANT AND MANDATORY TO ADD*] Create package.json... (include all dependencies)",\n'
-    '    "Step 2: [Project: ChatApp | Stack: esbuild React/Node | Context: ChatApp is a friendly chatbot... *THE CONTEXT IS VERY IMPORTANT AND MANDATORY TO ADD*] Create index.html... (include window.onerror)"\n'
+    '    "Step 1: [Project: ChatApp | Stack: esbuild React/Node | Context: ChatApp is a friendly chatbot with features X, Y, Z. It uses... (INCLUDE FULL SUMMARY HERE, DO NOT TRUNCATE)] Create package.json... (include all dependencies)",\n'
+    '    "Step 2: [Project: ChatApp | Stack: esbuild React/Node | Context: ChatApp is a friendly chatbot with features X, Y, Z. It uses... (INCLUDE FULL SUMMARY HERE, DO NOT TRUNCATE)] Create index.html... (include window.onerror)"\n'
     "  ]\n"
     "}\n\n"
 
@@ -195,7 +195,7 @@ class Planner:
     "   - NEVER assign a task to just 'create a component'.\n"
     "   - **MANDATORY:** Every component creation task MUST include a directive to **Update `static/main.js`**.\n"
     "   - Example: 'Create `static/components/Sidebar.js`... AND IMMEDIATELY REWRITE `static/main.js` to import `Sidebar` and render `<Sidebar />` inside the App layout.'\n"
-    "   - `main.js` must evolve in *every* frontend step. And most importantly on the FINAL STEP YOU  MUST UPDATE THE MAIN.JS & SERVER>JS. It should never remain a placeholder, this will happen, if you just say 'setup main.js'.\n"
+    "   - `main.js` must evolve in *every* frontend step. And most importantly on the FINAL STEP YOU  MUST UPDATE THE MAIN.JS & SERVER.JS. It should never remain a placeholder, this will happen, if you just say 'setup main.js'.\n"
     "4. **The Build Sequence (esbuild Edition):**\n"
     "   - Phase 1: `package.json`. Define `scripts` ('start': 'node server.js'), `dependencies` ('express', 'cors', 'dotenv', 'fireworks-ai', 'better-sqlite3'), and **devDependencies ('esbuild')** (CRITICAL for syntax checking). **Do NOT include** 'vite' or 'react' here.\n"
     "   - Phase 2: `server.js` (Backend Skeleton). Setup Express, `app.use(express.json())`, and the **Critical Error Logging Route** (`POST /api/log-error`). Setup static serving.\n"
@@ -208,7 +208,8 @@ class Planner:
     "   - The Coder is forbidden from writing comments like `// code goes here`. You must describe the logic needed.\n"
     "   - Every step must result in a **rendering** application. Never leave the app in a broken state between steps.\n"
     "6. **The 'Global Blueprint' Rule:**\n"
-    "   - Every task string MUST start with: `[App: {Name} | Stack: esbuild React/Node] ...`\n\n"
+    "   - Every task string MUST start with: `[Project: {Name} | Stack: esbuild React/Node | Context: {FULL_APP_DESCRIPTION_HERE}] ...`\n"
+    "   - **CRITICAL**: The `Context` section MUST contain the FULL description of what the app is supposed to do. Do NOT truncate it. The Coder needs to know the app's purpose in every single step to write meaningful code.\n\n"
 
     "TASK WRITING GUIDELINES:\n"
     "1. **No-Build Specifics:** \n"
