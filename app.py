@@ -12,6 +12,8 @@ import random
 import string
 import re
 import urllib.parse
+import subprocess
+import tempfile
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -1005,6 +1007,44 @@ def emit_token_update(pid: str, used: int) -> None:
 
 
 # ==========================================================================
+# GATEKEEPER: LINTING & SYNTAX CHECKING
+# ==========================================================================
+def lint_code_with_esbuild(content: str, filename: str) -> str | None:
+    """
+    Runs esbuild on the content to check for syntax errors.
+    Returns None if OK, or the error string if failed.
+    """
+    if not filename.endswith(".js"): 
+        return None # Only check JS files (which might contain JSX)
+
+    try:
+        # Create a temp file to lint
+        with tempfile.NamedTemporaryFile(suffix=".js", delete=False, mode='w', encoding='utf-8') as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+
+        # Run esbuild (assuming npx/esbuild is available in path or node_modules)
+        # We use --loader=jsx to allow JSX syntax inside .js files
+        result = subprocess.run(
+            ["npx", "esbuild", tmp_path, "--loader=jsx", "--format=esm"],
+            capture_output=True,
+            text=True
+        )
+        
+        os.remove(tmp_path) # Cleanup
+
+        if result.returncode != 0:
+            return result.stderr # Return the error message
+        return None # Success
+
+    except Exception as e:
+        # If esbuild isn't installed or fails to run, we log but don't block
+        # This prevents the whole backend from crashing if the environment isn't perfect
+        print(f"Linter warning: {e}")
+        return None
+
+
+# ==========================================================================
 # AI AGENT WORKFLOW
 # ==========================================================================
 async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
@@ -1164,7 +1204,7 @@ async def agent_start(
             
             # CHOOSE CODER BASED ON XMODE
             if xmode:
-                emit_status(project_id, "X-MODE ENGAGED")
+                emit_status(project_id, "🔮 X-MODE ENGAGED")
                 coder = XCoder()
             else:
                 coder = Coder()
@@ -1232,7 +1272,18 @@ async def agent_start(
                 for op in ops:
                     path = op.get("path")
                     content = op.get("content")
+                    
                     if path and content is not None:
+                        # --- LINTER GATEKEEPER ---
+                        if path.endswith(".js"):
+                            emit_status(project_id, f"Linting {path}...")
+                            lint_err = lint_code_with_esbuild(content, path)
+                            if lint_err:
+                                emit_log(project_id, "system", f"❌ Syntax Error Caught in {path}:\n{lint_err}")
+                                # Stop execution and force error so the user (or future retry logic) sees it
+                                raise Exception(f"Syntax Error in {path}: {lint_err}")
+                        # -------------------------
+
                         db_upsert(
                             "files", 
                             {"project_id": project_id, "path": path, "content": content}, 
@@ -1437,3 +1488,14 @@ async def public_app_catchall(request: Request, full_path: str):
     # We pass the cleaned slug and the remainder path (e.g. "index.html")
     # print(f"🔄 Routing: Slug=[{project_slug}] Path=[{remainder}]") # Debug log
     return await deployer.handle_request(request, project_slug, remainder)
+
+# ==========================================================================
+# HEALTH CHECK
+# ==========================================================================
+@app.get("/health")
+async def health():
+    return {
+        "ok": True, 
+        "ts": int(time.time()), 
+        "dev_mode": DEV_MODE
+    }

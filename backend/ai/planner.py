@@ -1,4 +1,3 @@
-# backend/ai/planner.py
 """
 planner.py — gor://a Deterministic AI Capability Planner (Fireworks DeepSeek V3.2)
 """
@@ -197,7 +196,7 @@ class Planner:
     "   - Example: 'Create `static/components/Sidebar.js`... AND IMMEDIATELY REWRITE `static/main.js` to import `Sidebar` and render `<Sidebar />` inside the App layout.'\n"
     "   - `main.js` must evolve in *every* frontend step. And most importantly on the FINAL STEP YOU  MUST UPDATE THE MAIN.JS & SERVER>JS. It should never remain a placeholder, this will happen, if you just say 'setup main.js'.\n"
     "4. **The Build Sequence (Runtime React Edition):**\n"
-    "   - Phase 1: `package.json`. Define `scripts` ('start': 'node server.js') and `dependencies` ('express', 'cors', 'dotenv', 'fireworks-ai', 'better-sqlite3'). **Do NOT include** 'vite' or 'react' here.\n"
+    "   - Phase 1: `package.json`. Define `scripts` ('start': 'node server.js'), `dependencies` ('express', 'cors', 'dotenv', 'fireworks-ai', 'better-sqlite3'), and **devDependencies ('esbuild')** (CRITICAL for syntax checking). **Do NOT include** 'vite' or 'react' here.\n"
     "   - Phase 2: `server.js` (Backend Skeleton). Setup Express, `app.use(express.json())`, and the **Critical Error Logging Route** (`POST /api/log-error`). Setup static serving.\n"
     "   - Phase 3: `database.js` (The Adapter). Create local DB setup.\n"
     "   - Phase 4: `index.html` (The Shell). Create root HTML with Babel/React CDNs. **CRITICAL:** Include the `window.onerror` Spy Script in the `<head>`.\n"
@@ -218,7 +217,7 @@ class Planner:
     "   - Chat: 'accounts/fireworks/models/qwen3-8b'\n"
     "   - Voice (STT): 'accounts/fireworks/models/whisper-v3-turbo'\n"
     "   - Vision: 'accounts/fireworks/models/qwen3-vl-30b-a3b-instruct'\n"
-    "   - Image Gen: 'accounts/fireworks/models/stable-diffusion-xl-1024-v1-0'\n"
+    "   - Image Gen: 'accounts/fireworks/models/playground-v2-5-1024px-aesthetic'\n"
     "   - BG Removal: Use `process.env.REM_BG_API_KEY`.\n"
     "3. **Volume:** \n"
     "   - Complex Apps: 20-23 tasks.\n"
