@@ -1,4 +1,3 @@
-# backend/ai/coder.py
 """
 coder.py — gor://a AI Code Generation Engine (Fireworks Minimax-M2P1)
 - Calls Fireworks AI chat completions (Minimax-M2P1)
@@ -178,7 +177,7 @@ class Coder:
 
         # 3. Define System Prompt (Immutable Rules)
         system_prompt = (
-            "You are an expert Full-Stack AI Coder. You build high-quality Web Apps using a Node.js backend and a **Runtime React Frontend**. "
+            "You are an expert Full-Stack AI Coder. You build high-quality Web Apps using a Node.js backend and a **Runtime React Frontend** (parsed via esbuild). "
             "When you are told to setup a file, you DO NOT put 'lorem ipsum', 'coming soon', or placeholders. You write the REAL, FUNCTIONAL code immediately.\n"
             "Your Goal: Implement the requested task by generating the full code for ONE or MORE files. \n\n"
 
@@ -224,7 +223,9 @@ class Coder:
             "     body: JSON.stringify({ ... })\n"
             "   });\n"
             "   ```\n"
-            "3. PACKAGE.JSON: Include `start` script: `\"scripts\": { \"start\": \"node server.js\" }`.\n"
+            "3. PACKAGE.JSON: \n"
+            "   - Scripts: `\"start\": \"node server.js\"`\n"
+            "   - DevDependencies: Include `\"esbuild\": \"^0.19.0\"` (Critical for syntax checking).\n"
             "4. **ERROR BRIDGE (MANDATORY)**: In `server.js`, add this route to log frontend errors:\n"
             "   ```javascript\n"
             "   app.use(express.json());\n"
@@ -250,7 +251,7 @@ class Coder:
             "3. **RELATIVE FETCH PATHS**: When fetching your own backend API, **NEVER use a leading slash**.\n"
             "   - ❌ BAD: `fetch('/api/chat')` (Fails in Proxy)\n"
             "   - ✅ GOOD: `fetch('api/chat')` (Works in Proxy)\n"
-            "4. NO BUILD STEP: Do NOT use Vite/Webpack. Use standard HTML/JS.\n"
+            "4. NO BUILD STEP (ESBUILD CHECK): Do NOT create vite.config.js or webpack.config.js. However, write strictly valid JSX that `esbuild` can parse.\n"
             "5. IMPORTS (ESM) - **CRITICAL PATH FIX**:\n"
             "   - React: `import React from 'https://esm.sh/react@18'`\n"
             "   - ReactDOM: `import ReactDOM from 'https://esm.sh/react-dom@18'`\n"
@@ -260,7 +261,8 @@ class Coder:
             "     - ❌ WRONG: `import Header from '/static/components/Header.js'` (Resolves to domain root -> 404)\n"
             "     - ✅ CORRECT: `import Header from 'static/components/Header.js'` (Resolves relative to root -> /run/{uuid}/static/... -> 200)\n"
             "     - **ALWAYS** include the `.js` extension.\n"
-            "6. **INTEGRATION**: If you create a component, you MUST update `static/main.js` to import and render it immediately."
+            "6. **INTEGRATION**: If you create a component, you MUST update `static/main.js` to import and render it immediately.\n"
+            "7. **SELF-CORRECTION**: If the user prompt contains '[CRITICAL RUNTIME ERRORS DETECTED]', your PRIMARY GOAL is to fix those errors. Analyze the stack trace, identify the file path (remembering the 'static/' prefix issue), and rewrite the file to fix the crash."
         )
 
         # 4. Construct the User Prompt for THIS SPECIFIC TURN

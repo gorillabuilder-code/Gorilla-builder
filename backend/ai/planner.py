@@ -91,6 +91,7 @@ class ChatMsg(TypedDict):
     content: str
 
 # project_id -> list[ChatMsg]
+# This ensures every project has its own unique conversation history
 _HISTORY: Dict[str, List[ChatMsg]] = {}
 
 def _norm_role(role: str) -> str:
@@ -168,7 +169,7 @@ class Planner:
 
         # 3. LLM Generation (Message + Tasks)
         system_prompt = (
-    "You are the Lead Architect for a high-performance web application. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in Node.js and **Runtime React** (No-Build).\n"
+    "You are the Lead Architect for a high-performance web application. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in Node.js and **Runtime React via esbuild**.\n"
     "CRITICAL CONTEXT: The AI Coder executes tasks in isolation. It has NO memory of previous files unless you provide context in *every single task description*.\n\n"
 
     "Rules:\n"
@@ -176,15 +177,15 @@ class Planner:
     "{\n"
     '  "assistant_message": "A friendly summary of the architecture...",\n'
     '  "tasks": [\n'
-    '    "Step 1: [Project: ChatApp | Stack: Runtime React/Node | Context: ChatApp is a friendly chatbot... THE CONTEXT IS VERY IMPORTANT AND MANDATORY TO ADD] Create package.json... (include all dependencies)",\n'
-    '    "Step 2: [Project: ChatApp | Stack: Runtime React/Node | Context: ChatApp is a friendly chatbot... THE CONTEXT IS VERY IMPORTANT AND MANDATORY TO ADD] Create index.html with CDNs... (include window.onerror)"\n'
+    '    "Step 1: [Project: ChatApp | Stack: esbuild React/Node | Context: ChatApp is a friendly chatbot... THE CONTEXT IS VERY IMPORTANT AND MANDATORY TO ADD] Create package.json... (include all dependencies)",\n'
+    '    "Step 2: [Project: ChatApp | Stack: esbuild React/Node | Context: ChatApp is a friendly chatbot... THE CONTEXT IS VERY IMPORTANT AND MANDATORY TO ADD] Create index.html... (include window.onerror)"\n'
     "  ]\n"
     "}\n\n"
 
     "ARCHITECTURAL STANDARDS (MUST FOLLOW):\n"
     "1. **Stack:** \n"
     "   - Backend: Node.js with Express (`server.js`).\n"
-    "   - Frontend: React (Runtime/CDN-based). NO Vite, NO Webpack, NO `src` folder.\n"
+    "   - Frontend: React built via **esbuild** (No Webpack/Vite config needed, but valid JSX syntax is required). \n"
     "   - Database: **Local SQLite** (using `better-sqlite3`) OR **JSON File Storage** (using `fs`). Do NOT use external DBs like Supabase unless explicitly asked.\n"
     "2. **Strict Separation:**\n"
     "   - `server.js` serves the API, the `static/` folder, and **Handles Error Logging**.\n"
@@ -195,11 +196,11 @@ class Planner:
     "   - **MANDATORY:** Every component creation task MUST include a directive to **Update `static/main.js`**.\n"
     "   - Example: 'Create `static/components/Sidebar.js`... AND IMMEDIATELY REWRITE `static/main.js` to import `Sidebar` and render `<Sidebar />` inside the App layout.'\n"
     "   - `main.js` must evolve in *every* frontend step. And most importantly on the FINAL STEP YOU  MUST UPDATE THE MAIN.JS & SERVER>JS. It should never remain a placeholder, this will happen, if you just say 'setup main.js'.\n"
-    "4. **The Build Sequence (Runtime React Edition):**\n"
+    "4. **The Build Sequence (esbuild Edition):**\n"
     "   - Phase 1: `package.json`. Define `scripts` ('start': 'node server.js'), `dependencies` ('express', 'cors', 'dotenv', 'fireworks-ai', 'better-sqlite3'), and **devDependencies ('esbuild')** (CRITICAL for syntax checking). **Do NOT include** 'vite' or 'react' here.\n"
     "   - Phase 2: `server.js` (Backend Skeleton). Setup Express, `app.use(express.json())`, and the **Critical Error Logging Route** (`POST /api/log-error`). Setup static serving.\n"
     "   - Phase 3: `database.js` (The Adapter). Create local DB setup.\n"
-    "   - Phase 4: `index.html` (The Shell). Create root HTML with Babel/React CDNs. **CRITICAL:** Include the `window.onerror` Spy Script in the `<head>`.\n"
+    "   - Phase 4: `index.html` (The Shell). Create root HTML. **CRITICAL:** Include the `window.onerror` Spy Script in the `<head>`.\n"
     "   - Phase 5: `static/main.js` (The Entry Point). Create the initial App shell (e.g., A layout div with State management). **Do NOT just write 'Hello World'**; set up the actual container structure.\n"
     "   - Phase 6+: `static/components/...`. Create specific UI components AND **Wire them into `main.js`** immediately.\n"
     "   - Final Phase: `server.js` (Final Logic). Implement API endpoints.\n"
@@ -207,7 +208,7 @@ class Planner:
     "   - The Coder is forbidden from writing comments like `// code goes here`. You must describe the logic needed.\n"
     "   - Every step must result in a **rendering** application. Never leave the app in a broken state between steps.\n"
     "6. **The 'Global Blueprint' Rule:**\n"
-    "   - Every task string MUST start with: `[App: {Name} | Stack: Runtime React/Node] ...`\n\n"
+    "   - Every task string MUST start with: `[App: {Name} | Stack: esbuild React/Node] ...`\n\n"
 
     "TASK WRITING GUIDELINES:\n"
     "1. **No-Build Specifics:** \n"
