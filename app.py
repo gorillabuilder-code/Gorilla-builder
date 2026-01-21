@@ -1007,40 +1007,45 @@ def emit_token_update(pid: str, used: int) -> None:
 
 
 # ==========================================================================
-# GATEKEEPER: LINTING & SYNTAX CHECKING
+# GATEKEEPER: LINTING & SYNTAX CHECKING (NON-BLOCKING)
 # ==========================================================================
 def lint_code_with_esbuild(content: str, filename: str) -> str | None:
     """
-    Runs esbuild on the content to check for syntax errors.
-    Returns None if OK, or the error string if failed.
+    Runs esbuild to check for syntax errors. 
+    This is a BLOCKING function, so it must be called with asyncio.to_thread.
     """
-    if not filename.endswith(".js"): 
-        return None # Only check JS files (which might contain JSX)
+    # 1. SCOPE: Only check frontend files in static/ to avoid backend false positives
+    if not filename.startswith("static/") or not filename.endswith(".js"):
+        return None
 
     try:
-        # Create a temp file to lint
+        # Create temp file
         with tempfile.NamedTemporaryFile(suffix=".js", delete=False, mode='w', encoding='utf-8') as tmp:
             tmp.write(content)
             tmp_path = tmp.name
 
-        # Run esbuild (assuming npx/esbuild is available in path or node_modules)
-        # We use --loader=jsx to allow JSX syntax inside .js files
+        # 2. RUN: Timed execution
+        # We use --log-level=error to keep output clean
         result = subprocess.run(
-            ["npx", "esbuild", tmp_path, "--loader=jsx", "--format=esm"],
+            ["npx", "esbuild", tmp_path, "--loader=jsx", "--format=esm", "--log-level=error"],
             capture_output=True,
-            text=True
+            text=True,
+            timeout=10 # Strict timeout to prevent hanging
         )
         
-        os.remove(tmp_path) # Cleanup
+        os.remove(tmp_path)
 
+        # 3. CHECK: If exit code != 0, it's a syntax error
         if result.returncode != 0:
-            return result.stderr # Return the error message
-        return None # Success
+            return result.stderr.strip()
+            
+        return None
 
+    except subprocess.TimeoutExpired:
+        print(f"⚠️ Linter timed out on {filename}. Skipping.")
+        return None
     except Exception as e:
-        # If esbuild isn't installed or fails to run, we log but don't block
-        # This prevents the whole backend from crashing if the environment isn't perfect
-        print(f"Linter warning: {e}")
+        print(f"⚠️ Linter failed to run: {e}")
         return None
 
 
@@ -1274,14 +1279,23 @@ async def agent_start(
                     content = op.get("content")
                     
                     if path and content is not None:
-                        # --- LINTER GATEKEEPER ---
-                        if path.endswith(".js"):
+                        # --- NON-BLOCKING LINTER GATEKEEPER ---
+                        # We verify strict frontend JS syntax without freezing the server
+                        if path.startswith("static/") and path.endswith(".js"):
                             emit_status(project_id, f"Linting {path}...")
-                            lint_err = lint_code_with_esbuild(content, path)
-                            if lint_err:
-                                emit_log(project_id, "system", f"❌ Syntax Error Caught in {path}:\n{lint_err}")
-                                # Stop execution and force error so the user (or future retry logic) sees it
-                                raise Exception(f"Syntax Error in {path}: {lint_err}")
+                            try:
+                                # RUN IN THREAD POOL to prevent server hang
+                                lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
+                                
+                                if lint_err:
+                                    emit_log(project_id, "system", f"❌ Syntax Error in {path}:\n{lint_err}")
+                                    # We raise exception to stop the agent and force a retry/fix
+                                    raise Exception(f"Syntax Error in {path}: {lint_err}")
+                            except Exception as e:
+                                # If it was our syntax error, re-raise. If it was a thread error, log and continue.
+                                if "Syntax Error" in str(e):
+                                    raise e
+                                print(f"Linter thread warning: {e}")
                         # -------------------------
 
                         db_upsert(

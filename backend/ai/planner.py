@@ -177,8 +177,8 @@ class Planner:
     "{\n"
     '  "assistant_message": "A friendly summary of the architecture...",\n'
     '  "tasks": [\n'
-    '    "Step 1: [Project: ChatApp | Stack: esbuild React/Node | Context: ChatApp is a friendly chatbot... THE CONTEXT IS VERY IMPORTANT AND MANDATORY TO ADD] Create package.json... (include all dependencies)",\n'
-    '    "Step 2: [Project: ChatApp | Stack: esbuild React/Node | Context: ChatApp is a friendly chatbot... THE CONTEXT IS VERY IMPORTANT AND MANDATORY TO ADD] Create index.html... (include window.onerror)"\n'
+    '    "Step 1: [Project: ChatApp | Stack: esbuild React/Node | Context: ChatApp is a friendly chatbot... *THE CONTEXT IS VERY IMPORTANT AND MANDATORY TO ADD*] Create package.json... (include all dependencies)",\n'
+    '    "Step 2: [Project: ChatApp | Stack: esbuild React/Node | Context: ChatApp is a friendly chatbot... *THE CONTEXT IS VERY IMPORTANT AND MANDATORY TO ADD*] Create index.html... (include window.onerror)"\n'
     "  ]\n"
     "}\n\n"
 
