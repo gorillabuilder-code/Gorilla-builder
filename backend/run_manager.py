@@ -2,237 +2,204 @@ from __future__ import annotations
 
 import os
 import json
-import socket
 import asyncio
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Any
 
 import httpx
-from dotenv import dotenv_values 
+from dotenv import load_dotenv
+from e2b import Sandbox
 
-def _pick_free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    _, port = s.getsockname()
-    s.close()
-    return int(port)
+load_dotenv()
 
 @dataclass
 class RunInfo:
     project_id: str
-    port: int
-    proc: asyncio.subprocess.Process
-    root_dir: str
-    runtime_bin: str = "node"
+    sandbox: Sandbox
+    url: str  # Public HTTPS URL from E2B
 
 class ProjectRunManager:
     """
-    Node.js Only Runner:
-      - Expects a package.json or standard JS entry point (server.js, index.js).
-      - Runs `npm install` automatically.
-      - Starts the application via `npm start` or `node [entry]`.
-      - Proxies traffic to localhost:PORT.
+    E2B Cloud Runner:
+      - Runs projects in isolated cloud sandboxes (Firecracker micro-VMs).
+      - Relays build/runtime errors back to the Python backend for AI Auto-Fixing.
+      - Proxies traffic from your backend -> E2B -> User App.
     """
 
-    def __init__(self, base_dir: str = "/tmp/gor-a"):
-        self.base_dir = base_dir
+    def __init__(self):
         self._runs: Dict[str, RunInfo] = {}
-        os.makedirs(self.base_dir, exist_ok=True)
-
-        # Inject secrets from .env files if they exist
-        self.injected_secrets = {
-            **dotenv_values(".env.inject"),
-            **dotenv_values("backend/.env.inject")
-        }
+        self.api_key = os.getenv("E2B_API_KEY")
+        if not self.api_key:
+            print("⚠️ WARNING: E2B_API_KEY not found. Previews will fail.")
 
     def is_running(self, project_id: str) -> Tuple[bool, Optional[int]]:
+        """
+        Checks if the sandbox is active.
+        Returns (is_running, fake_port). Port is irrelevant in E2B but kept for compatibility.
+        """
         info = self._runs.get(project_id)
         if not info:
             return False, None
-        if info.proc.returncode is not None:
+        
+        try:
+            if not info.sandbox.is_running():
+                self._runs.pop(project_id, None)
+                return False, None
+        except Exception:
             self._runs.pop(project_id, None)
             return False, None
-        return True, info.port
+            
+        return True, 80 # Fake port
 
     async def stop(self, project_id: str) -> None:
+        """Kills the sandbox."""
         info = self._runs.get(project_id)
-        if not info:
-            return
-        try:
-            info.proc.terminate()
-            await asyncio.wait_for(info.proc.wait(), timeout=3)
-        except Exception:
+        if info:
             try:
-                info.proc.kill()
+                info.sandbox.close()
+            except Exception as e:
+                print(f"Error closing sandbox: {e}")
+            self._runs.pop(project_id, None)
+
+    def _determine_start_command(self, file_tree: Dict[str, str]) -> str:
+        """Heuristic to find the correct start command from the file tree."""
+        # 1. Check package.json for "start" script
+        if "package.json" in file_tree:
+            try:
+                pkg = json.loads(file_tree["package.json"])
+                scripts = pkg.get("scripts", {})
+                if "start" in scripts:
+                    return "npm start"
+                if "dev" in scripts:
+                    return "npm run dev"
+                if pkg.get("main"):
+                    return f"node {pkg['main']}"
             except Exception:
                 pass
-        self._runs.pop(project_id, None)
-
-    async def _run_cmd(self, cwd: str, cmd: list[str], timeout_s: int = 300) -> tuple[int, str]:
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd, cwd=cwd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
-            out_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
-            return int(proc.returncode or 0), (out_bytes or b"").decode("utf-8", errors="ignore")
-        except asyncio.TimeoutError:
-            try: proc.kill()
-            except: pass
-            return 124, f"Timeout running: {' '.join(cmd)}"
-        except Exception as e:
-            return 1, str(e)
-
-    # --- NODE.JS SETUP ---
-    async def _setup_node(self, root: str) -> list[str]:
-        """Runs npm install and returns the start command."""
-        pkg_path = os.path.join(root, "package.json")
         
-        # 1. Install Dependencies
-        if os.path.exists(pkg_path):
-            # optimization: check if node_modules exists to skip install? 
-            # For now, we run it to ensure consistency, but standard npm is smart enough not to redo everything.
-            print("--> Running npm install...")
-            code, out = await self._run_cmd(root, ["npm", "install"], timeout_s=400)
-            if code != 0:
-                raise RuntimeError(f"npm install failed:\n{out}")
-        
-        # 2. Determine Start Command
-        try:
-            if os.path.exists(pkg_path):
-                with open(pkg_path) as f:
-                    pkg_data = json.load(f)
-                
-                scripts = pkg_data.get("scripts", {})
-                
-                if "start" in scripts:
-                    return ["npm", "start"]
-                elif "dev" in scripts:
-                    return ["npm", "run", "dev"]
-                elif pkg_data.get("main"):
-                    return ["node", pkg_data["main"]]
-        except Exception:
-            pass
+        # 2. Check for common entry points
+        if "server.js" in file_tree:
+            return "node server.js"
+        if "index.js" in file_tree:
+            return "node index.js"
+        if "app.js" in file_tree:
+            return "node app.js"
             
-        # Fallback heuristics
-        if os.path.exists(os.path.join(root, "server.js")):
-            return ["node", "server.js"]
-        if os.path.exists(os.path.join(root, "index.js")):
-            return ["node", "index.js"]
-        if os.path.exists(os.path.join(root, "app.js")):
-            return ["node", "app.js"]
-            
-        # If we are here, we don't know how to run it.
-        # Default to index.js and let it fail if missing, so the error bubbles up cleanly.
-        return ["node", "index.js"]
+        # 3. Default fallback
+        return "npm start"
 
     async def start(self, project_id: str, file_tree: Dict[str, str]) -> RunInfo:
-        # OPTIMIZATION: If already running and healthy, do not restart.
-        # This prevents "Live URL" visitors from killing the server if they arrive simultaneously.
-        if project_id in self._runs:
-            existing = self._runs[project_id]
-            if existing.proc.returncode is None:
-                return existing
-
+        """
+        Starts a project in an E2B Sandbox.
+        Raises RuntimeError if npm install or startup fails (caught by AI to fix).
+        """
+        # 1. Cleanup existing run
         await self.stop(project_id)
 
-        root = os.path.join(self.base_dir, project_id)
-        os.makedirs(root, exist_ok=True)
-
-        # 1. Write User Files
-        for path, content in (file_tree or {}).items():
-            if not path or path.endswith("/"): continue
-            abs_path = os.path.join(root, path)
-            os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-            with open(abs_path, "w", encoding="utf-8") as f: f.write(content or "")
-
-        # 2. Setup Node environment
-        start_cmd = await self._setup_node(root)
-        port = _pick_free_port()
-
-        # 3. Prepare Env Vars
-        env_vars = os.environ.copy()
+        print(f"--> [E2B] Creating sandbox for {project_id}...")
         
-        # Remove sensitive keys from host
-        sensitive_keys = [
-            "FIREWORKS_API_KEY", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_URL",
-            "RESEND_API_KEY", "AUTH_SECRET_KEY", "GROQ_API_KEY"
-        ]
-        for k in sensitive_keys: env_vars.pop(k, None)
-
-        env_vars.update(self.injected_secrets)
-        env_vars["PORT"] = str(port)
-
-        # 4. Launch Process
-        print(f"--> Launching {project_id} on port {port} using {start_cmd}...")
-        proc = await asyncio.create_subprocess_exec(
-            *start_cmd, 
-            cwd=root, env=env_vars,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        info = RunInfo(project_id=project_id, port=port, proc=proc, root_dir=root)
-        self._runs[project_id] = info
-
-        # 5. Health Check
-        startup_error = None
-        for _ in range(60): 
-            await asyncio.sleep(0.5)
+        # 2. Create Sandbox (Node.js environment)
+        # We use the standard 'Nodejs' template
+        sandbox = Sandbox(template="nodejs")
+        
+        try:
+            # 3. Write Files
+            # E2B accepts file writes. We need to ensure directories exist.
+            print(f"--> [E2B] Writing {len(file_tree)} files...")
             
-            if proc.returncode is not None:
-                # Died
-                raw_err = await proc.stderr.read()
-                raw_out = await proc.stdout.read()
-                full_log = (raw_out.decode() + "\n" + raw_err.decode()).strip()
+            for path, content in file_tree.items():
+                if not path or path.endswith("/"): continue
                 
-                # Simple error detection
-                if "Error:" in full_log:
-                    startup_error = full_log
-                else:
-                    startup_error = full_log or "Unknown crash (process exited)."
-                break
+                # Ensure directory exists
+                dir_path = os.path.dirname(path)
+                if dir_path and dir_path not in [".", ""]:
+                    sandbox.filesystem.make_dir(dir_path)
+                
+                # Write file
+                sandbox.filesystem.write(path, content)
+
+            # 4. Install Dependencies
+            # Only run if package.json exists
+            if "package.json" in file_tree:
+                print(f"--> [E2B] Running npm install...")
+                install_proc = sandbox.commands.run("npm install", background=False)
+                
+                if install_proc.exit_code != 0:
+                    # CAPTURE ERROR FOR AI
+                    err_log = (install_proc.stderr or "") + "\n" + (install_proc.stdout or "")
+                    raise RuntimeError(f"App crashed during 'npm install':\n{err_log}")
+
+            # 5. Start Server
+            start_cmd = self._determine_start_command(file_tree)
+            print(f"--> [E2B] Starting server with: {start_cmd}")
             
-            try:
-                # Try to hit the root
-                async with httpx.AsyncClient(timeout=1.0) as client:
-                    await client.get(f"http://127.0.0.1:{port}/")
-                return info
-            except (httpx.ConnectError, httpx.ReadTimeout):
-                continue
-        
-        if startup_error:
-            raise RuntimeError(f"App crashed during startup:\n{startup_error}")
-        
-        await self.stop(project_id)
-        raise RuntimeError("Server started but timed out (port not reachable). Did you listen on process.env.PORT?")
+            # Start in background. We force PORT=3000 convention.
+            sandbox.commands.run(f"export PORT=3000 && {start_cmd}", background=True)
+
+            # 6. Health Check (Wait for port 3000)
+            # Give it up to 10 seconds to bind the port
+            port_open = False
+            error_log = ""
+            
+            for i in range(10):
+                # Try to curl localhost inside the VM
+                check = sandbox.commands.run("curl -s http://localhost:3000 > /dev/null", background=False)
+                if check.exit_code == 0:
+                    port_open = True
+                    break
+                await asyncio.sleep(1)
+            
+            if not port_open:
+                # It failed to start. Try to grab logs?
+                # (E2B doesn't persist background logs easily in v1 SDK without streaming)
+                # We assume a crash.
+                raise RuntimeError(
+                    f"Server started using '{start_cmd}' but port 3000 did not open after 10s.\n"
+                    "Possible causes: Syntax error, missing module, or app crashed immediately.\n"
+                    "Check imports and package.json."
+                )
+
+            # 7. Get Public URL
+            # E2B provides a hostname that tunnels to the sandbox port 3000
+            host = sandbox.get_host(3000)
+            public_url = f"https://{host}"
+            
+            print(f"--> [E2B] Live at {public_url}")
+            
+            info = RunInfo(
+                project_id=project_id,
+                sandbox=sandbox,
+                url=public_url
+            )
+            self._runs[project_id] = info
+            return info
+
+        except Exception as e:
+            # If startup fails, kill the sandbox so we don't leak money
+            sandbox.close()
+            raise e
 
     async def proxy(self, project_id: str, path: str, method: str, headers: dict, body: bytes, query: str) -> httpx.Response:
-        running, port = self.is_running(project_id)
+        """
+        Proxies requests from your backend -> E2B Public URL.
+        This keeps the frontend URL structure /run/{project_id}/... consistent.
+        """
+        info = self._runs.get(project_id)
         
-        if not running:
-            info = self._runs.get(project_id)
-            err_msg = "Server not running."
-            if info and info.proc.stderr:
-                 try:
-                    err_bytes = await info.proc.stderr.read()
-                    if err_bytes: err_msg = err_bytes.decode()
-                 except: pass
-            raise RuntimeError(f"CRASH_DETECTED: {err_msg}")
+        if not info or not info.sandbox.is_running():
+            raise RuntimeError("CRASH_DETECTED: Server not running (Sandbox died).")
 
-        url = f"http://127.0.0.1:{port}/{path.lstrip('/')}"
-        if query: url += f"?{query}"
+        # Construct target URL
+        target_url = f"{info.url}/{path.lstrip('/')}"
+        if query:
+            target_url += f"?{query}"
 
-        fwd_headers = {}
-        for k, v in headers.items():
-            lk = k.lower()
-            if lk in ("host", "content-length", "connection"): continue
-            fwd_headers[k] = v
+        # Clean headers (Host header usually breaks proxies)
+        fwd_headers = {k: v for k, v in headers.items() if k.lower() not in ("host", "content-length", "connection")}
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                resp = await client.request(method, url, headers=fwd_headers, content=body)
+                resp = await client.request(method, target_url, headers=fwd_headers, content=body)
                 return resp
-            except (httpx.ConnectError, httpx.ReadTimeout):
-                raise RuntimeError("CRASH_DETECTED: Connection refused during request (Runtime Crash).")
+            except httpx.RequestError as e:
+                raise RuntimeError(f"CRASH_DETECTED: Connection failed to E2B sandbox: {e}")

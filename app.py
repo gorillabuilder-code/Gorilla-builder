@@ -1079,7 +1079,8 @@ async def _start_server_with_retry(project_id: str):
         file_tree = await _fetch_file_tree(project_id)
         info = await run_manager.start(project_id, file_tree)
         emit_status(project_id, "Server Running")
-        emit_log(project_id, "system", f"Server running on port {info.port}")
+        # FIXED: Use info.url instead of info.port
+        emit_log(project_id, "system", f"Server running at {info.url}")
         emit_progress(project_id, "Ready", 100)
         return # Success on first try
     except Exception as e:
@@ -1138,7 +1139,8 @@ async def _start_server_with_retry(project_id: str):
             
             # If we get here, it started!
             emit_status(project_id, "Server Fixed & Running")
-            emit_log(project_id, "system", f"Server running on port {info.port}")
+            # FIXED: Use info.url instead of info.port
+            emit_log(project_id, "system", f"Server running at {info.url}")
             emit_progress(project_id, "Ready", 100)
             return
             
