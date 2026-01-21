@@ -321,7 +321,7 @@ class Coder:
                 if attempt < max_retries:
                     correction_msg = (
                         f"Your previous response was invalid (Error: {last_err}).\n"
-                        "Please fix the format. Output valid JSON only. Ensure all brackets are closed.\n"
+                        "Please fix the format. Output valid JSON only. Ensure all brackets are closed. Do not just say SORRY, or leave it blank.\n"
                         f"REMEMBER YOUR GOAL: {plan_section}\n"
                         f"REMEMBER THE SYSTEM RULES: Output valid JSON with 'operations' list."
                     )
