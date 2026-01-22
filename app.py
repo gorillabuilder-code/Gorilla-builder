@@ -15,7 +15,7 @@ import urllib.parse
 import subprocess
 import tempfile
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Set
 
 import httpx
 import resend
@@ -91,8 +91,13 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 # IN-MEMORY OTP STORE (For production, use Redis)
 PENDING_SIGNUPS = {}
 
+# --- GLOBAL STATE FOR RUNTIME MANAGEMENT ---
+_BOOTING_PROJECTS: Set[str] = set()
+_LAST_ACCESS: Dict[str, float] = {} # project_id -> timestamp
+SHUTDOWN_TIMEOUT_SECONDS = 600 # 10 Minutes
+
 # ==========================================================================
-# APP INITIALIZATION
+# APP INITIALIZATION & LIFECYCLE
 # ==========================================================================
 app = FastAPI(title="GOR://A Backend ASGI")
 
@@ -105,6 +110,38 @@ if os.path.isdir(FRONTEND_STYLES_DIR):
     app.mount("/styles", StaticFiles(directory=FRONTEND_STYLES_DIR), name="styles")
 
 templates = Jinja2Templates(directory=FRONTEND_TEMPLATES_DIR)
+
+# --- BACKGROUND TASK: CLEANUP INACTIVE SANDBOXES ---
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(_monitor_inactivity())
+
+async def _monitor_inactivity():
+    """Runs every 60s to kill sandboxes unused for >10 mins."""
+    while True:
+        try:
+            now = time.time()
+            # Copy keys to avoid modification during iteration
+            active_projects = list(_LAST_ACCESS.keys())
+            
+            for pid in active_projects:
+                last_active = _LAST_ACCESS.get(pid, 0)
+                
+                # If idle for too long
+                if (now - last_active) > SHUTDOWN_TIMEOUT_SECONDS:
+                    # Check if actually running before stopping
+                    is_running, _ = run_manager.is_running(pid)
+                    if is_running:
+                        print(f"💤 Idle Cleanup: Stopping project {pid} (Inactive > 10m)")
+                        await run_manager.stop(pid)
+                    
+                    # Stop tracking it
+                    _LAST_ACCESS.pop(pid, None) 
+                    
+            await asyncio.sleep(60) # Check every minute
+        except Exception as e:
+            print(f"Inactivity Monitor Error: {e}")
+            await asyncio.sleep(60)
 
 
 # ==========================================================================
@@ -1108,6 +1145,9 @@ async def _start_server_with_retry(project_id: str):
                 "If a module is missing, add it to requirements.txt."
             )
             
+            # RUN IN THREAD POOL
+            # Note: Coder.generate_code is now async in your latest coder.py, so we await it directly.
+            # If it was sync, we would use asyncio.to_thread.
             res = await coder.generate_code(
                 plan_section="Startup Fix",
                 plan_text=fix_prompt,
@@ -1139,7 +1179,6 @@ async def _start_server_with_retry(project_id: str):
             
             # If we get here, it started!
             emit_status(project_id, "Server Fixed & Running")
-            # FIXED: Use info.url instead of info.port
             emit_log(project_id, "system", f"Server running at {info.url}")
             emit_progress(project_id, "Ready", 100)
             return
@@ -1220,7 +1259,9 @@ async def agent_start(
             emit_phase(project_id, "planner")
             emit_progress(project_id, "Planning...", 10)
             
-            plan_res = planner.generate_plan(
+            # FIXED: Run synchronous Planner in a separate thread
+            plan_res = await asyncio.to_thread(
+                planner.generate_plan,
                 user_request=prompt, 
                 project_context={"project_id": project_id, "files": list(file_tree.keys())}
             )
@@ -1238,7 +1279,9 @@ async def agent_start(
             tasks = plan_res["plan"].get("todo", [])
             todo_md = plan_res.get("todo_md", "")
             if todo_md:
-                emit_log(project_id, "planner", todo_md[:5000])
+                # FIXED: Increased log limit from 5000 to 50000 characters
+                # The verbose planner output was getting cut off in the UI
+                emit_log(project_id, "planner", todo_md[:50000]) 
 
             if not tasks:
                 emit_status(project_id, "Response Complete")
@@ -1256,6 +1299,7 @@ async def agent_start(
                 emit_progress(project_id, f"Building step {i}/{total}...", pct)
                 emit_status(project_id, f"Implementing task {i}/{total}...")
                 
+                # Coder is async, so await directly
                 code_res = await coder.generate_code(
                     plan_section="Implementation",
                     plan_text=task,
@@ -1282,7 +1326,6 @@ async def agent_start(
                     
                     if path and content is not None:
                         # --- NON-BLOCKING LINTER GATEKEEPER ---
-                        # We verify strict frontend JS syntax without freezing the server
                         if path.startswith("static/") and path.endswith(".js"):
                             emit_status(project_id, f"Linting {path}...")
                             try:
@@ -1291,10 +1334,8 @@ async def agent_start(
                                 
                                 if lint_err:
                                     emit_log(project_id, "system", f"❌ Syntax Error in {path}:\n{lint_err}")
-                                    # We raise exception to stop the agent and force a retry/fix
                                     raise Exception(f"Syntax Error in {path}: {lint_err}")
                             except Exception as e:
-                                # If it was our syntax error, re-raise. If it was a thread error, log and continue.
                                 if "Syntax Error" in str(e):
                                     raise e
                                 print(f"Linter thread warning: {e}")
@@ -1314,6 +1355,7 @@ async def agent_start(
             emit_progress(project_id, "Booting...", 100)
             
             # --- PHASE 3: AUTO-START WITH RETRY ---
+            # Kept enabled as per request for Dev Preview
             await _start_server_with_retry(project_id)
             
         except Exception as e:
@@ -1375,6 +1417,9 @@ async def run_start(request: Request, project_id: str):
     # but the user gets SSE updates
     asyncio.create_task(_start_server_with_retry(project_id))
     
+    # Touch access time so monitor doesn't kill it immediately
+    _LAST_ACCESS[project_id] = time.time()
+    
     return {"ok": True, "status": "starting"}
 
 @app.post("/api/project/{project_id}/run/stop")
@@ -1396,6 +1441,10 @@ async def run_status(request: Request, project_id: str):
 
 @app.api_route("/run/{project_id}/{path:path}", methods=["GET","POST","PUT","DELETE","OPTIONS","PATCH"])
 async def run_proxy(request: Request, project_id: str, path: str):
+    """
+    DEV MODE PROXY
+    Uses standard start, but tracks activity to keep sandbox alive.
+    """
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
@@ -1403,6 +1452,10 @@ async def run_proxy(request: Request, project_id: str, path: str):
         raise HTTPException(403, "Dev mode only.")
         
     body = await request.body()
+    
+    # Update activity for Inactivity Monitor
+    _LAST_ACCESS[project_id] = time.time()
+    
     try:
         r = await run_manager.proxy(
             project_id=project_id,
@@ -1434,7 +1487,6 @@ async def run_proxy(request: Request, project_id: str, path: str):
                 return HTMLResponse(loading_html, status_code=200)
 
             # --- CASE 2: RUNTIME CRASH (AUTO-FIX) ---
-            # NOTE: We can trigger the same robust starter here!
             print(f"🔥 RUNTIME AUTO-FIX TRIGGERED for {project_id}")
             asyncio.create_task(_start_server_with_retry(project_id))
             
@@ -1443,6 +1495,7 @@ async def run_proxy(request: Request, project_id: str, path: str):
             if os.path.exists(loading_path):
                 with open(loading_path, "r", encoding="utf-8") as f:
                     loading_html = f.read()
+            loading_html = loading_html.replace("<head>", '<head><meta http-equiv="refresh" content="3">', 1)
             
             return HTMLResponse(loading_html, status_code=200)
 
@@ -1500,10 +1553,56 @@ async def public_app_catchall(request: Request, full_path: str):
     if len(parts) == 1 and not str(request.url.path).endswith("/"):
          return RedirectResponse(url=f"/app/{project_slug}/")
 
-    # 3. Hand off to Deployer
-    # We pass the cleaned slug and the remainder path (e.g. "index.html")
-    # print(f"🔄 Routing: Slug=[{project_slug}] Path=[{remainder}]") # Debug log
-    return await deployer.handle_request(request, project_slug, remainder)
+    # 3. Hand off to Deployer (Lazy Loading handled inside if error thrown)
+    try:
+        # We need the ID to track access for inactivity monitor
+        # This is a bit inefficient (deployer does a lookup, we do another), but clean
+        res = await deployer.handle_request(request, project_slug, remainder)
+        
+        # If successful, we try to find the ID to update access time
+        # This is optimization; deployer handles the proxying
+        try:
+             # Quick lookup to update _LAST_ACCESS so it doesn't die while being used
+             r = supabase.table("projects").select("id").eq("subdomain", project_slug).single().execute()
+             if r.data:
+                 _LAST_ACCESS[r.data['id']] = time.time()
+        except:
+            pass
+            
+        return res
+        
+    except RuntimeError as e:
+        err_msg = str(e)
+        
+        if "CRASH_DETECTED" in err_msg:
+            # --- LAZY LOADING LOGIC FOR PUBLIC URL ---
+            try:
+                res = supabase.table("projects").select("id").eq("subdomain", project_slug).single().execute()
+                if res.data:
+                    project_id = res.data['id']
+                    
+                    # Mark as accessed
+                    _LAST_ACCESS[project_id] = time.time()
+                    
+                    if project_id not in _BOOTING_PROJECTS:
+                        print(f"🌍 Public Lazy Boot: {project_id}")
+                        _BOOTING_PROJECTS.add(project_id)
+                        task = asyncio.create_task(_start_server_with_retry(project_id))
+                        task.add_done_callback(lambda _: _BOOTING_PROJECTS.discard(project_id))
+                    
+                    loading_path = os.path.join(FRONTEND_TEMPLATES_DIR, "agentloading.html")
+                    loading_html = "<h2>⚡ Waking up App...</h2><p>This may take 20s...</p>"
+                    if os.path.exists(loading_path):
+                        with open(loading_path, "r", encoding="utf-8") as f:
+                            loading_html = f.read()
+                    
+                    # Inject Refresh
+                    loading_html = loading_html.replace("<head>", '<head><meta http-equiv="refresh" content="3">', 1)
+                    return HTMLResponse(loading_html, status_code=200)
+            except Exception:
+                pass
+                
+        raise HTTPException(502, "Service Unavailable")
 
 # ==========================================================================
 # HEALTH CHECK

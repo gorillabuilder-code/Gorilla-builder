@@ -98,7 +98,7 @@ class Coder:
             
             content = data["choices"][0]["message"]["content"]
             usage = data.get("usage", {})
-            total_tokens = int(usage.get("total_tokens", 0)) * 1.65
+            total_tokens = int(usage.get("total_tokens", 0)) * 1.32
             
             return content, total_tokens
 

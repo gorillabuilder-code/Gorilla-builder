@@ -13,11 +13,11 @@ from typing import Dict, Any, List, Optional, TypedDict
 import httpx
 
 # -------------------------------------------------
-# Configuration
+# Configurationz
 # -------------------------------------------------
 
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "accounts/fireworks/models/minimax-m2p1") 
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "accounts/cogito/models/cogito-671b-v2-p1") 
 FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
 
 if not FIREWORKS_API_KEY:
@@ -301,7 +301,7 @@ class Planner:
                 
                 # Capture usage
                 usage = data_api.get("usage", {})
-                total_tokens = int(usage.get("total_tokens", 0))*3.25
+                total_tokens = int(usage.get("total_tokens", 0))*1.25
 
                 # Construct response objects
                 base_plan = {
