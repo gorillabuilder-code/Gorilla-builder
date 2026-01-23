@@ -13,7 +13,7 @@ from typing import Dict, Any, List, Optional, TypedDict
 import httpx
 
 # -------------------------------------------------
-# Configurationz
+# Configuration
 # -------------------------------------------------
 
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
@@ -28,11 +28,7 @@ if not FIREWORKS_API_KEY:
 # -------------------------------------------------
 
 def _extract_json(text: str) -> Any:
-    """
-    Robustly extract the largest valid JSON object from a string.
-    """
     text = text.strip()
-
     # 1. Try to find JSON inside ```json ... ``` blocks
     code_block_pattern = r"```(?:json)?\s*(\{.*?\})\s*```"
     match = re.search(code_block_pattern, text, re.DOTALL)
@@ -41,7 +37,6 @@ def _extract_json(text: str) -> Any:
             return json.loads(match.group(1))
         except json.JSONDecodeError:
             pass
-
     # 2. Try to find the outer-most { ... }
     try:
         start = text.find('{')
@@ -51,125 +46,64 @@ def _extract_json(text: str) -> Any:
             return json.loads(json_str)
     except json.JSONDecodeError:
         pass
-
-    # 3. Fallback: try parsing the whole string
+    # 3. Fallback
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-    
     return None
 
 # -------------------------------------------------
-# Canonical AI Capability Registry
-# -------------------------------------------------
-
-AI_CAPABILITIES = {
-    "voice_input": "voice_router.py",
-    "voice_output": "voice_router.py",
-    "audio_processing": "audio_router.py",
-    "vision": "vision_router.py",
-    "image_generation": "image_generation.py",
-    "image_upscale": "image_upscale.py",
-    "background_removal": "bg_removal.py",
-    "document_processing": "document_ai.py",
-    "embeddings": "embed_router.py",
-    "media_handling": "media_router.py",
-    "progress_updates": "progress_stream.py",
-    "async_queue": "queue_dispatcher.py",
-    "cost_tracking": "ai_cost_tracker.py",
-    "event_monitoring": "monitor_events.py",
-    "asset_storage": "asset_storage.py",
-}
-
-# -------------------------------------------------
-# Lightweight chat history (in-memory)
+# Chat History
 # -------------------------------------------------
 
 class ChatMsg(TypedDict):
     role: str
     content: str
 
-# project_id -> list[ChatMsg]
-# This ensures every project has its own unique conversation history
 _HISTORY: Dict[str, List[ChatMsg]] = {}
 
 def _norm_role(role: str) -> str:
     r = (role or "").strip().lower()
-    if r in ("user", "you"):
-        return "user"
-    if r in ("assistant", "planner", "system", "coder", "agent"):
-        return "assistant" if r in ("assistant", "planner", "agent", "coder") else "system"
+    if r in ("user", "you"): return "user"
+    if r in ("assistant", "planner", "system", "coder", "agent"): return "assistant"
     return "user"
 
 def _append_history(project_id: str, role: str, content: str, max_items: int = 16) -> None:
-    if not project_id:
-        return
+    if not project_id: return
     msg = {"role": _norm_role(role), "content": (content or "").strip()}
-    if not msg["content"]:
-        return
+    if not msg["content"]: return
     _HISTORY.setdefault(project_id, []).append(msg)
     if len(_HISTORY[project_id]) > max_items:
         _HISTORY[project_id] = _HISTORY[project_id][-max_items:]
 
 def _get_history(project_id: str, max_items: int = 12) -> List[ChatMsg]:
-    if not project_id:
-        return []
+    if not project_id: return []
     return list(_HISTORY.get(project_id, []))[-max_items:]
 
 # -------------------------------------------------
-# Planner
+# Planner Class
 # -------------------------------------------------
 
 class Planner:
-    """
-    Planner outputs a deterministic AI build plan.
-    """
-
     def remember(self, project_id: str, role: str, text: str) -> None:
         _append_history(project_id, role, text)
-
-    def _infer_capabilities(self, user_request: str) -> List[str]:
-        """Heuristic-based capability detection for metadata."""
-        text = (user_request or "").lower()
-        caps = set()
-        if "chat" in text: caps.add("embeddings")
-        if "voice" in text or "speech" in text: caps.update(["voice_input", "voice_output"])
-        if "image" in text: caps.add("image_generation")
-        if "remove background" in text or "bg remove" in text: caps.add("background_removal")
-        if "scan" in text or "document" in text or "pdf" in text: caps.add("document_processing")
-        if "vision" in text or "photo" in text: caps.add("vision")
-        if "upload" in text or "media" in text: caps.add("media_handling")
-        caps.update(["progress_updates", "async_queue", "cost_tracking", "asset_storage"])
-        return sorted(caps)
 
     def generate_plan(
         self,
         user_request: str,
         project_context: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """
-        Returns:
-          {
-            "assistant_message": str,
-            "plan": {"todo": [str]},
-            "todo_md": str,
-            "usage": {"total_tokens": int}
-          }
-        """
-        project_id = str(project_context.get("project_id") or "").strip()
         
-        # 1. Update memory
+        project_id = str(project_context.get("project_id") or "").strip()
         if project_id:
             _append_history(project_id, "user", user_request)
 
-        # 2. Heuristics for metadata (Plan Header)
-        capabilities = self._infer_capabilities(user_request)
-        modules = sorted({AI_CAPABILITIES[c] for c in capabilities if c in AI_CAPABILITIES})
-
-        # 3. LLM Generation (Message + Tasks)
+        # -------------------------------------------------------
+        # SYSTEM PROMPT (UPDATED FOR TSX + SHADCN + AI SPECS)
+        # -------------------------------------------------------
         system_prompt = (
-    "You are the Lead Architect for a high-performance web application. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in Node.js and **Runtime React via esbuild**.\n"
+    "You are the Lead Architect for a high-performance web application. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in **Node.js + React (TypeScript/Vite)**.\n"
     "CRITICAL CONTEXT: The AI Coder executes tasks in isolation. It has NO memory of previous files unless you provide context in *every single task description*.\n\n"
 
     "Rules:\n"
@@ -177,56 +111,49 @@ class Planner:
     "{\n"
     '  "assistant_message": "A friendly summary of the architecture...",\n'
     '  "tasks": [\n'
-    '    "Step 1: [Project: ChatApp | Stack: esbuild React/Node | Context: ChatApp is a friendly chatbot with features X, Y, Z. It uses... (INCLUDE FULL SUMMARY HERE, DO NOT TRUNCATE)] Create package.json... (include all dependencies)",\n'
-    '    "Step 2: [Project: ChatApp | Stack: esbuild React/Node | Context: ChatApp is a friendly chatbot with features X, Y, Z. It uses... (INCLUDE FULL SUMMARY HERE, DO NOT TRUNCATE)] Create index.html... (include window.onerror)"\n'
+    '    "Step 1: [Project: AppName | Stack: React/TSX/Shadcn | Context: AppName is... (FULL SUMMARY)] Modify `src/pages/Index.tsx` to...",\n'
+    '    "Step 2: [Project: AppName | Stack: React/TSX/Shadcn | Context: AppName is... (FULL SUMMARY)] Create `src/components/MyWidget.tsx`..."\n'
     "  ]\n"
     "}\n\n"
 
     "ARCHITECTURAL STANDARDS (MUST FOLLOW):\n"
-    "1. **Stack:** \n"
-    "   - Backend: Node.js with Express (`server.js`).\n"
-    "   - Frontend: React built via **esbuild** (No Webpack/Vite config needed, but valid JSX syntax is required). \n"
-    "   - Database: **Local SQLite** (using `better-sqlite3`) OR **JSON File Storage** (using `fs`). Do NOT use external DBs like Supabase unless explicitly asked.\n"
-    "2. **Strict Separation:**\n"
-    "   - `server.js` serves the API, the `static/` folder, and **Handles Error Logging**.\n"
-    "   - `index.html` lives in the root.\n"
-    "   - All React code lives in `static/main.js` (and other `.js` files in `static/`).\n"
+    "1. **Pre-Existing Infrastructure (DO NOT CREATE THESE):**\n"
+    "   - `package.json` (Includes React, Vite, Tailwind, Framer Motion, Lucide, Express).\n"
+    "   - `server.js` (Node runner).\n"
+    "   - `vite.config.ts`, `tsconfig.json`, `tailwind.config.js`.\n"
+    "   - `src/lib/utils.ts` (The `cn()` helper).\n"
+    "   - `src/components/ui/` (CONTAINS ALL SHADCN COMPONENTS: Button, Card, Input, Sheet, etc.).\n"
+    "   - `src/components/magicui/` (CONTAINS VISUALS: Marquee, Meteors, BentoGrid).\n"
+    "   - `src/App.tsx` (Main Router).\n"
+    "   - `src/main.tsx` (Entry point).\n"
+    "2. **Task Strategy:**\n"
+    "   - **NEVER** assign a task to create `package.json`, `index.html`, or `server.js`. They exist.\n"
+    "   - **Task 1** should almost always be: Modify `src/pages/Index.tsx` to implement the core layout using existing Shadcn components.\n"
+    "   - **Styling:** Use Tailwind CSS utility classes. Do not create .css files.\n"
+    "   - **Components:** Create new specific components in `src/components/` (e.g., `src/components/DashboardChart.tsx`).\n"
     "3. **The Wiring & Evolution Rule (CRITICAL - NO BLANK SCREENS):**\n"
     "   - NEVER assign a task to just 'create a component'.\n"
-    "   - **MANDATORY:** Every component creation task MUST include a directive to **Update `static/main.js`**.\n"
-    "   - Example: 'Create `static/components/Sidebar.js`... AND IMMEDIATELY REWRITE `static/main.js` to import `Sidebar` and render `<Sidebar />` inside the App layout.'\n"
-    "   - `main.js` must evolve in *every* frontend step. And most importantly on the FINAL STEP YOU  MUST UPDATE THE MAIN.JS & SERVER.JS. It should never remain a placeholder, this will happen, if you just say 'setup main.js'.\n"
-    "4. **The Build Sequence (esbuild Edition):**\n"
-    "   - Phase 1: `package.json`. Define `scripts` ('start': 'node server.js'), `dependencies` ('express', 'cors', 'dotenv', 'fireworks-ai', 'better-sqlite3'), and **devDependencies ('esbuild')** (CRITICAL for syntax checking). **Do NOT include** 'vite' or 'react' here.\n"
-    "   - Phase 2: `server.js` (Backend Skeleton). Setup Express, `app.use(express.json())`, and the **Critical Error Logging Route** (`POST /api/log-error`). Setup static serving.\n"
-    "   - Phase 3: `database.js` (The Adapter). Create local DB setup.\n"
-    "   - Phase 4: `index.html` (The Shell). Create root HTML. **CRITICAL:** Include the `window.onerror` Spy Script in the `<head>`.\n"
-    "   - Phase 5: `static/main.js` (The Entry Point). Create the initial App shell (e.g., A layout div with State management). **Do NOT just write 'Hello World'**; set up the actual container structure.\n"
-    "   - Phase 6+: `static/components/...`. Create specific UI components AND **Wire them into `main.js`** immediately.\n"
-    "   - Final Phase: `server.js` (Final Logic). Implement API endpoints.\n"
-    "5. **The 'No-Placeholder' Rule:**\n"
-    "   - The Coder is forbidden from writing comments like `// code goes here`. You must describe the logic needed.\n"
-    "   - Every step must result in a **rendering** application. Never leave the app in a broken state between steps.\n"
-    "6. **The 'Global Blueprint' Rule:**\n"
-    "   - Every task string MUST start with: `[Project: {Name} | Stack: esbuild React/Node | Context: {FULL_APP_DESCRIPTION_HERE}] ...`\n"
-    "   - **CRITICAL**: The `Context` section MUST contain the FULL description of what the app is supposed to do. Do NOT truncate it. The Coder needs to know the app's purpose in every single step to write meaningful code.\n\n"
+    "   - **MANDATORY:** Every component creation task MUST include a directive to **Import and Use it** in `src/pages/Index.tsx` or `src/App.tsx` immediately.\n"
+    "   - Example: 'Create `src/components/Sidebar.tsx`... AND IMMEDIATELY REWRITE `src/App.tsx` to import `Sidebar` and render `<Sidebar />` inside the layout.'\n"
+    "4. **The 'Global Blueprint' Rule:**\n"
+    "   - Every task string MUST start with: `[Project: {Name} | Stack: React/TSX/Shadcn | Context: {FULL_APP_DESCRIPTION_HERE}] ...`\n"
+    "   - **CRITICAL**: The `Context` section MUST contain the FULL description of what the app is supposed to do. Do NOT truncate it.\n\n"
 
     "TASK WRITING GUIDELINES:\n"
     "1. **No-Build Specifics:** \n"
-    "   - NEVER ask for `npm run dev` or `vite.config.js` AND MOST IMPORTANTLY, NEVER MAKE AN .ENV OF ANY KIND, THIS WILL BE INJECTED BY THE SYSTEM.\n"
-    "   - ALWAYS specify that frontend files go into `static/`.\n"
-    "2. **AI Integration Specs:**\n"
+    "   - NEVER ask for `npm run dev` or `vite.config.js` AND MOST IMPORTANTLY, NEVER MAKE AN .ENV OF ANY KIND.\n"
+    "   - Use `@/` aliases for imports (e.g., `import { Button } from '@/components/ui/button'`).\n"
+    "2. **AI Integration Specs (USE THESE EXACTLY):**\n"
     "   - Chat: 'accounts/fireworks/models/qwen3-8b'\n"
     "   - Voice (STT): 'accounts/fireworks/models/whisper-v3-turbo'\n"
     "   - Vision: 'accounts/fireworks/models/qwen3-vl-30b-a3b-instruct'\n"
     "   - Image Gen: 'accounts/fireworks/models/playground-v2-5-1024px-aesthetic'\n"
     "   - BG Removal: Use `process.env.REM_BG_API_KEY`.\n"
     "3. **Volume:** \n"
-    "   - Complex Apps: 20-23 tasks.\n"
-    "   - Simple Apps: 7-10 tasks. *Do not exceed this 10 task limit for simple apps unless* the app it very ambitious."
+    "   - Simple Apps: 3-6 tasks (Focus on editing Index.tsx and connecting UI).\n"
+    "   - Complex Apps: 10-15 tasks."
         )
         
-        # Prepare context
         chat_history = _get_history(project_id)
         user_msg_content = json.dumps({
             "request": user_request,
@@ -261,20 +188,17 @@ class Planner:
                 with httpx.Client(timeout=120.0) as client:
                     resp = client.post(FIREWORKS_URL, json=payload, headers=headers)
                     
-                    # 1. Handle 503 Service Unavailable (Retry Loop)
                     if resp.status_code == 503:
                         if attempt < max_retries:
-                            print(f"Planner encountered 503. Retrying ({attempt+1}/{max_retries})...")
-                            time.sleep(1) # Wait a sec before retry
+                            time.sleep(1)
                             continue
                         else:
-                            # Final failure logic for 503
-                            error_msg = "Service Unavailable (503). I am very sorry for the inconvenience."
+                            error_msg = "Service Unavailable (503)."
                             _append_history(project_id, "system", error_msg)
                             return {
                                 "assistant_message": error_msg,
                                 "plan": {"todo": []},
-                                "todo_md": "# Service Unavailable\n\nThe AI planner is currently overloaded. Please try again shortly.",
+                                "todo_md": "# Service Unavailable",
                                 "usage": {"total_tokens": 0} 
                             }
                             
@@ -282,36 +206,27 @@ class Planner:
                     data_api = resp.json()
 
                 raw = data_api["choices"][0]["message"]["content"]
-                
-                # 2. Extract JSON
                 data = _extract_json(raw)
                 
-                # 3. Handle Invalid JSON (Re-prompt / Retry Loop)
                 if not data:
                     if attempt < max_retries:
-                        print(f"Planner JSON extraction failed. Reprompting AI ({attempt+1}/{max_retries})...")
                         time.sleep(1) 
-                        continue # This triggers the loop to call client.post() again (Reprompt)
+                        continue 
                     else:
-                        raise ValueError(f"Could not extract JSON from response after {max_retries+1} attempts: {raw[:100]}...")
+                        raise ValueError(f"Could not extract JSON: {raw[:100]}...")
                 
-                # --- Success Path ---
                 tasks = data.get("tasks", [])
-                assistant_message = data.get("assistant_message", "I have updated the plan.")
-                
-                # Capture usage
+                assistant_message = data.get("assistant_message", "Plan updated.")
                 usage = data_api.get("usage", {})
                 total_tokens = int(usage.get("total_tokens", 0))*1.25
 
-                # Construct response objects
                 base_plan = {
-                    "capabilities": capabilities,
-                    "ai_modules": modules,
-                    "glue_files": ["core_api.py", "queue_dispatcher.py"],
+                    "capabilities": [], # Deduced from request if needed, or left empty
+                    "ai_modules": [],
+                    "glue_files": [],
                     "todo": tasks,
                 }
 
-                # Save assistant reply to history
                 if project_id:
                     _append_history(project_id, "assistant", assistant_message)
 
@@ -323,16 +238,11 @@ class Planner:
                 }
 
             except Exception as e:
-                # If an error occurs that isn't caught by the retry logic (e.g. 500, 400, or network error),
-                # check if we should retry or fail immediately.
                 if attempt < max_retries:
-                     print(f"Planner Generic Error: {e}. Retrying ({attempt+1}/{max_retries})...")
                      time.sleep(1)
                      continue
                 
-                print(f"Planner Final Error: {e}")
-                
-                fallback_msg = f"I encountered an error generating the plan: {str(e)}"
+                fallback_msg = f"Error generating plan: {str(e)}"
                 if project_id:
                     _append_history(project_id, "system", fallback_msg)
                 
@@ -346,19 +256,10 @@ class Planner:
     @staticmethod
     def _to_todo_md(plan: Dict[str, Any], msg: str = "") -> str:
         lines = []
-        
         if msg:
             lines.append(f"**Planner:** {msg}\n")
-            
         lines.append("# Build Plan\n")
-        
-        if plan.get("capabilities"):
-            lines.append("## Capabilities")
-            for cap in plan["capabilities"]:
-                lines.append(f"- {cap}")
-        
         lines.append("\n## Tasks")
         for task in plan.get("todo", []):
             lines.append(f"- {task}")
-            
         return "\n".join(lines)

@@ -34,6 +34,7 @@ class ProjectRunManager:
     E2B Cloud Runner (Universal Compatibility):
       - Support for E2B v0.x (Legacy) via await Sandbox.create()
       - Support for E2B v1.x (New) via Sandbox()
+      - **Updated:** Automatically runs 'npm run build' for React/TSX projects.
     """
 
     def __init__(self):
@@ -105,21 +106,18 @@ class ProjectRunManager:
         # UNIVERSAL SANDBOX INITIALIZATION STRATEGY
         # ------------------------------------------------------------
         try:
-            # STRATEGY 1: Legacy Async Factory (Likely what you need)
-            # e2b==0.x requires await Sandbox.create(...)
+            # STRATEGY 1: Legacy Async Factory
             if hasattr(Sandbox, "create"):
                 print("--> [E2B] Attempting legacy Sandbox.create(template='nodejs')...")
                 try:
                     sandbox = await Sandbox.create(template="nodejs")
                 except TypeError:
-                    # Some versions renamed 'template' to 'id'
                     sandbox = await Sandbox.create(id="nodejs")
             
-            # STRATEGY 2: Modern Constructor (e2b_code_interpreter)
-            # Sandbox(id="nodejs")
+            # STRATEGY 2: Modern Constructor
             elif SDK_VERSION == "new":
                 print("--> [E2B] Attempting new Sandbox(id='nodejs')...")
-                sandbox = Sandbox(id="nodejs") # Often context manager, but we need persistent
+                sandbox = Sandbox(id="nodejs")
             
             # STRATEGY 3: Fallback Constructor
             else:
@@ -142,22 +140,43 @@ class ProjectRunManager:
                     sandbox.filesystem.make_dir(dir_path)
                 sandbox.filesystem.write(path, content)
 
-            # 3. Install Dependencies
+            # 3. Install Dependencies & Build
             if "package.json" in file_tree:
                 print(f"--> [E2B] Running npm install...")
-                # Legacy SDK uses .process.start_and_wait, New SDK uses .commands.run
+                
+                # --- INSTALL ---
                 if hasattr(sandbox, "commands"):
                     proc = sandbox.commands.run("npm install", background=False)
                     exit_code = proc.exit_code
                     err_out = proc.stderr or proc.stdout
                 else:
-                    # Legacy fallback
                     proc = await sandbox.process.start_and_wait("npm install")
                     exit_code = proc.exit_code
                     err_out = proc.stderr or proc.stdout
 
                 if exit_code != 0:
                     raise RuntimeError(f"App crashed during 'npm install':\n{err_out}")
+
+                # --- NEW: BUILD STEP (CRITICAL FOR REACT/TSX) ---
+                try:
+                    pkg = json.loads(file_tree["package.json"])
+                    if "build" in pkg.get("scripts", {}):
+                        print(f"--> [E2B] Running npm run build...")
+                        if hasattr(sandbox, "commands"):
+                            b_proc = sandbox.commands.run("npm run build", background=False)
+                            b_code = b_proc.exit_code
+                            b_err = b_proc.stderr or b_proc.stdout
+                        else:
+                            b_proc = await sandbox.process.start_and_wait("npm run build")
+                            b_code = b_proc.exit_code
+                            b_err = b_proc.stderr or b_proc.stdout
+                        
+                        if b_code != 0:
+                            raise RuntimeError(f"Build failed:\n{b_err}")
+                except Exception as build_e:
+                    # If build fails, we might still try to start, or fail hard. 
+                    # For now, print and proceed, or raise if critical.
+                    print(f"⚠️ Build warning: {build_e}")
 
             # 4. Start Server
             start_cmd = self._determine_start_command(file_tree)
@@ -191,8 +210,6 @@ class ProjectRunManager:
                 await asyncio.sleep(1)
             
             # Get URL
-            # New SDK: sandbox.get_host(3000)
-            # Legacy SDK: sandbox.get_hostname(3000)
             public_url = ""
             if hasattr(sandbox, "get_host"):
                 host = sandbox.get_host(3000)

@@ -165,10 +165,12 @@ class Coder:
         # 2. Build Context (File Tree)
         # We perform this fresh every time to ensure the model sees the latest file state
         file_list = sorted(list(file_tree.keys()))
-        # file_list_txt = "\n".join(f"- {p}" for p in file_list[:300]) # Unused in prompt currently, but good context
         
         context_snippets: List[str] = []
-        for p in ["app.jsx", "main.jsx", "index.html", "package.json", "styles.css", "server.js"]:
+        # UPDATED: Prioritize seeing the new boilerplate structure
+        priority_files = ["src/App.tsx", "src/main.tsx", "src/pages/Index.tsx", "src/index.css", "package.json"]
+        
+        for p in priority_files:
             if p in file_tree:
                 c = file_tree[p]
                 context_snippets.append(f"--- {p} ---\n{c[:8000]}\n")
@@ -176,10 +178,25 @@ class Coder:
         full_context_text = "\n".join(context_snippets)
 
         # 3. Define System Prompt (Immutable Rules)
+        # UPDATED FOR NEW BOILERPLATE (REACT + VITE + SHADCN)
         system_prompt = (
-            "You are an expert Full-Stack AI Coder. You build high-quality Web Apps using a Node.js backend and a **Runtime React Frontend** (parsed via esbuild). "
-            "When you are told to setup a file, you DO NOT put 'lorem ipsum', 'coming soon', or placeholders. You write the REAL, FUNCTIONAL code immediately.\n"
-            "Your Goal: Implement the requested task by generating the full code for ONE or MORE files. \n\n"
+            "You are an expert Full-Stack AI Coder. You build high-quality Web Apps using a Node.js backend and a **React + TypeScript + Tailwind + Shadcn/UI** frontend.\n"
+            "You are working in a pre-existing environment. **DO NOT initialize a new project.**\n"
+            "Your Goal: Implement the requested task by editing the EXISTING files (e.g., `src/App.tsx`, `src/pages/Index.tsx`) or creating NEW components in `src/components/`.\n\n"
+
+            "CRITICAL CONTEXT - THE GOLDEN BOILERPLATE:\n"
+            "The following tools are ALREADY installed and configured:\n"
+            "1. **React + TypeScript (Vite/Esbuild)**: Use `.tsx` for components.\n"
+            "2. **Tailwind CSS**: Use utility classes (e.g., `className='p-4 bg-blue-500'`).\n"
+            "3. **Shadcn/UI**: The folder `src/components/ui/` is fully populated with components like Button, Card, Input, etc.\n"
+            "4. **Magic UI**: The folder `src/components/magicui/` contains visual effects (Marquee, Meteors).\n"
+            "5. **Framer Motion**: Installed for animations.\n"
+            "6. **Lucide React**: Use `import { Home } from 'lucide-react'` for icons.\n\n"
+
+            "STRICT IMPORT RULES:\n"
+            "- **Path Alias**: Use `@/` to refer to `src/`. Example: `import { Button } from '@/components/ui/button'`.\n"
+            "- **Do NOT use relative paths** like `../../components/ui/button`.\n"
+            "- **Existing Components**: ALWAYS check `src/components/ui` before creating a generic UI element. Use the existing ones!\n\n"
 
             "API & MODELS CONFIGURATION:\n"
             "- Use `process.env.FIREWORKS_API_KEY` for AI. \n"
@@ -189,15 +206,13 @@ class Coder:
             "- Image Gen: 'accounts/fireworks/models/playground-v2-5-1024px-aesthetic'\n"
             "- Background Removal: Use `process.env.REM_BG_API_KEY`\n\n"
 
-            "STRICT SIZE CONSTRAINT: Keep files under 400 lines. Do not truncate.\n\n"
-
             "RESPONSE FORMAT (JSON ONLY):\n"
             "{\n"
             '  "message": "A short, friendly status update.",\n'
             '  "operations": [\n'
             "    {\n"
             '      "action": "create_file" | "overwrite_file",\n'
-            '      "path": "path/to/file.ext",\n'
+            '      "path": "src/pages/Dashboard.tsx",\n'
             '      "content": "FULL FILE CONTENT HERE"\n'
             "    }\n"
             "  ]\n"
@@ -211,58 +226,12 @@ class Coder:
             "BACKEND RULES (Node/Express):\n"
             "1. Environment: Node.js with Express. **ALWAYS use `require('dotenv').config();` at the very top.**\n"
             "2. HTTP Client: **USE NATIVE `fetch`** for Fireworks/External APIs. Do NOT use Axios.\n"
-            "   **MANDATORY FETCH PATTERN:**\n"
-            "   ```javascript\n"
-            "   const response = await fetch('[https://api.fireworks.ai/inference/v1/chat/completions](https://api.fireworks.ai/inference/v1/chat/completions)', {\n"
-            "     method: 'POST',\n"
-            "     headers: {\n"
-            "       'Accept': 'application/json',\n"
-            "       'Content-Type': 'application/json',\n"
-            "       'Authorization': `Bearer ${process.env.FIREWORKS_API_KEY}`\n"
-            "     },\n"
-            "     body: JSON.stringify({ ... })\n"
-            "   });\n"
-            "   ```\n"
-            "3. PACKAGE.JSON: \n"
-            "   - Scripts: `\"start\": \"node server.js\"`\n"
-            "   - DevDependencies: Include `\"esbuild\": \"^0.19.0\"` (Critical for syntax checking).\n"
-            "4. **ERROR BRIDGE (MANDATORY)**: In `server.js`, add this route to log frontend errors:\n"
-            "   ```javascript\n"
-            "   app.use(express.json());\n"
-            "   const fs = require('fs');\n"
-            "   app.post('/api/log-error', (req, res) => {\n"
-            "     const err = req.body.error;\n"
-            "     const msg = `[FRONTEND FATAL] ${err}\\n`;\n"
-            "     console.error(msg); // Prints to Terminal for RunManager\n"
-            "     try { fs.appendFileSync('server_errors.txt', msg); } catch(e) {}\n"
-            "     res.json({ success: true });\n"
-            "   });\n"
-            "   ```\n"
-            "5. STATIC SERVING: `app.use('/static', express.static('static'));` and serve `index.html` at root `/`.\n\n"
+            "3. **ERROR BRIDGE**: Ensure `server.js` (which exists) handles API errors gracefully.\n"
 
-            "FRONTEND RULES (MODERN REACT via CDN):\n"
-            "1. **DIRECTORY STRUCTURE (CRITICAL)**: \n"
-            "   - `index.html` goes in root.\n"
-            "   - `main.js` goes in `static/main.js`.\n"
-            "   - ALL Components must go in `static/components/` (e.g., `static/components/Header.js`).\n"
-            "   - **ENTRY SCRIPT**: In `index.html`, load main.js like this: `<script type='text/babel' data-type='module' src='static/main.js'></script>`. **DO NOT use `type='module'` alone** (it will crash browsers with JSX).\n"
-            "2. **THE SPY SCRIPT**: In `index.html` `<head>`, add this script FIRST:\n"
-            "   `<script>window.onerror = function(msg, url, line) { fetch('api/log-error', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ error: msg + ' at ' + url + ':' + line }) }); };</script>`\n"
-            "3. **RELATIVE FETCH PATHS**: When fetching your own backend API, **NEVER use a leading slash**.\n"
-            "   - ❌ BAD: `fetch('/api/chat')` (Fails in Proxy)\n"
-            "   - ✅ GOOD: `fetch('api/chat')` (Works in Proxy)\n"
-            "4. NO BUILD STEP (ESBUILD CHECK): Do NOT create vite.config.js or webpack.config.js. However, write strictly valid JSX that `esbuild` can parse.\n"
-            "5. IMPORTS (ESM) - **CRITICAL PATH FIX**:\n"
-            "   - React: `import React from 'https://esm.sh/react@18'`\n"
-            "   - ReactDOM: `import ReactDOM from 'https://esm.sh/react-dom@18'`\n"
-            "   - **INTERNAL IMPORTS (CRITICAL)**: Since Babel executes code in the context of `index.html` (root), you MUST import components starting with `static/`.\n"
-            "     - ❌ WRONG: `import Header from './components/Header.js'` (Resolves to /run/{uuid}/components... -> 404)\n"
-            "     - ❌ WRONG: `import Header from './static/components/Header.js'` (Resolves to /run/{uuid}/static/static... -> 404)\n"
-            "     - ❌ WRONG: `import Header from '/static/components/Header.js'` (Resolves to domain root -> 404)\n"
-            "     - ✅ CORRECT: `import Header from 'static/components/Header.js'` (Resolves relative to root -> /run/{uuid}/static/... -> 200)\n"
-            "     - **ALWAYS** include the `.js` extension.\n"
-            "6. **INTEGRATION**: If you create a component, you MUST update `static/main.js` to import and render it immediately.\n"
-            "7. **SELF-CORRECTION**: If the user prompt contains '[CRITICAL RUNTIME ERRORS DETECTED]', your PRIMARY GOAL is to fix those errors. Analyze the stack trace, identify the file path (remembering the 'static/' prefix issue), and rewrite the file to fix the crash."
+            "FRONTEND RULES (React/TSX):\n"
+            "1. **Use Functional Components** with TypeScript interfaces.\n"
+            "2. **Styling**: Tailwind ONLY. No CSS files unless absolutely necessary.\n"
+            "3. **Self-Correction**: If the user prompt reports a crash, analyze the stack trace and fix the specific file causing it.\n"
         )
 
         # 4. Construct the User Prompt for THIS SPECIFIC TURN
