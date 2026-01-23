@@ -21,8 +21,9 @@
 
   window.createEditor = (parent, content, onChange, fileName) => {
     const fixedHeightEditor = EditorView.theme({
-      "&": { height: "100%", fontSize: "14px" },
-      ".cm-scroller": { overflow: "auto" }
+      "&": { height: "100%", fontSize: "14px", backgroundColor: "transparent" },
+      ".cm-scroller": { overflow: "auto" },
+      ".cm-gutters": { backgroundColor: "transparent", borderRight: "1px solid rgba(255,255,255,0.05)", color: "#565f89" }
     });
 
     let extensions = [
@@ -67,33 +68,39 @@
 }
 
 :root {
-  /* Core Palette */
-  --bg: #050810;
-  --panel: #0e1324;
-  --panel-light: #131a2e;
+  /* Core Palette - Deep Space Theme */
+  --bg: #020408;
+  --panel: rgba(13, 17, 28, 0.85); /* Glassy panel */
+  --panel-solid: #0d111c;
+  --panel-light: rgba(20, 25, 40, 0.6);
   --border: rgba(255, 255, 255, 0.08);
+  --glass: blur(12px) saturate(180%);
   
   /* Status Colors */
   --danger: #ff4d6d;
-  --ok: #2bd97c;
+  --ok: #00f0aa;
   --warn: #ffcc00;
   
   /* Text */
-  --text: #ffffff;
-  --text-muted: rgba(255, 255, 255, 0.5);
+  --text: #ececf1;
+  --text-muted: #8b949e;
 
-  /* Default Theme (Blue) */
-  --accent: #3b6cff;
-  --accent-glow: rgba(59, 108, 255, 0.2);
-  --coder-bg: rgba(157, 0, 255, 0.1);
-  --coder-border: rgba(157, 0, 255, 0.4);
-  --coder-text: #d08fff;
-  --planner-bg: rgba(255, 204, 0, 0.08);
-  --planner-border: rgba(255, 204, 0, 0.4);
-  --planner-text: #ffe580;
+  /* Default Theme (Electric Blue) */
+  --accent: #3b82f6;
+  --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  --accent-glow: rgba(59, 130, 246, 0.3);
+  
+  /* Role Colors */
+  --coder-bg: rgba(45, 212, 191, 0.1);
+  --coder-border: rgba(45, 212, 191, 0.3);
+  --coder-text: #2dd4bf;
+  
+  --planner-bg: rgba(250, 204, 21, 0.1);
+  --planner-border: rgba(250, 204, 21, 0.3);
+  --planner-text: #facc15;
 }
 
-* { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; }
+* { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, -apple-system, sans-serif; outline: none; }
 
 /* --- 2. LAYOUT & BODY --- */
 body {
@@ -102,7 +109,10 @@ body {
   color: var(--text);
   height: 100vh;
   overflow: hidden;
-  background-image: radial-gradient(circle at 10% 10%, rgba(59, 108, 255, 0.05) 0%, transparent 40%);
+  background-image: 
+    radial-gradient(circle at 0% 0%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 100% 100%, rgba(124, 58, 237, 0.08) 0%, transparent 50%);
+  font-size: 13px;
 }
 
 .shell { display: flex; height: 100vh; width: 100%; overflow: hidden; }
@@ -110,226 +120,328 @@ body {
 /* --- 3. THEME OVERRIDES --- */
 body.premium {
   --accent: #ffd700; 
+  --accent-gradient: linear-gradient(135deg, #ffd700 0%, #ffb700 100%);
   --accent-glow: rgba(255, 215, 0, 0.25);
-  --panel: #121214; 
-  background-image: radial-gradient(circle at 10% 10%, rgba(255, 215, 0, 0.05) 0%, transparent 40%) !important;
 }
-body.premium .msg.user { color: #000; }
+body.premium .msg.user { color: #000; font-weight: 600; }
 body.premium .agent-input button { color: #000; }
 
 body.xmode {
-  --bg: #0b0214; 
-  --panel: #140526; 
-  --panel-light: #1f0a38; 
-  --accent: #bd00ff; 
-  --accent-glow: rgba(189, 0, 255, 0.3);
-  --text-muted: rgba(228, 184, 255, 0.6);
-  --border: rgba(189, 0, 255, 0.15);
-  background-image: radial-gradient(circle at 10% 10%, rgba(189, 0, 255, 0.12) 0%, transparent 50%) !important;
+  --bg: #05010a;
+  --panel: rgba(18, 5, 34, 0.9);
+  --panel-light: rgba(30, 10, 50, 0.5);
+  --accent: #d946ef;
+  --accent-gradient: linear-gradient(135deg, #d946ef 0%, #a855f7 100%);
+  --accent-glow: rgba(217, 70, 239, 0.4);
+  --border: rgba(217, 70, 239, 0.15);
+  background-image: radial-gradient(circle at 50% 0%, rgba(217, 70, 239, 0.1) 0%, transparent 60%) !important;
 }
-body.xmode .agent-input button { box-shadow: 0 0 15px var(--accent-glow); }
-body.xmode .node.active { border-left-color: var(--accent); background: rgba(189, 0, 255, 0.15); }
-body.xmode .upload-btn:hover { background: rgba(189, 0, 255, 0.1); }
-body.xmode .bar-fill { background: linear-gradient(90deg, var(--accent), #e0aaff); }
-body.xmode .tab.active { background: rgba(189, 0, 255, 0.1); border-color: rgba(189, 0, 255, 0.3); }
-body.xmode .left header { background: rgba(20, 5, 38, 0.85); }
-body.xmode .phase.active { background: rgba(189, 0, 255, 0.1); }
 
 /* --- 4. LEFT SIDEBAR (AGENT) --- */
 .left {
   width: 420px;
-  min-width: 360px;
+  min-width: 380px;
   background: var(--panel);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  box-shadow: 4px 0 20px rgba(0,0,0,0.2);
-  z-index: 10;
+  backdrop-filter: var(--glass);
+  position: relative;
+  z-index: 20;
 }
 
 .left header {
-  padding: 18px 20px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--border);
   display: flex;
   gap: 12px;
   align-items: center;
   justify-content: space-between;
-  background: rgba(14, 19, 36, 0.8);
-  backdrop-filter: blur(10px);
+  background: rgba(0,0,0,0.2);
 }
 
-.hgroup .t { font-size: 16px; font-weight: 500; letter-spacing: -0.3px; }
-.header-actions { display: flex; gap: 8px; }
+.hgroup .t { 
+  font-size: 16px; font-weight: 600; letter-spacing: -0.5px; 
+  display: flex; align-items: center; gap: 8px; color: #fff;
+}
+.header-actions { display: flex; gap: 6px; }
 
 /* UI Elements */
 .pill {
   border: 1px solid var(--border);
   background: rgba(255,255,255,0.03);
   color: var(--text-muted);
-  padding: 6px 12px;
-  border-radius: 999px;
+  padding: 4px 10px;
+  border-radius: 6px;
   font-size: 11px;
   cursor: pointer;
   text-decoration: none;
   display: inline-flex;
   gap: 6px;
   align-items: center;
-  transition: all 0.2s;
+  transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+  font-weight: 500;
 }
-.pill:hover { border-color: rgba(255,255,255,0.2); color: #fff; background: rgba(255,255,255,0.06); }
+.pill:hover { 
+  border-color: rgba(255,255,255,0.2); 
+  color: #fff; 
+  background: rgba(255,255,255,0.08); 
+  transform: translateY(-1px);
+}
 
-.dot { width: 6px; height: 6px; border-radius: 999px; background: var(--text-muted); box-shadow: 0 0 4px rgba(0,0,0,0.5); }
-.dot.ok { background: var(--ok); box-shadow: 0 0 6px rgba(43, 217, 124, 0.4); }
+.dot { width: 6px; height: 6px; border-radius: 999px; background: var(--text-muted); box-shadow: 0 0 0 2px rgba(0,0,0,0.2); }
+.dot.ok { background: var(--ok); box-shadow: 0 0 8px rgba(0, 240, 170, 0.4); }
 .dot.warn { background: var(--warn); }
 .dot.bad { background: var(--danger); }
 
 /* Phases & Progress */
 .phases {
-  display: flex; gap: 8px; padding: 12px 20px;
-  border-bottom: 1px solid var(--border); background: var(--panel-light);
+  display: flex; gap: 4px; padding: 10px 20px;
+  border-bottom: 1px solid var(--border); background: rgba(0,0,0,0.1);
 }
 .phase {
-  padding: 4px 10px; border-radius: 6px; font-size: 10px;
+  flex: 1;
+  padding: 6px 0; border-radius: 6px; font-size: 10px;
   text-transform: uppercase; letter-spacing: 0.5px;
-  border: 1px solid var(--border); color: var(--text-muted); opacity: 0.6; transition: all 0.3s;
+  text-align: center;
+  border: 1px solid transparent; color: var(--text-muted); opacity: 0.5; transition: all 0.3s;
+  background: rgba(255,255,255,0.02);
 }
 .phase.active {
-  border-color: var(--accent); background: rgba(59, 108, 255, 0.1);
-  color: var(--accent); opacity: 1; font-weight: 600; box-shadow: 0 0 10px var(--accent-glow);
+  border-color: var(--accent); 
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--accent); opacity: 1; font-weight: 700; 
 }
 
 .progress {
-  padding: 14px 20px; border-bottom: 1px solid var(--border);
+  padding: 12px 20px; border-bottom: 1px solid var(--border);
   display: flex; flex-direction: column; gap: 8px;
+  background: rgba(0,0,0,0.05);
 }
 .progress-row { display: flex; align-items: center; justify-content: space-between; }
-.progress-title { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px; }
-.progress-status { font-size: 11px; color: var(--accent); font-weight: 500; }
+.progress-title { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px; }
+.progress-status { font-size: 11px; color: var(--accent); font-weight: 600; text-shadow: 0 0 10px var(--accent-glow); }
 
-.bar-bg { height: 6px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden; }
+.bar-bg { height: 4px; border-radius: 999px; background: rgba(255,255,255,0.05); overflow: hidden; }
 .bar-fill {
   height: 100%; width: 0%;
-  background: linear-gradient(90deg, var(--accent), #6390ff);
-  border-radius: 999px; transition: width 0.4s ease-out; box-shadow: 0 0 8px var(--accent-glow);
+  background: var(--accent-gradient);
+  border-radius: 999px; transition: width 0.4s ease-out; box-shadow: 0 0 12px var(--accent-glow);
 }
 
 /* Loading Animation */
 .loading-wave { display: flex; align-items: center; gap: 3px; height: 10px; opacity: 0; transition: opacity 0.3s; }
 .loading-wave.active { opacity: 1; }
-.loading-bar { width: 3px; height: 6px; background: var(--accent); border-radius: 2px; animation: wave 1s infinite ease-in-out; }
+.loading-bar { width: 3px; height: 8px; background: var(--accent); border-radius: 2px; animation: wave 1s infinite ease-in-out; }
 .loading-bar:nth-child(2) { animation-delay: 0.1s; }
 .loading-bar:nth-child(3) { animation-delay: 0.2s; }
-@keyframes wave { 0%, 100% { transform: scaleY(1); opacity: 0.5; } 50% { transform: scaleY(2.5); opacity: 1; } }
+@keyframes wave { 0%, 100% { transform: scaleY(1); opacity: 0.5; } 50% { transform: scaleY(2); opacity: 1; } }
 
 /* Chat Area */
-.chat { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth; }
+.chat { 
+    flex: 1; 
+    padding: 20px; 
+    overflow-y: auto; 
+    display: flex; 
+    flex-direction: column; 
+    gap: 16px; 
+    scroll-behavior: smooth; 
+    background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.1) 100%);
+}
 
 .msg {
-  max-width: 96%; padding: 12px 16px; border-radius: 12px; font-size: 13px; line-height: 1.5; word-break: break-word;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1); animation: fadeIn 0.3s ease-out;
+  max-width: 94%; padding: 14px 18px; border-radius: 16px; font-size: 13.5px; line-height: 1.6; word-break: break-word;
+  animation: slideIn 0.3s ease-out; position: relative;
 }
-@keyframes fadeIn { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
+@keyframes slideIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
 
-.msg.user { align-self: flex-end; background: var(--accent); color: #fff; border: 1px solid rgba(255,255,255,0.1); }
-.msg.agent, .msg.assistant { align-self: flex-start; background: var(--panel-light); border: 1px solid var(--border); }
-.msg.coder { align-self: flex-start; background: var(--coder-bg); border: 1px solid var(--coder-border); border-left-width: 3px; }
-.msg.planner { align-self: flex-start; background: var(--planner-bg); border: 1px solid var(--planner-border); border-left-width: 3px; }
-.msg.system { align-self: center; font-size: 11px; color: var(--text-muted); background: none; border: none; box-shadow: none; padding: 0; margin: 4px 0; }
+.msg.user { 
+  align-self: flex-end; 
+  background: var(--accent-gradient); 
+  color: #fff; 
+  border: 1px solid rgba(255,255,255,0.1); 
+  box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+  border-bottom-right-radius: 4px;
+}
+.msg.agent, .msg.assistant { 
+  align-self: flex-start; 
+  background: rgba(255,255,255,0.03); 
+  border: 1px solid var(--border); 
+  border-bottom-left-radius: 4px;
+}
+.msg.coder { 
+    align-self: flex-start; 
+    background: #0f131a; 
+    border: 1px solid var(--coder-border); 
+    border-left: 3px solid var(--coder-text);
+    font-family: monospace;
+}
+.msg.planner { align-self: flex-start; background: rgba(30, 25, 10, 0.4); border: 1px solid var(--planner-border); border-left: 3px solid var(--planner-text); }
+.msg.system { 
+    align-self: center; font-size: 11px; color: var(--text-muted); 
+    background: rgba(255,255,255,0.03); border: 1px solid var(--border); 
+    border-radius: 999px; padding: 4px 12px; margin: 8px 0; box-shadow: none; 
+}
 
-.meta { font-size: 10px; opacity: 0.8; margin-bottom: 6px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px; }
+.meta { 
+    font-size: 10px; opacity: 0.7; margin-bottom: 6px; 
+    text-transform: uppercase; font-weight: 700; letter-spacing: 0.8px; 
+    display: flex; align-items: center; gap: 6px; 
+}
 .msg.coder .meta { color: var(--coder-text); }
 .msg.planner .meta { color: var(--planner-text); }
 
-/* Markdown Styles */
-.md p { margin: 0 0 8px 0; }
+/* Markdown Styles inside Chat */
+.md p { margin: 0 0 10px 0; }
 .md p:last-child { margin: 0; }
-.md code { background: rgba(0,0,0,0.3); padding: 2px 5px; border-radius: 4px; font-family: monospace; }
-.md pre { background: #080c16; padding: 10px; border-radius: 8px; overflow-x: auto; border: 1px solid var(--border); }
+.md strong { color: #fff; font-weight: 600; }
+.md code { 
+    background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; 
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #e2e8f0;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+.md pre { 
+    background: #080a0f; padding: 12px; border-radius: 8px; 
+    overflow-x: auto; border: 1px solid var(--border); margin: 8px 0; 
+}
+.md pre code { background: none; border: none; padding: 0; color: #a5b3ce; }
 
-/* Input Area */
-.agent-input { padding: 16px; border-top: 1px solid var(--border); display: flex; gap: 12px; background: var(--panel); }
+/* Agent Input Area */
+.agent-input { 
+    padding: 20px; 
+    border-top: 1px solid var(--border); 
+    display: flex; gap: 12px; 
+    background: rgba(10, 12, 18, 0.95);
+    position: relative;
+    z-index: 50;
+}
+.agent-input::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+}
+
 .agent-input textarea {
-  flex: 1; height: 50px; min-height: 50px; max-height: 120px; resize: vertical;
-  border-radius: 10px; border: 1px solid var(--border); background: #050810; color: #fff; padding: 12px;
-  font-size: 13px; outline: none; transition: border-color 0.2s;
+  flex: 1; height: 50px; min-height: 50px; max-height: 150px; resize: vertical;
+  border-radius: 12px; border: 1px solid var(--border); 
+  background: rgba(0,0,0,0.3); color: #fff; padding: 14px;
+  font-size: 14px; transition: all 0.2s;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
 }
-.agent-input textarea:focus { border-color: var(--accent); }
+.agent-input textarea:focus { border-color: var(--accent); background: rgba(0,0,0,0.5); box-shadow: 0 0 0 2px var(--accent-glow); }
+.agent-input textarea::placeholder { color: rgba(255,255,255,0.3); }
+
 .agent-input button {
-  background: var(--accent); border: none; color: #fff; border-radius: 10px; width: 50px; height: 50px;
-  display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px var(--accent-glow);
+  background: var(--accent-gradient); 
+  border: none; color: #fff; border-radius: 12px; width: 50px; height: 50px;
+  display: flex; align-items: center; justify-content: center; 
+  cursor: pointer; transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1); 
+  box-shadow: 0 4px 12px var(--accent-glow);
 }
-.agent-input button:hover { transform: scale(1.05); filter: brightness(1.1); }
+.agent-input button:hover { transform: scale(1.05) translateY(-2px); filter: brightness(1.1); }
+.agent-input button:active { transform: scale(0.95); }
 
 /* --- 5. MAIN AREA --- */
-.main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); position: relative; }
 
-.topbar { height: 56px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); background: var(--panel); }
-.tabs { display: flex; gap: 6px; }
-.tab {
-  padding: 8px 16px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; font-size: 13px; color: var(--text-muted); transition: all 0.2s;
+/* Top Bar (Editor Tabs) */
+.topbar { 
+    height: 52px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; 
+    border-bottom: 1px solid var(--border); background: var(--panel-solid); 
 }
-.tab:hover { background: rgba(255,255,255,0.03); color: #fff; }
-.tab.active { background: rgba(59, 108, 255, 0.1); border-color: rgba(59, 108, 255, 0.3); color: #fff; }
+.tabs { display: flex; gap: 4px; padding: 4px; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid var(--border); }
+.tab {
+  padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;
+  color: var(--text-muted); transition: all 0.2s; border: 1px solid transparent;
+}
+.tab:hover { color: #fff; }
+.tab.active { 
+    background: rgba(255,255,255,0.08); 
+    border-color: rgba(255,255,255,0.05); 
+    color: #fff; 
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
 
-.tab.link { text-decoration: none; display: flex; align-items: center; gap: 6px; }
+.tab.link { background: none; border: none; padding: 0; box-shadow: none; margin-left: 12px; }
 .previewMode { display: flex; gap: 8px; align-items: center; margin-left: 16px; padding-left: 16px; border-left: 1px solid var(--border); }
-.select { background: #050810; border: 1px solid var(--border); color: #fff; border-radius: 6px; padding: 6px 10px; font-size: 12px; outline: none; }
-.smallbtn { border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: #fff; border-radius: 6px; padding: 6px 12px; font-size: 11px; cursor: pointer; transition: all 0.2s; }
-.smallbtn:hover { background: rgba(255,255,255,0.08); }
+
+.select { 
+    background: #050810; border: 1px solid var(--border); color: #fff; 
+    border-radius: 6px; padding: 6px 10px; font-size: 12px; 
+    cursor: pointer; transition: border 0.2s;
+}
+.select:hover { border-color: rgba(255,255,255,0.2); }
+
+.smallbtn { 
+    border: 1px solid var(--border); background: rgba(255,255,255,0.03); 
+    color: #fff; border-radius: 6px; padding: 6px 12px; font-size: 11px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s; 
+}
+.smallbtn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); }
 .smallbtn.danger { border-color: rgba(255, 77, 109, 0.3); color: var(--danger); }
-.smallbtn.danger:hover { background: rgba(255, 77, 109, 0.1); }
-.badge { font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+.smallbtn.danger:hover { background: rgba(255, 77, 109, 0.1); border-color: var(--danger); }
+
+.badge { font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; }
 
 /* Content Grid */
 .content { flex: 1; display: flex; min-height: 0; }
-.files { width: 260px; min-width: 220px; background: var(--panel-light); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
-.tree-header { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
-.treeTitle { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; }
-.upload-btn { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 12px; padding: 4px 8px; border-radius: 4px; transition: background 0.2s; }
-.upload-btn:hover { background: rgba(59, 108, 255, 0.1); }
+
+/* File Tree */
+.files { 
+    width: 240px; min-width: 200px; 
+    background: var(--panel-light); 
+    border-right: 1px solid var(--border); 
+    display: flex; flex-direction: column; 
+    backdrop-filter: blur(10px);
+}
+.tree-header { 
+    padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; 
+    border-bottom: 1px solid var(--border); 
+}
+.treeTitle { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 1px; }
+
+.upload-btn { 
+    background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); 
+    color: var(--accent); cursor: pointer; font-size: 11px; padding: 4px 10px; 
+    border-radius: 4px; transition: all 0.2s; font-weight: 600;
+}
+.upload-btn:hover { background: var(--accent); color: #fff; }
 
 .file-list { padding: 10px; overflow-y: auto; flex: 1; }
-.node { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; color: #cbd5e1; transition: all 0.1s; }
-.node:hover { background: rgba(255,255,255,0.04); color: #fff; }
-.node.active { background: rgba(59, 108, 255, 0.15); color: #fff; border-left: 2px solid var(--accent); }
-.indent { padding-left: 20px; }
-.ico { opacity: 0.6; font-size: 14px; }
+.node { 
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px; 
+    border-radius: 6px; cursor: pointer; font-size: 13px; color: #94a3b8; 
+    transition: all 0.15s; margin-bottom: 2px;
+}
+.node:hover { background: rgba(255,255,255,0.04); color: #fff; transform: translateX(2px); }
+.node.active { 
+    background: rgba(59, 130, 246, 0.15); color: #fff; 
+    font-weight: 500;
+}
+.ico { opacity: 0.7; font-size: 14px; }
 
-.stage { flex: 1; min-width: 0; background: #1e1e1e; position: relative; }
-#editor { height: 100%; }
+/* Editor & Preview Stage */
+.stage { flex: 1; min-width: 0; background: #0d111c; position: relative; display: flex; flex-direction: column; }
+#editor { flex: 1; height: 100%; overflow: hidden; }
 #preview { width: 100%; height: 100%; border: 0; display: none; background: #fff; }
 
-/* --- 6. AD STYLES (STRIPS & BOXES) --- */
+/* --- 6. AD STYLES (Cleaned Up) --- */
 .ad-strip-horiz {
     background: #000;
     border-bottom: 1px solid var(--border);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    padding: 10px;
-    width: 100%;
-    min-height: 90px;
-}
-.ad-strip-horiz.bottom {
-    border-top: 1px solid var(--border);
-    border-bottom: none;
-    margin-top: auto;
+    display: flex; justify-content: center; align-items: center;
+    padding: 10px; width: 100%; min-height: 90px;
 }
 .ad-box-square {
-    margin: 10px;
-    background: #000;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+    margin: 10px; background: rgba(0,0,0,0.5);
+    border: 1px solid var(--border); border-radius: 8px;
+    display: flex; justify-content: center; align-items: center;
     min-height: 200px;
 }
 
 /* Scrollbar Customization */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 </style>
 </head>
@@ -340,23 +452,27 @@ body.xmode .phase.active { background: rgba(189, 0, 255, 0.1); }
 <aside class="left">
   <header>
     <div class="hgroup">
-      <div class="t">Gor://a {% if xmode %}X{% endif %}</div>
+      <div class="t">
+        <svg version="1.0" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 600 600" style="filter: drop-shadow(0 0 5px var(--accent));"> 
+            <g transform="translate(0.000000,603.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none"> <path d="M1497 6023 c827 -2 2179 -2 3005 0 827 1 151 2 -1502 2 -1653 0 -2329 -1 -1503 -2z"/> <path d="M2802 5273 c-43 -24 -131 -143 -182 -246 -99 -202 -106 -410 -19 -598 59 -128 153 -189 246 -158 56 18 81 37 108 84 34 57 32 112 -6 216 -54 145 -51 327 7 490 41 113 27 176 -46 214 -38 20 -68 19 -108 -2z"/> <path d="M3290 5268 c-74 -50 -185 -230 -228 -369 -44 -142 -37 -293 19 -440 52 -134 141 -208 234 -195 131 20 194 151 136 281 -67 150 -67 316 0 522 26 80 29 98 20 126 -28 83 -116 119 -181 75z"/> <path d="M685 4560 c-171 -34 -283 -139 -331 -306 -15 -50 -18 -129 -23 -519 -4 -321 -10 -466 -18 -480 -32 -56 -64 -70 -205 -90 -26 -4 -46 -17 -72 -45 -33 -36 -36 -45 -36 -99 0 -98 62 -161 157 -161 59 0 119 -26 146 -64 22 -31 22 -35 28 -496 5 -424 8 -471 26 -531 11 -37 31 -87 46 -111 72 -124 228 -198 418 -198 125 0 200 111 151 223 -26 59 -64 82 -148 90 -73 7 -116 27 -148 70 -20 28 -21 41 -27 490 -6 505 -8 526 -68 632 l-28 50 28 50 c60 106 62 128 68 630 6 427 7 462 25 491 26 44 68 65 139 71 81 7 131 35 157 88 26 53 25 91 -2 145 -32 61 -73 80 -168 79 -41 -1 -93 -5 -115 -9z"/> <path d="M5102 4550 c-68 -42 -92 -135 -54 -209 26 -52 60 -72 140 -81 83 -9 128 -32 157 -80 19 -33 20 -56 26 -500 6 -505 6 -513 66 -621 l26 -45 -26 -45 c-59 -103 -61 -113 -67 -619 -5 -461 -5 -465 -28 -501 -28 -45 -72 -67 -156 -77 -111 -14 -160 -66 -153 -165 4 -66 26 -103 78 -130 28 -15 50 -18 124 -13 218 12 351 101 416 278 22 61 23 74 28 533 6 503 6 500 58 547 19 18 78 34 155 43 33 4 56 15 78 35 29 27 30 31 30 118 0 88 -1 91 -31 116 -33 28 -45 32 -127 40 -66 7 -110 31 -137 76 -19 33 -20 56 -26 505 -6 496 -6 500 -55 598 -70 138 -221 217 -414 217 -57 0 -83 -5 -108 -20z"/> <path d="M1965 3849 c-113 -9 -166 -24 -280 -79 -312 -150 -493 -462 -471 -810 13 -209 89 -379 238 -529 161 -163 321 -236 545 -248 269 -14 478 70 667 267 61 65 95 111 130 179 70 136 89 217 89 386 0 124 -3 151 -27 230 -53 176 -145 314 -282 425 -174 139 -372 197 -609 179z m214 -324 c173 -46 319 -185 372 -354 23 -76 28 -212 9 -282 -50 -186 -208 -340 -391 -384 -181 -42 -372 15 -499 152 -100 106 -144 218 -143 363 1 290 228 517 518 519 44 0 104 -6 134 -14z"/> <path d="M3880 3849 c-190 -17 -341 -86 -488 -224 -112 -104 -200 -249 -239 -395 -25 -92 -25 -339 0 -430 78 -281 316 -519 597 -597 101 -28 339 -25 443 5 152 44 285 128 397 250 146 158 211 332 212 557 0 244 -82 436 -259 606 -181 175 -402 251 -663 228z m213 -324 c282 -73 454 -362 382 -640 -45 -171 -179 -312 -355 -371 -80 -27 -243 -25 -324 5 -202 73 -337 252 -353 466 -17 243 150 475 388 539 71 19 191 20 262 1z"/> </g> 
+        </svg> 
+        <span> Gor://a {% if xmode %}X{% endif %}</span>
+      </div>
     </div>
 
     <div class="header-actions">
-      <a class="pill" href="/projects/{{ project_id }}/settings" title="Project settings">⚙Settings</a>
+      <a class="pill" href="/projects/{{ project_id }}/settings" title="Project settings">⚙</a>
       
       {% if user.plan == 'premium' %}
       <button class="pill" id="btnExportZip" style="color: #ffd700;" title="Export project to ZIP">
-        ⬇ZIP
+        ⬇ ZIP
       </button>
       {% endif %}
-      <a class="pill" href="/projects/{{ project_id }}/game" target="_blank" style="color: #f0ecec; background-color: red;" title="Play game">
-        BORED?
+      <a class="pill" href="/projects/{{ project_id }}/game" target="_blank" style="background: rgba(255,0,0,0.1); color: var(--danger); border-color: rgba(255,0,0,0.3);" title="Play game">
+        PLAY
       </a>
-      <span class="pill" id="connPill" title="SSE connection">
+      <span class="pill" id="connPill" title="SSE connection" style="cursor: default;">
         <span class="dot warn" id="connDot"></span>
-        <span id="connText">Connecting…</span>
       </span>
     </div>
   </header>
@@ -370,7 +486,7 @@ body.xmode .phase.active { background: rgba(189, 0, 255, 0.1); }
   <div class="progress">
     <div class="progress-row">
       <div class="progress-title">
-        Build Status
+        Status
         <div class="loading-wave" id="loadingWave">
           <div class="loading-bar"></div>
           <div class="loading-bar"></div>
@@ -387,7 +503,7 @@ body.xmode .phase.active { background: rgba(189, 0, 255, 0.1); }
   <div class="chat" id="chat"></div>
 
   <div class="agent-input">
-    <textarea id="prompt" placeholder="Describe what to build or change…"></textarea>
+    <textarea id="prompt" placeholder="What shall we build?"></textarea>
     <button id="runAgent" title="Run agent">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
         <path d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576zm6.787-8.201L1.591 6.602l4.339 2.76z"/>
@@ -412,43 +528,45 @@ body.xmode .phase.active { background: rgba(189, 0, 255, 0.1); }
     <div class="tabs">
       <div class="tab active" id="tabCode">Code</div>
       <div class="tab" id="tabPreview">Preview</div>
+    </div>
 
-      <div class="previewMode" id="previewModeWrap" style="display:none">
+    <div style="display:flex; align-items:center;">
+       <div class="previewMode" id="previewModeWrap" style="display:none; border:none; padding-left:0; margin-left:0; margin-right: 20px;">
         <select class="select" id="previewMode">
           <option value="server">Server Preview</option>
         </select>
-        <button class="smallbtn" id="btnRunServer">Run</button>
-        <button class="smallbtn danger" id="btnStopServer">Stop</button>
-        <span class="badge" id="serverStatus">stopped</span>
+        <button class="smallbtn" id="btnRunServer" style="margin-left:8px;">▶ Run</button>
+        <button class="smallbtn danger" id="btnStopServer" style="margin-left:4px;">⏹ Stop</button>
+        <span class="badge" id="serverStatus" style="margin-left:8px;">stopped</span>
       </div>
-    </div>
 
-    <div style="display:flex; gap:12px; align-items:center;">
-      {% if user and user.tokens %}
-      <span class="badge" title="Tokens used this month">
-        🪙 <span id="tokenDisplay">{{ "{:,}".format(user.tokens.used) }} used</span>
-      </span>
-      {% endif %}
-      
-      <span class="badge" id="saveStatus">Saved</span>
-            <a class="pill" href="/dashboard" target="_blank">
-        Dashboard
-      </a>
-      {% if user.plan != 'premium' %}
-        <a class="tab link" style= "background-color:#3b6cff; color:#fff;" href="/pricing" target="_blank">
-          UPGRADE(No ADs)
+      <div style="display:flex; gap:12px; align-items:center;">
+        {% if user and user.tokens %}
+        <span class="badge" title="Tokens used this month">
+          ⚡ <span id="tokenDisplay">{{ "{:,}".format(user.tokens.used) }}</span>
+        </span>
+        {% endif %}
+        
+        <span class="badge" id="saveStatus">Saved</span>
+              <a class="pill" href="/dashboard" target="_blank">
+          Dashboard
         </a>
-      {% endif %}
-      
-      {% if user.plan != 'free' %}
-      <a class="pill" href="/projects/{{ project_id }}/xmode" style="border-color: #d08fff; color: #d08fff;">
-          Go into Xmode
-      </a>
-      {% endif %}
-      
-      <a class="pill" href="/app/{{ project_id if not project.subdomain else project.subdomain }}/" target="_blank">
-        Open Live App ↗
-      </a>
+        {% if user.plan != 'premium' %}
+          <a class="pill" style= "background-color:var(--accent); color:#fff; border-color:var(--accent);" href="/pricing" target="_blank">
+            UPGRADE
+          </a>
+        {% endif %}
+        
+        {% if user.plan != 'free' %}
+        <a class="pill" href="/projects/{{ project_id }}/xmode" style="border-color: #d946ef; color: #d946ef;">
+            Xmode
+        </a>
+        {% endif %}
+        
+        <a class="pill" href="/app/{{ project_id if not project.subdomain else project.subdomain }}/" target="_blank">
+          Open App ↗
+        </a>
+      </div>
     </div>
   </div>
 
@@ -456,8 +574,8 @@ body.xmode .phase.active { background: rgba(189, 0, 255, 0.1); }
   <div class="content">
     <aside class="files">
       <div class="tree-header">
-        <div class="treeTitle">Project Files</div>
-        <button class="upload-btn" id="btnUpload" title="Upload file">↑ Upload</button>
+        <div class="treeTitle">Explorer</div>
+        <button class="upload-btn" id="btnUpload" title="Upload file">+ Upload</button>
         <input type="file" id="uploadInput" hidden />
       </div>
       <div class="file-list" id="filetree"></div>
@@ -524,16 +642,17 @@ function saveChatHistory(role, text) {
 
 function setConn(state){
   const dot = $("connDot");
-  const txt = $("connText");
+  const pill = $("connPill");
+  
   if(state === "ok"){
     dot.className = "dot ok";
-    txt.textContent = "Live";
+    pill.title = "Live";
   } else if(state === "bad"){
     dot.className = "dot bad";
-    txt.textContent = "Offline";
+    pill.title = "Offline";
   } else {
     dot.className = "dot warn";
-    txt.textContent = "Connecting…";
+    pill.title = "Connecting…";
   }
 }
 
@@ -572,8 +691,8 @@ function updateTokens(newTotal) {
   const el = $("tokenDisplay");
   if(el) {
     const isError = String(newTotal).toLowerCase().includes("error") || String(newTotal).toLowerCase().includes("limit");
-    el.textContent = isError ? "Limit Reached" : (newTotal + " used");
-    el.style.color = isError ? "var(--danger)" : "var(--ok)";
+    el.textContent = isError ? "Limit Reached" : (newTotal);
+    el.style.color = isError ? "var(--danger)" : "var(--text)";
     if(!isError) setTimeout(() => el.style.color = "", 1000); 
   }
 }
@@ -630,11 +749,19 @@ function renderTree(container, nodeObj, depth){
 
     const row = document.createElement("div");
     row.className = "node" + ((isFile && meta.__path === currentFile) ? " active" : "");
-    row.style.paddingLeft = (10 + (depth * 20)) + "px";
+    row.style.paddingLeft = (10 + (depth * 14)) + "px";
 
     const ico = document.createElement("span");
     ico.className = "ico";
     ico.textContent = isFile ? "📄" : "📁";
+    
+    // Better icons if possible
+    if(isFile) {
+        if(name.endsWith('.js')) ico.textContent = "📜";
+        if(name.endsWith('.css')) ico.textContent = "🎨";
+        if(name.endsWith('.html')) ico.textContent = "🌐";
+        if(name.endsWith('.json')) ico.textContent = "⚙️";
+    }
 
     const label = document.createElement("span");
     label.textContent = name;
