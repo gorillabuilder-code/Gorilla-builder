@@ -114,12 +114,7 @@ class Planner:
             _append_history(project_id, "user", user_request)
 
         capabilities = self._infer_capabilities(user_request)
-        # Assuming AI_CAPABILITIES is a known dict or list in this file or imported, 
-        # but since I don't see it defined in the snippet I'm generating, 
-        # I'll assume standard empty lists for modules if the dict is missing in this context.
-        # However, to preserve your file structure, I am including the modules logic if applicable.
-        # Since I'm only pasting the prompt update request, I'll proceed with the prompt string injection.
-
+        
         # -------------------------------------------------------
         # SYSTEM PROMPT (UPDATED FOR BOILERPLATE + AI SPECS)
         # -------------------------------------------------------
@@ -276,11 +271,14 @@ class Planner:
 
     @staticmethod
     def _to_todo_md(plan: Dict[str, Any], msg: str = "") -> str:
-        lines = []
-        if msg:
-            lines.append(f"**Planner:** {msg}\n")
-        lines.append("# Build Plan\n")
-        lines.append("\n## Tasks")
-        for task in plan.get("todo", []):
+        tasks = plan.get("todo", [])
+        
+        # If there are no tasks (e.g. just a chat response), return empty string
+        if not tasks:
+            return ""
+
+        lines = ["# Build Plan\n", "## Tasks"]
+        for task in tasks:
             lines.append(f"- {task}")
+            
         return "\n".join(lines)

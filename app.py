@@ -702,7 +702,6 @@ async def create_project(
     project_name = name or "Untitled Project"
     
     # 2. Define the Heavy Lifting (DB + File IO)
-    # We wrap this in a function so we can run it in a separate thread
     def _heavy_lift_create():
         # A. Create Project Record
         res = supabase.table("projects").insert({
@@ -719,20 +718,28 @@ async def create_project(
         final_subdomain = f"{clean_name}-{pid}" 
         supabase.table("projects").update({"subdomain": final_subdomain}).eq("id", pid).execute()
         
-        # C. Inject Boilerplate (The "Lovable" Strategy)
-        if os.path.isdir(BOILERPLATE_DIR):
+        # C. Inject Boilerplate (OPTIMIZED)
+        # Ensure BOILERPLATE_DIR is defined. If global fails, fallback to local path calculation
+        bp_dir = globals().get("BOILERPLATE_DIR")
+        if not bp_dir or not os.path.isdir(bp_dir):
+            bp_dir = os.path.join(ROOT_DIR, "backend", "boilerplate")
+            if not os.path.isdir(bp_dir):
+                bp_dir = os.path.join(ROOT_DIR, "boilerplate")
+
+        if os.path.isdir(bp_dir):
             files_to_insert = []
-            print(f"💉 Injecting boilerplate for {pid}...")
+            print(f"💉 Injecting boilerplate for {pid} from {bp_dir}...")
             
-            for root, dirs, files in os.walk(BOILERPLATE_DIR):
-                # Skip hidden folders
-                if any(part.startswith('.') for part in root.split(os.sep)): continue
+            for root, dirs, files in os.walk(bp_dir):
+                # --- CRITICAL FIX: SKIP NODE_MODULES ---
+                # This modifies the 'dirs' list in-place, preventing os.walk from entering these folders
+                dirs[:] = [d for d in dirs if d not in ["node_modules", ".git", "dist", "build"]]
                 
                 for file in files:
-                    if file.startswith('.') or file == "node_modules": continue
+                    if file.startswith('.'): continue
                     
                     abs_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(abs_path, BOILERPLATE_DIR).replace("\\", "/")
+                    rel_path = os.path.relpath(abs_path, bp_dir).replace("\\", "/")
                     
                     try:
                         with open(abs_path, "r", encoding="utf-8") as f:
@@ -746,13 +753,14 @@ async def create_project(
                         continue # Skip binary/unreadable files
 
             if files_to_insert:
+                print(f"📄 Found {len(files_to_insert)} valid boilerplate files. Uploading...")
                 try:
                     # Batch insert for speed
                     supabase.table("files").insert(files_to_insert).execute()
-                except Exception:
-                    # Fallback to one-by-one if batch fails
+                except Exception as e:
+                    print(f"⚠️ Batch upload failed ({e}). Retrying individually...")
                     for f in files_to_insert:
-                        try: supabase.table("files").insert(f).execute()
+                        try: supabase.table("files").upsert(f, on_conflict="project_id,path").execute()
                         except: pass
         
         return pid
@@ -771,7 +779,7 @@ async def create_project(
     except Exception as e:
         print(f"Create Error: {e}")
         return RedirectResponse("/dashboard?error=creation_failed", status_code=303)
-    
+           
 @app.get("/projects/{project_id}/editor", response_class=HTMLResponse)
 async def project_editor(request: Request, project_id: str, file: str = "index.html", prompt: Optional[str] = None):
     user = get_current_user(request)
