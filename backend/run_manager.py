@@ -32,9 +32,8 @@ class RunInfo:
 class ProjectRunManager:
     """
     E2B Cloud Runner (Universal Compatibility):
-      - Support for E2B v0.x (Legacy) via await Sandbox.create()
-      - Support for E2B v1.x (New) via Sandbox()
-      - **Updated:** Automatically runs 'npm run build' for React/TSX projects.
+      - Uses template="base" (Public Ubuntu image with Node/Python)
+      - Automatically runs 'npm run build' for React/TSX projects.
     """
 
     def __init__(self):
@@ -105,24 +104,36 @@ class ProjectRunManager:
         # ------------------------------------------------------------
         # UNIVERSAL SANDBOX INITIALIZATION STRATEGY
         # ------------------------------------------------------------
+        # FIX: We use "base" instead of "nodejs" because "nodejs" is not a default public template anymore.
+        template_id = "base" 
+
         try:
             # STRATEGY 1: Legacy Async Factory
             if hasattr(Sandbox, "create"):
-                print("--> [E2B] Attempting legacy Sandbox.create(template='nodejs')...")
+                print(f"--> [E2B] Attempting legacy Sandbox.create(template='{template_id}')...")
                 try:
-                    sandbox = await Sandbox.create(template="nodejs")
+                    sandbox = await Sandbox.create(template=template_id)
                 except TypeError:
-                    sandbox = await Sandbox.create(id="nodejs")
+                    sandbox = await Sandbox.create(id=template_id)
             
             # STRATEGY 2: Modern Constructor
             elif SDK_VERSION == "new":
-                print("--> [E2B] Attempting new Sandbox(id='nodejs')...")
-                sandbox = Sandbox(id="nodejs")
+                # For the new SDK, 'base' might technically be code-interpreter, 
+                # but we will try to pass the ID explicitly if allowed, or fallback.
+                print(f"--> [E2B] Attempting new Sandbox()...")
+                # If using e2b_code_interpreter, it wraps a specific template automatically.
+                # We don't pass an ID usually, but if we must, we'd pass it to the underlying infra.
+                # Simplest path for new SDK users is usually just Sandbox()
+                try:
+                    sandbox = Sandbox() 
+                except:
+                    # Fallback if they are using the generic 'e2b' new client, not code-interpreter
+                    sandbox = Sandbox(id=template_id)
             
             # STRATEGY 3: Fallback Constructor
             else:
-                print("--> [E2B] Fallback to Sandbox('nodejs')...")
-                sandbox = Sandbox("nodejs")
+                print(f"--> [E2B] Fallback to Sandbox('{template_id}')...")
+                sandbox = Sandbox(template_id)
 
         except Exception as e:
             raise RuntimeError(f"Failed to create E2B Sandbox. Check API Key & SDK Version. Error: {e}")
