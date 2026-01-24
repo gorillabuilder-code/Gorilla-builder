@@ -55,7 +55,15 @@ FRONTEND_DIR = os.path.join(ROOT_DIR, "frontend")
 FRONTEND_TEMPLATES_DIR = os.path.join(FRONTEND_DIR, "templates")
 FRONTEND_STYLES_DIR = os.path.join(FRONTEND_DIR, "styles")
 
+# 👇 DEFINING BOILERPLATE DIR (Fixes the Error) 👇
+# Checks if it's in 'backend/boilerplate' (Root structure) or just 'boilerplate' (Nested structure)
+if os.path.isdir(os.path.join(ROOT_DIR, "backend", "boilerplate")):
+    BOILERPLATE_DIR = os.path.join(ROOT_DIR, "backend", "boilerplate")
+else:
+    BOILERPLATE_DIR = os.path.join(ROOT_DIR, "boilerplate")
+
 if not os.path.isdir(FRONTEND_DIR):
+    # Adjust for relative path if running from root but folders are deeper
     ROOT_DIR = os.path.dirname(ROOT_DIR)
     FRONTEND_DIR = os.path.join(ROOT_DIR, "frontend")
     FRONTEND_TEMPLATES_DIR = os.path.join(FRONTEND_DIR, "templates")
