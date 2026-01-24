@@ -18,7 +18,7 @@ import httpx
 # --- Configuration for Fireworks AI ---
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
 # Using Minimax as requested for high-quality reasoning
-FIREWORKS_MODEL = os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/minimax-m2p1")
+FIREWORKS_MODEL = os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/gpt-oss-120b")
 FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
 
 if not FIREWORKS_API_KEY:
@@ -98,7 +98,7 @@ class Coder:
             
             content = data["choices"][0]["message"]["content"]
             usage = data.get("usage", {})
-            total_tokens = int(usage.get("total_tokens", 0)) * 1.32
+            total_tokens = int(usage.get("total_tokens", 0)) * 0.9
             
             return content, total_tokens
 
@@ -178,7 +178,7 @@ class Coder:
         full_context_text = "\n".join(context_snippets)
 
         # 3. Define System Prompt (Immutable Rules)
-        # UPDATED FOR NEW BOILERPLATE (REACT + VITE + SHADCN)
+        # UPDATED WITH BOILERPLATE + AI SPECS AS REQUESTED
         system_prompt = (
             "You are an expert Full-Stack AI Coder. You build high-quality Web Apps using a Node.js backend and a **React + TypeScript + Tailwind + Shadcn/UI** frontend.\n"
             "You are working in a pre-existing environment. **DO NOT initialize a new project.**\n"
@@ -261,7 +261,7 @@ class Coder:
                 # Call Fireworks
                 raw, tokens = await self._call_fireworks(messages, temperature=0.6)
                 last_raw = raw
-                cumulative_tokens += tokens * 1.75
+                cumulative_tokens += tokens * 0.9
                 
                 parsed = _extract_json(raw)
                 if not parsed:
@@ -296,11 +296,6 @@ class Coder:
                     )
                     
                     # --- CRITICAL FIX: RE-INJECT CONTEXT ON RETRY ---
-                    # Instead of just appending "fix it", we treat the next attempt as a fresh turn 
-                    # with the error appended to the user prompt. This forces the model to see the
-                    # full context again, reducing "hallucination loops".
-                    
-                    # We append the failure to the temporary message list
                     if last_raw:
                         messages.append({"role": "assistant", "content": last_raw[:5000]})
                     
