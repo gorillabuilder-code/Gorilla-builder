@@ -681,61 +681,87 @@ async def project_create_page(request: Request, prompt: Optional[str] = None):
 async def create_project(
     request: Request, 
     prompt: Optional[str] = Form(None), 
-    name: Optional[str] = Form(None),
+    name: Optional[str] = Form(None), 
     description: str = Form("")
 ):
     user = get_current_user(request)
 
-    # CHECK 1: Is this a direct request from Dashboard? (Has prompt, no name)
+    # 1. Handle "Stashed" Prompts (from Dashboard)
     if prompt and not name:
-        safe_prompt = urllib.parse.quote(prompt)
-        return RedirectResponse(f"/projects/createit?prompt={safe_prompt}", status_code=303)
-
-    # CHECK 2: Is the prompt missing? Check the session stash!
-    final_prompt = prompt
-    if not final_prompt:
-        final_prompt = request.session.pop("stashed_prompt", None)
-
-    # Proceed with creation
+        return RedirectResponse(f"/projects/createit?prompt={urllib.parse.quote(prompt)}", status_code=303)
+    
+    final_prompt = prompt or request.session.pop("stashed_prompt", None)
     project_name = name or "Untitled Project"
     
-    try:
-        # STEP 1: Insert Project (Get the ID)
+    # 2. Define the Heavy Lifting (DB + File IO)
+    # We wrap this in a function so we can run it in a separate thread
+    def _heavy_lift_create():
+        # A. Create Project Record
         res = supabase.table("projects").insert({
             "owner_id": user["id"], 
             "name": project_name, 
             "description": description or (final_prompt[:200] if final_prompt else "")
         }).execute()
         
-        if not res or not res.data:
-            raise Exception("DB Insert Failed")
-            
-        new_project = res.data[0]
-        pid = new_project['id']
+        if not res.data: raise Exception("DB Insert Failed")
+        pid = res.data[0]['id']
         
-        # STEP 2: Format the Subdomain (projectname-projectid)
-        # Clean the name: "My Cool App" -> "my-cool-app"
-        clean_name = re.sub(r'[^a-z0-9-]', '-', project_name.lower()).strip('-')
-        if not clean_name: clean_name = "app"
-        
-        # Combine: "my-cool-app" + "-" + "uuid"
+        # B. Setup Subdomain
+        clean_name = re.sub(r'[^a-z0-9-]', '-', project_name.lower()).strip('-') or "app"
         final_subdomain = f"{clean_name}-{pid}" 
+        supabase.table("projects").update({"subdomain": final_subdomain}).eq("id", pid).execute()
         
-        # STEP 3: Update the Project with the Subdomain
-        supabase.table("projects").update({
-            "subdomain": final_subdomain
-        }).eq("id", pid).execute()
-        
-        # Redirect to Editor
-        target_url = f"/projects/{pid}/editor"
-        if final_prompt:
-            safe_prompt = urllib.parse.quote(final_prompt)
-            target_url += f"?prompt={safe_prompt}"
+        # C. Inject Boilerplate (The "Lovable" Strategy)
+        if os.path.isdir(BOILERPLATE_DIR):
+            files_to_insert = []
+            print(f"💉 Injecting boilerplate for {pid}...")
             
+            for root, dirs, files in os.walk(BOILERPLATE_DIR):
+                # Skip hidden folders
+                if any(part.startswith('.') for part in root.split(os.sep)): continue
+                
+                for file in files:
+                    if file.startswith('.') or file == "node_modules": continue
+                    
+                    abs_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(abs_path, BOILERPLATE_DIR).replace("\\", "/")
+                    
+                    try:
+                        with open(abs_path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                            files_to_insert.append({
+                                "project_id": pid,
+                                "path": rel_path,
+                                "content": content
+                            })
+                    except Exception: 
+                        continue # Skip binary/unreadable files
+
+            if files_to_insert:
+                try:
+                    # Batch insert for speed
+                    supabase.table("files").insert(files_to_insert).execute()
+                except Exception:
+                    # Fallback to one-by-one if batch fails
+                    for f in files_to_insert:
+                        try: supabase.table("files").insert(f).execute()
+                        except: pass
+        
+        return pid
+
+    # 3. Execute Async
+    try:
+        # Run the DB and File IO in a thread so we don't block the server
+        pid = await asyncio.to_thread(_heavy_lift_create)
+        
+        # 4. Redirect to Editor
+        target_url = f"/projects/{pid}/editor"
+        if final_prompt: 
+            target_url += f"?prompt={urllib.parse.quote(final_prompt)}"
         return RedirectResponse(target_url, status_code=303)
         
     except Exception as e:
-        print(f"Create Project Error: {e}")
+        print(f"Create Error: {e}")
         return RedirectResponse("/dashboard?error=creation_failed", status_code=303)
     
 @app.get("/projects/{project_id}/editor", response_class=HTMLResponse)
