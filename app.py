@@ -338,9 +338,9 @@ def send_otp_email(to_email: str, code: str):
         return
     try:
         params = {
-            "from": "Gor://a <talk@gorillabuilder.dev>", # Use your verified domain in production
+            "from": "Gor://a Auth Verification <auth@gorillabuilder.dev>", # Use your verified domain in production
             "to": [to_email],
-            "subject": "Your Verification Code for Gor://a",
+            "subject": "Your Verification Code for Gor://a Builder",
             "html": f"""
             <!DOCTYPE html>
             <html>
