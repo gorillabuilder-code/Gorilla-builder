@@ -343,28 +343,41 @@ def send_otp_email(to_email: str, code: str):
             "subject": "Your Verification Code for Gor://a Builder",
             "html": f"""
             <!DOCTYPE html>
-            <html>
-            <body style="margin: 0; padding: 0; background-color: #0b1020; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
-            <div style="width: 100%; padding: 40px 0; background-color: #0b1020;">
-                <div style="max-width: 420px; margin: 0 auto; background-color: #0f1530; padding: 40px; border-radius: 18px; color: #ffffff;">
-                    
-                    <h1 style="margin: 0 0 10px; font-size: 24px; font-weight: 400; letter-spacing: -0.3px;">Welcome to Gor://a</h1>
-                    <p style="margin: 0 0 30px; opacity: 0.7; font-size: 14px; line-height: 1.5;">
-                        Start building AI apps faster. Use the code below to verify your account.
-                    </p>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verification Email</title>
+    <style>
+        @font-face {
+            font-family: 'din-next-w01-light';
+            src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2');
+            font-display: swap;
+        }
+    </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #0b1020; font-family: din-next-w01-light,Tahoma, Geneva, Verdana, sans-serif;">
+    <div style="width: 100%; padding: 40px 0; background-color: #0b1020;">
+        <div style="max-width: 420px; margin: 0 auto; background-color: #0f1530; padding: 40px; border-radius: 18px; color: #ffffff;">
+            
+            <h1 style="margin: 0 0 10px; font-size: 24px; font-weight: 400; letter-spacing: -0.3px;">Welcome to Gor://a</h1>
+            <p style="margin: 0 0 30px; opacity: 0.7; font-size: 14px; line-height: 1.5;">
+                Start building AI apps faster. Use the code below to verify your account.
+            </p>
 
-                    <div style="background-color: #141a3a; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 30px;">
-                        <span style="display: block; font-size: 12px; opacity: 0.5; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;">Verification Code</span>
-                        <strong style="font-size: 32px; color: #3b6cff; letter-spacing: 5px;">{code}</strong>
-                    </div>
-
-                    <p style="font-size: 12px; opacity: 0.4; text-align: center; margin-top: 40px;">
-                        If you didn't request this, you can safely ignore this email.
-                    </p>
-                </div>
+            <div style="background-color: #141a3a; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 30px;">
+                <span style="display: block; font-size: 12px; opacity: 0.5; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;">Verification Code</span>
+                <strong style="font-size: 32px; color: #3b6cff; letter-spacing: 5px;">{code}</strong>
             </div>
-            </body>
-            </html>
+
+            <p style="font-size: 12px; opacity: 0.4; text-align: center; margin-top: 40px;">
+                If you didn't request this, you can safely ignore this email.
+            </p>
+        </div>
+    </div>
+</body>
+</html>
+
             """,
         }
         resend.Emails.send(params)

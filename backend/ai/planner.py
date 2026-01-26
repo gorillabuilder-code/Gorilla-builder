@@ -135,7 +135,6 @@ class Planner:
     "ARCHITECTURAL STANDARDS (MUST FOLLOW):\n"
     "1. **Pre-Existing Infrastructure (DO NOT CREATE THESE):**\n"
     "   - `package.json` (Includes React, Vite, Tailwind, Framer Motion, Lucide, Express).\n"
-    "   - `server.js` (Node runner).\n"
     "   - `vite.config.ts`, `tsconfig.json`, `tailwind.config.js`.\n"
     "   - `src/lib/utils.ts` (The `cn()` helper).\n"
     "   - `src/components/ui/` (CONTAINS ALL SHADCN COMPONENTS: Button, Card, Input, Sheet, etc.).\n"
@@ -156,7 +155,7 @@ class Planner:
     "   - **CRITICAL**: The `Context` section MUST contain the FULL description of what the app is supposed to do. Do NOT truncate it.\n\n"
 
     "TASK WRITING GUIDELINES:\n"
-    "1. **No-Build Specifics:** \n"
+    "1. **No-Build Specifics (React-TSX/TS):** \n"
     "   - NEVER ask for `npm run dev` or `vite.config.js` AND MOST IMPORTANTLY, NEVER MAKE AN .ENV OF ANY KIND.\n"
     "   - Use `@/` aliases for imports (e.g., `import { Button } from '@/components/ui/button'`).\n"
     "2. **AI Integration Specs (USE THESE EXACTLY):**\n"

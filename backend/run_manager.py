@@ -9,31 +9,35 @@ from typing import Dict, Optional, Tuple, Any
 import httpx
 from dotenv import load_dotenv
 
-# Try importing from both new and old SDK locations
+# --------------------------------------------------------------------------
+# E2B SDK COMPATIBILITY LAYER
+# --------------------------------------------------------------------------
+SDK_VERSION = "none"
+Sandbox = None
+
+# 1. Try New SDK (v1.0+)
 try:
     from e2b_code_interpreter import Sandbox
     SDK_VERSION = "new"
 except ImportError:
+    # 2. Try Legacy SDK
     try:
         from e2b import Sandbox
         SDK_VERSION = "legacy"
     except ImportError:
-        Sandbox = None
-        SDK_VERSION = "none"
+        pass
 
 load_dotenv()
 
 @dataclass
 class RunInfo:
     project_id: str
-    sandbox: Any # Sandbox object
-    url: str  # Public HTTPS URL from E2B
+    sandbox: Any 
+    url: str 
 
 class ProjectRunManager:
     """
-    E2B Cloud Runner (Universal Compatibility):
-      - Uses template="base" (Public Ubuntu image with Node/Python)
-      - Automatically runs 'npm run build' for React/TSX projects.
+    E2B Cloud Runner (Universal Compatibility)
     """
 
     def __init__(self):
@@ -44,32 +48,25 @@ class ProjectRunManager:
 
     def is_running(self, project_id: str) -> Tuple[bool, Optional[int]]:
         info = self._runs.get(project_id)
-        if not info:
-            return False, None
+        if not info: return False, None
         
         try:
-            # E2B v1 check vs v0 check
-            is_alive = False
+            # Check liveness based on SDK version
             if hasattr(info.sandbox, "is_running"):
-                is_alive = info.sandbox.is_running()
-            else:
-                # Legacy SDK doesn't always have is_running(), assume alive if process exists
-                is_alive = True 
-                
-            if not is_alive:
-                self._runs.pop(project_id, None)
-                return False, None
+                if not info.sandbox.is_running():
+                    self._runs.pop(project_id, None)
+                    return False, None
+            return True, 3000
         except Exception:
             self._runs.pop(project_id, None)
             return False, None
-            
-        return True, 80
 
     async def stop(self, project_id: str) -> None:
         info = self._runs.get(project_id)
         if info:
+            print(f"🛑 Stopping sandbox {project_id}...")
             try:
-                # Handle async close for legacy, sync for new
+                # Handle both Async and Sync close methods
                 if asyncio.iscoroutinefunction(info.sandbox.close):
                     await info.sandbox.close()
                 else:
@@ -83,138 +80,108 @@ class ProjectRunManager:
             try:
                 pkg = json.loads(file_tree["package.json"])
                 scripts = pkg.get("scripts", {})
-                if "start" in scripts: return "npm start"
                 if "dev" in scripts: return "npm run dev"
+                if "start" in scripts: return "npm start"
                 if pkg.get("main"): return f"node {pkg['main']}"
-            except Exception:
-                pass
+            except: pass
         if "server.js" in file_tree: return "node server.js"
         if "index.js" in file_tree: return "node index.js"
         return "npm start"
 
     async def start(self, project_id: str, file_tree: Dict[str, str]) -> RunInfo:
         if not Sandbox:
-            raise RuntimeError("E2B SDK not installed. Run: pip install e2b")
+            raise RuntimeError("E2B SDK not installed. Run: pip install e2b-code-interpreter")
 
         await self.stop(project_id)
         print(f"--> [E2B] Creating sandbox for {project_id} (SDK: {SDK_VERSION})...")
         
         sandbox = None
         
-        # ------------------------------------------------------------
-        # UNIVERSAL SANDBOX INITIALIZATION STRATEGY
-        # ------------------------------------------------------------
-        # FIX: We use "base" instead of "nodejs" because "nodejs" is not a default public template anymore.
-        template_id = "base" 
-
+        # --- 1. ROBUST SANDBOX INITIALIZATION ---
         try:
-            # STRATEGY 1: Legacy Async Factory
-            if hasattr(Sandbox, "create"):
-                print(f"--> [E2B] Attempting legacy Sandbox.create(template='{template_id}')...")
-                try:
-                    sandbox = await Sandbox.create(template=template_id)
-                except TypeError:
-                    sandbox = await Sandbox.create(id=template_id)
+            if SDK_VERSION == "new":
+                # NEW SDK: Synchronous constructor, NO arguments
+                # Do NOT use 'await' here.
+                print(f"--> [E2B] Initializing new Sandbox()...")
+                sandbox = Sandbox() 
             
-            # STRATEGY 2: Modern Constructor
-            elif SDK_VERSION == "new":
-                # For the new SDK, 'base' might technically be code-interpreter, 
-                # but we will try to pass the ID explicitly if allowed, or fallback.
-                print(f"--> [E2B] Attempting new Sandbox()...")
-                # If using e2b_code_interpreter, it wraps a specific template automatically.
-                # We don't pass an ID usually, but if we must, we'd pass it to the underlying infra.
-                # Simplest path for new SDK users is usually just Sandbox()
-                try:
-                    sandbox = Sandbox() 
-                except:
-                    # Fallback if they are using the generic 'e2b' new client, not code-interpreter
-                    sandbox = Sandbox(id=template_id)
+            elif SDK_VERSION == "legacy":
+                # LEGACY SDK: Async factory
+                if hasattr(Sandbox, "create"):
+                    print(f"--> [E2B] Initializing legacy Sandbox.create()...")
+                    sandbox = await Sandbox.create(template="base")
+                else:
+                    # Fallback for very old versions
+                    sandbox = Sandbox(template="base")
             
-            # STRATEGY 3: Fallback Constructor
             else:
-                print(f"--> [E2B] Fallback to Sandbox('{template_id}')...")
-                sandbox = Sandbox(template_id)
+                raise RuntimeError("Unknown SDK version")
 
         except Exception as e:
-            raise RuntimeError(f"Failed to create E2B Sandbox. Check API Key & SDK Version. Error: {e}")
+            err_str = str(e)
+            if "401" in err_str:
+                raise RuntimeError("E2B API Key is invalid or missing.")
+            raise RuntimeError(f"Failed to create E2B Sandbox: {err_str}")
 
         if not sandbox:
-             raise RuntimeError("Sandbox creation returned None.")
+            raise RuntimeError("Sandbox creation returned None.")
 
+        # --- 2. UPLOAD & RUN ---
         try:
-            # 2. Write Files
+            # Write Files
             print(f"--> [E2B] Writing {len(file_tree)} files...")
             for path, content in file_tree.items():
                 if not path or path.endswith("/"): continue
                 dir_path = os.path.dirname(path)
                 if dir_path and dir_path not in [".", ""]:
-                    sandbox.filesystem.make_dir(dir_path)
+                    try: sandbox.filesystem.make_dir(dir_path)
+                    except: pass
                 sandbox.filesystem.write(path, content)
 
-            # 3. Install Dependencies & Build
+            # Install Dependencies
             if "package.json" in file_tree:
                 print(f"--> [E2B] Running npm install...")
                 
-                # --- INSTALL ---
-                if hasattr(sandbox, "commands"):
-                    proc = sandbox.commands.run("npm install", background=False)
-                    exit_code = proc.exit_code
-                    err_out = proc.stderr or proc.stdout
-                else:
-                    proc = await sandbox.process.start_and_wait("npm install")
-                    exit_code = proc.exit_code
-                    err_out = proc.stderr or proc.stdout
+                # Helper for unified command running
+                async def run_cmd(c):
+                    if hasattr(sandbox, "commands"): # New SDK
+                        r = sandbox.commands.run(c, background=False)
+                        return r.exit_code, (r.stderr or r.stdout)
+                    else: # Legacy SDK
+                        p = await sandbox.process.start_and_wait(c)
+                        return p.exit_code, (p.stderr or p.stdout)
 
-                if exit_code != 0:
-                    raise RuntimeError(f"App crashed during 'npm install':\n{err_out}")
+                code, err = await run_cmd("npm install")
+                if code != 0:
+                    raise RuntimeError(f"npm install failed:\n{err}")
 
-                # --- NEW: BUILD STEP (CRITICAL FOR REACT/TSX) ---
-                try:
-                    pkg = json.loads(file_tree["package.json"])
-                    if "build" in pkg.get("scripts", {}):
-                        print(f"--> [E2B] Running npm run build...")
-                        if hasattr(sandbox, "commands"):
-                            b_proc = sandbox.commands.run("npm run build", background=False)
-                            b_code = b_proc.exit_code
-                            b_err = b_proc.stderr or b_proc.stdout
-                        else:
-                            b_proc = await sandbox.process.start_and_wait("npm run build")
-                            b_code = b_proc.exit_code
-                            b_err = b_proc.stderr or b_proc.stdout
-                        
-                        if b_code != 0:
-                            raise RuntimeError(f"Build failed:\n{b_err}")
-                except Exception as build_e:
-                    # If build fails, we might still try to start, or fail hard. 
-                    # For now, print and proceed, or raise if critical.
-                    print(f"⚠️ Build warning: {build_e}")
+                # Build (Best Effort)
+                pkg = json.loads(file_tree["package.json"])
+                if "build" in pkg.get("scripts", {}):
+                    print(f"--> [E2B] Running npm run build...")
+                    await run_cmd("npm run build")
 
-            # 4. Start Server
+            # Start Server
             start_cmd = self._determine_start_command(file_tree)
             print(f"--> [E2B] Starting server with: {start_cmd}")
             
-            # Force PORT 3000
+            # Force Port 3000
             full_cmd = f"export PORT=3000 && {start_cmd}"
             
             if hasattr(sandbox, "commands"):
-                # New SDK
                 sandbox.commands.run(full_cmd, background=True)
             else:
-                # Legacy SDK
                 await sandbox.process.start(full_cmd)
 
-            # 5. Health Check & URL Retrieval
+            # Health Check
             port_open = False
-            
-            # Wait loop
-            for _ in range(10):
+            for _ in range(15):
                 if hasattr(sandbox, "commands"):
-                    check = sandbox.commands.run("curl -s http://localhost:3000 > /dev/null", background=False)
-                    if check.exit_code == 0:
+                    res = sandbox.commands.run("curl -s http://localhost:3000", background=False)
+                    if res.exit_code == 0:
                         port_open = True
                         break
                 else:
-                    # Legacy check (harder, assume success after sleep if no crash)
                     await asyncio.sleep(1)
                     port_open = True # Optimistic for legacy
                     break
@@ -222,13 +189,12 @@ class ProjectRunManager:
             
             # Get URL
             public_url = ""
-            if hasattr(sandbox, "get_host"):
-                host = sandbox.get_host(3000)
-                public_url = f"https://{host}"
+            if hasattr(sandbox, "get_host"): 
+                public_url = f"https://{sandbox.get_host(3000)}"
             elif hasattr(sandbox, "get_hostname"):
                 public_url = f"https://{sandbox.get_hostname(3000)}"
             else:
-                raise RuntimeError("Could not determine public URL method on Sandbox object.")
+                raise RuntimeError("Cannot determine public URL")
 
             print(f"--> [E2B] Live at {public_url}")
             
@@ -239,26 +205,15 @@ class ProjectRunManager:
         except Exception as e:
             # Cleanup on fail
             try:
-                if asyncio.iscoroutinefunction(sandbox.close):
-                    await sandbox.close()
-                else:
-                    sandbox.close()
+                if asyncio.iscoroutinefunction(sandbox.close): await sandbox.close()
+                else: sandbox.close()
             except: pass
             raise e
 
     async def proxy(self, project_id: str, path: str, method: str, headers: dict, body: bytes, query: str) -> httpx.Response:
         info = self._runs.get(project_id)
-        
-        # Robust check for liveness
-        is_alive = False
-        if info:
-            if hasattr(info.sandbox, "is_running"):
-                is_alive = info.sandbox.is_running()
-            else:
-                is_alive = True # Assume true for legacy
-
-        if not info or not is_alive:
-            raise RuntimeError("CRASH_DETECTED: Server not running (Sandbox died).")
+        if not info:
+            raise RuntimeError("CRASH_DETECTED: Server not running.")
 
         target_url = f"{info.url}/{path.lstrip('/')}"
         if query: target_url += f"?{query}"
@@ -269,4 +224,4 @@ class ProjectRunManager:
             try:
                 return await client.request(method, target_url, headers=fwd_headers, content=body)
             except httpx.RequestError as e:
-                raise RuntimeError(f"CRASH_DETECTED: Connection failed to E2B sandbox: {e}")
+                raise RuntimeError(f"CRASH_DETECTED: Connection failed: {e}")

@@ -179,7 +179,7 @@ class Coder:
 
         # 3. Define System Prompt (Immutable Rules)
         system_prompt = (
-            "You are an expert Full-Stack AI Coder. You build high-quality Web Apps using a Node.js backend and a **React + TypeScript + Tailwind + Shadcn/UI** frontend.\n"
+            "You are an expert Full-Stack AI Coder. You build high-quality Web Apps using a **React + TypeScript + Tailwind + Shadcn/UI + TS** stack.\n"
             "You are working in a pre-existing environment. **DO NOT initialize a new project.**\n"
             "Your Goal: Implement the requested task by editing the EXISTING files (e.g., `src/App.tsx`, `src/pages/Index.tsx`) or creating NEW components in `src/components/`.\n\n"
 
@@ -222,12 +222,7 @@ class Coder:
             "2. NEVER generate .env or Dockerfile.\n"
             "3. NEVER use literal '\\n'. Use physical newlines.\n\n"
 
-            "BACKEND RULES (Node/Express):\n"
-            "1. Environment: Node.js with Express. **ALWAYS use `require('dotenv').config();` at the very top.**\n"
-            "2. HTTP Client: **USE NATIVE `fetch`** for Fireworks/External APIs. Do NOT use Axios.\n"
-            "3. **ERROR BRIDGE**: Ensure `server.js` (which exists) handles API errors gracefully.\n"
-
-            "FRONTEND RULES (React/TSX):\n"
+            "RULES (React/TSX/TS):\n"
             "1. **Use Functional Components** with TypeScript interfaces.\n"
             "2. **Styling**: Tailwind ONLY. No CSS files unless absolutely necessary.\n"
             "3. **Self-Correction**: If the user prompt reports a crash, analyze the stack trace and fix the specific file causing it.\n"
