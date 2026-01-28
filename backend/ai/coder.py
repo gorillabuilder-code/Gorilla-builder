@@ -18,7 +18,7 @@ import httpx
 # --- Configuration for Fireworks AI ---
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
 # Using Minimax as requested for high-quality reasoning
-FIREWORKS_MODEL = os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/minimax-m2p1")
+FIREWORKS_MODEL = os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/gpt-oss-120b")
 FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
 
 if not FIREWORKS_API_KEY:
@@ -98,7 +98,7 @@ class Coder:
             
             content = data["choices"][0]["message"]["content"]
             usage = data.get("usage", {})
-            total_tokens = int(usage.get("total_tokens", 0)) * 1.32
+            total_tokens = int(usage.get("total_tokens", 0)) * 0.85
             
             return content, total_tokens
 
@@ -255,7 +255,7 @@ class Coder:
                 # Call Fireworks
                 raw, tokens = await self._call_fireworks(messages, temperature=0.6)
                 last_raw = raw
-                cumulative_tokens += tokens * 1.75
+                cumulative_tokens += tokens * 0.9
                 
                 parsed = _extract_json(raw)
                 if not parsed:

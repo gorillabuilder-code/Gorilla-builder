@@ -1217,7 +1217,22 @@ async def agent_start(
 ):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
-    enforce_token_limit_or_raise(user["id"])
+    
+    # --- [FIX] RELAY TOKEN ERRORS TO CHAT ---
+    try:
+        enforce_token_limit_or_raise(user["id"])
+    except HTTPException as e:
+        if e.status_code == 402:
+            # Emit the error as a chat message so the user sees it
+            emit_log(
+                project_id, 
+                "assistant", 
+                "🛑 <b>You have run out of credits.</b><br>"
+                "Please <a href='/pricing' target='_blank' style='color:#ffd700; text-decoration:underline; font-weight:bold;'>Upgrade to Pro</a> to continue building."
+            )
+            return {"started": False}
+        raise e
+    # ----------------------------------------
     
     emit_status(project_id, "Agent received prompt")
     emit_log(project_id, "user", prompt)
@@ -1269,8 +1284,13 @@ async def agent_start(
             total = len(tasks)
             
             for i, task in enumerate(tasks, 1):
-                enforce_token_limit_or_raise(user["id"])
-                
+                # Check tokens again before every step
+                try:
+                    enforce_token_limit_or_raise(user["id"])
+                except HTTPException:
+                    emit_log(project_id, "system", "⚠️ Token limit reached mid-generation. Stopping.")
+                    return
+
                 pct = 10 + (90 * (i / total))
                 emit_progress(project_id, f"Building step {i}/{total}...", pct)
                 emit_status(project_id, f"Implementing task {i}/{total}...")
@@ -1319,6 +1339,7 @@ async def agent_start(
             emit_status(project_id, "Coding Complete. Starting Server...")
             emit_progress(project_id, "Booting...", 100)
             
+            # Trigger clean boot (no error passed)
             await _start_server_with_retry(project_id)
             
         except Exception as e:
