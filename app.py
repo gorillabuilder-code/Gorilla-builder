@@ -108,7 +108,12 @@ SHUTDOWN_TIMEOUT_SECONDS = 600 # 10 Minutes
 # ==========================================================================
 # APP INITIALIZATION & LIFECYCLE
 # ==========================================================================
-app = FastAPI(title="GOR://A Backend ASGI")
+app = FastAPI(
+    title="Gorilla Backend",
+    docs_url="/api/docs",       # <--- MOVES the Swagger UI to /api/docs
+    redoc_url="/api/redoc",     # <--- MOVES ReDoc to /api/redoc
+    openapi_url="/api/openapi.json" # <--- MOVES the JSON schema
+)
 
 app.add_middleware(
     SessionMiddleware,
