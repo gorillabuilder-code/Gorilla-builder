@@ -37,8 +37,7 @@ class RunInfo:
 
 class ProjectRunManager:
     """
-    E2B Cloud Runner (Universal Compatibility)
-    Handles both new (v1.x) and legacy (v0.x) E2B SDKs automatically.
+    E2B Cloud Runner (Universal Compatibility + Vite Support)
     """
 
     def __init__(self):
@@ -79,14 +78,23 @@ class ProjectRunManager:
             self._runs.pop(project_id, None)
 
     def _determine_start_command(self, file_tree: Dict[str, str]) -> str:
+        """
+        Smart detection for Vite/React/Node scripts.
+        """
         if "package.json" in file_tree:
             try:
                 pkg = json.loads(file_tree["package.json"])
                 scripts = pkg.get("scripts", {})
-                if "dev" in scripts: return "npm run dev"
+                
+                # VITE / REACT SUPPORT
+                # We must force host binding and port 3000 so E2B exposes it
+                if "dev" in scripts: 
+                    return "npm run dev -- --port 3000 --host"
+                
                 if "start" in scripts: return "npm start"
                 if pkg.get("main"): return f"node {pkg['main']}"
             except: pass
+            
         if "server.js" in file_tree: return "node server.js"
         if "index.js" in file_tree: return "node index.js"
         return "npm start"
@@ -105,7 +113,6 @@ class ProjectRunManager:
             if SDK_VERSION == "new":
                 # NEW SDK (v1.x): Synchronous Constructor
                 # CRITICAL FIX: We run the class constructor in a thread.
-                # Do NOT await Sandbox() directly.
                 print(f"--> [E2B] Initializing new Sandbox()...")
                 sandbox = await asyncio.to_thread(Sandbox)
             
@@ -116,7 +123,6 @@ class ProjectRunManager:
                     sandbox = await Sandbox.create(template="base")
                 else:
                     sandbox = Sandbox(template="base")
-            
             else:
                 raise RuntimeError("Unknown SDK version state")
 
@@ -134,7 +140,7 @@ class ProjectRunManager:
             # Write Files
             print(f"--> [E2B] Writing {len(file_tree)} files...")
             
-            # Detect which filesystem attribute to use (New: .files, Old: .filesystem)
+            # Detect filesystem (New vs Old SDK)
             fs = getattr(sandbox, "files", getattr(sandbox, "filesystem", None))
             if not fs: raise RuntimeError("Could not find filesystem on Sandbox object")
 
@@ -170,7 +176,6 @@ class ProjectRunManager:
                 print(f"--> [E2B] Running npm install...")
                 code, err = await run_cmd("npm install")
                 if code != 0:
-                     # Log warning but continue, sometimes npm warns but works
                     print(f"⚠️ npm install warning: {err[:200]}")
 
                 # Build (Best Effort)
@@ -183,22 +188,35 @@ class ProjectRunManager:
             start_cmd = self._determine_start_command(file_tree)
             print(f"--> [E2B] Starting server with: {start_cmd}")
             
-            # Force Port 3000
-            full_cmd = f"export PORT=3000 && {start_cmd}"
+            # Capture Logs
+            full_cmd = f"export PORT=3000 && {start_cmd} > server.log 2> server_err.txt"
             
             # Start in background
             await run_cmd(full_cmd, background=True)
 
-            # Health Check
+            # --- [FIXED] LENIENT HEALTH CHECK (NO -f FLAG) ---
             print(f"--> [E2B] Waiting for port 3000...")
             port_open = False
-            for _ in range(15):
+            for _ in range(20):
+                # REMOVED "-f". We accept 404s as "Running".
+                # If curl connects, exit code is 0 (Success).
+                # If curl fails to connect (server down), exit code is non-zero.
                 code, _ = await run_cmd("curl -s http://localhost:3000")
                 if code == 0:
                     port_open = True
                     break
                 await asyncio.sleep(1)
             
+            if not port_open:
+                print("--> [E2B] Server failed to start. Reading logs...")
+                _, error_log = await run_cmd("cat server_err.txt")
+                _, output_log = await run_cmd("cat server.log")
+                
+                full_log = (error_log or "") + "\n" + (output_log or "")
+                
+                # Raise the specific error so app.py can catch it
+                raise RuntimeError(f"App crashed during startup: {full_log.strip()[:1000]}")
+
             # Get URL
             public_url = ""
             if hasattr(sandbox, "get_host"): 
@@ -206,7 +224,6 @@ class ProjectRunManager:
             elif hasattr(sandbox, "get_hostname"):
                 public_url = f"https://{sandbox.get_hostname(3000)}"
             else:
-                # Fallback for some versions
                 public_url = "https://placeholder-url-error.com"
 
             print(f"--> [E2B] Live at {public_url}")
@@ -226,8 +243,6 @@ class ProjectRunManager:
     async def proxy(self, project_id: str, path: str, method: str, headers: dict, body: bytes, query: str) -> httpx.Response:
         info = self._runs.get(project_id)
         if not info:
-            # CRITICAL: This exception tells the frontend the server isn't ready, 
-            # causing the agentloading.html to stay visible.
             raise RuntimeError("CRASH_DETECTED: Server not running.")
 
         target_url = f"{info.url}/{path.lstrip('/')}"

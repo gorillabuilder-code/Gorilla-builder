@@ -36,6 +36,7 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 
 load_dotenv()
+
 # --------------------------------------------------------------------------
 # IMPORTS: Backend Modules
 # --------------------------------------------------------------------------
@@ -44,7 +45,6 @@ from backend.ai.planner import Planner
 from backend.ai.coder import Coder
 from backend.ai.Xcoder import XCoder
 from backend.deployer import Deployer
-
 
 # ==========================================================================
 # CONSTANTS & PATHS
@@ -100,6 +100,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 PENDING_SIGNUPS = {}
 
 # --- GLOBAL STATE FOR RUNTIME MANAGEMENT ---
+# [CRITICAL FIX] Track projects currently booting to prevent Race Conditions
 _BOOTING_PROJECTS: Set[str] = set()
 _LAST_ACCESS: Dict[str, float] = {} # project_id -> timestamp
 SHUTDOWN_TIMEOUT_SECONDS = 600 # 10 Minutes
@@ -138,10 +139,14 @@ async def _monitor_inactivity():
                 # If idle for too long
                 if (now - last_active) > SHUTDOWN_TIMEOUT_SECONDS:
                     # Check if actually running before stopping
-                    is_running, _ = run_manager.is_running(pid)
-                    if is_running:
-                        print(f"💤 Idle Cleanup: Stopping project {pid} (Inactive > 10m)")
-                        await run_manager.stop(pid)
+                    # Note: We reference run_manager later, ensuring it's initialized
+                    try:
+                        if "run_manager" in globals():
+                            is_running, _ = run_manager.is_running(pid)
+                            if is_running:
+                                print(f"💤 Idle Cleanup: Stopping project {pid} (Inactive > 10m)")
+                                await run_manager.stop(pid)
+                    except: pass
                     
                     # Stop tracking it
                     _LAST_ACCESS.pop(pid, None) 
@@ -371,7 +376,6 @@ def send_otp_email(to_email: str, code: str):
     </div>
 </body>
 </html>
-
             """,
         }
         resend.Emails.send(params)
@@ -602,8 +606,6 @@ async def process_tokens(request: Request, amount: int = Form(...)):
     decrease_tokens_used(user["id"], amount)
     
     return RedirectResponse("/dashboard", status_code=303)
-
-
 # ==========================================================================
 # DASHBOARD & WORKSPACE
 # ==========================================================================
@@ -611,14 +613,13 @@ async def process_tokens(request: Request, amount: int = Form(...)):
 async def dashboard(request: Request):
     user = get_current_user(request)
     
-    # --- FIX START: Fetch latest Plan from DB ---
+    # Fetch latest Plan from DB
     try:
         db_user = db_select_one("users", {"id": user["id"]}, "plan")
         if db_user:
             user["plan"] = db_user.get("plan", "free")
     except Exception:
         user["plan"] = "free"
-    # --- FIX END ---
     
     # Token Data
     used, limit = get_token_usage_and_limit(user["id"])
@@ -676,13 +677,10 @@ async def workspace(request: Request):
 import io
 import zipfile
 
-# --- UPDATED CREATE ROUTE: INTERCEPT DASHBOARD PROMPTS ---
-# 1. When they land on the page: STASH the prompt in the session
+# 1. CREATE PAGE (Stash prompt in session)
 @app.get("/projects/createit", response_class=HTMLResponse)
 async def project_create_page(request: Request, prompt: Optional[str] = None):
     user = get_current_user(request)
-    
-    # --- FIX: Save prompt to session so it survives the form submit ---
     if prompt:
         request.session["stashed_prompt"] = prompt
         
@@ -691,7 +689,7 @@ async def project_create_page(request: Request, prompt: Optional[str] = None):
         {"request": request, "user": user, "initial_prompt": prompt}
     )
 
-# 2. When they click 'Create': POP the prompt from the session
+# 2. CREATE ACTION
 @app.post("/projects/create")
 async def create_project(
     request: Request, 
@@ -701,14 +699,12 @@ async def create_project(
 ):
     user = get_current_user(request)
 
-    # 1. Handle "Stashed" Prompts (from Dashboard)
     if prompt and not name:
         return RedirectResponse(f"/projects/createit?prompt={urllib.parse.quote(prompt)}", status_code=303)
     
     final_prompt = prompt or request.session.pop("stashed_prompt", None)
     project_name = name or "Untitled Project"
     
-    # 2. Define the Heavy Lifting (DB + File IO)
     def _heavy_lift_create():
         # A. Create Project Record
         res = supabase.table("projects").insert({
@@ -726,7 +722,6 @@ async def create_project(
         supabase.table("projects").update({"subdomain": final_subdomain}).eq("id", pid).execute()
         
         # C. Inject Boilerplate (OPTIMIZED)
-        # Ensure BOILERPLATE_DIR is defined. If global fails, fallback to local path calculation
         bp_dir = globals().get("BOILERPLATE_DIR")
         if not bp_dir or not os.path.isdir(bp_dir):
             bp_dir = os.path.join(ROOT_DIR, "backend", "boilerplate")
@@ -735,11 +730,9 @@ async def create_project(
 
         if os.path.isdir(bp_dir):
             files_to_insert = []
-            print(f"💉 Injecting boilerplate for {pid} from {bp_dir}...")
             
             for root, dirs, files in os.walk(bp_dir):
-                # --- CRITICAL FIX: SKIP NODE_MODULES ---
-                # This modifies the 'dirs' list in-place, preventing os.walk from entering these folders
+                # Skip massive folders
                 dirs[:] = [d for d in dirs if d not in ["node_modules", ".git", "dist", "build"]]
                 
                 for file in files:
@@ -757,27 +750,24 @@ async def create_project(
                                 "content": content
                             })
                     except Exception: 
-                        continue # Skip binary/unreadable files
+                        continue 
 
             if files_to_insert:
-                print(f"📄 Found {len(files_to_insert)} valid boilerplate files. Uploading...")
                 try:
                     # Batch insert for speed
                     supabase.table("files").insert(files_to_insert).execute()
-                except Exception as e:
-                    print(f"⚠️ Batch upload failed ({e}). Retrying individually...")
+                except Exception:
+                    # Retry individually on failure
                     for f in files_to_insert:
                         try: supabase.table("files").upsert(f, on_conflict="project_id,path").execute()
                         except: pass
         
         return pid
 
-    # 3. Execute Async
+    # Execute Async
     try:
-        # Run the DB and File IO in a thread so we don't block the server
         pid = await asyncio.to_thread(_heavy_lift_create)
         
-        # 4. Redirect to Editor
         target_url = f"/projects/{pid}/editor"
         if final_prompt: 
             target_url += f"?prompt={urllib.parse.quote(final_prompt)}"
@@ -786,28 +776,17 @@ async def create_project(
     except Exception as e:
         print(f"Create Error: {e}")
         return RedirectResponse("/dashboard?error=creation_failed", status_code=303)
-           
+            
 @app.get("/projects/{project_id}/editor", response_class=HTMLResponse)
 async def project_editor(request: Request, project_id: str, file: str = "index.html", prompt: Optional[str] = None):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
-    # --- FIX START: Fetch latest Plan from DB ---
-    try:
-        db_user = db_select_one("users", {"id": user["id"]}, "plan")
-        if db_user:
-            user["plan"] = db_user.get("plan", "free")
-    except Exception:
-        pass
-    # --- FIX END ---
-
-    # --- NEW FIX: FETCH PROJECT DETAILS FOR TEMPLATE ---
     try:
         res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
         project = res.data
     except Exception:
-        project = {} # Fallback to empty dict to prevent Jinja crash
-    # ---------------------------------------------------
+        project = {} 
     
     used, limit = get_token_usage_and_limit(user["id"])
     user["tokens"] = {"used": used, "limit": limit}
@@ -832,12 +811,15 @@ async def project_xmode(request: Request, project_id: str, file: str = "index.ht
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
+    # [FIX] Initialize variable first to prevent NameError
+    project = {}
+    
     try:
-        db_user = db_select_one("users", {"id": user["id"]}, "plan")
-        if db_user:
-            user["plan"] = db_user.get("plan", "free")
+        res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
+        if res.data:
+            project = res.data
     except Exception:
-        pass
+        print(f"⚠️ Failed to load project details for {project_id}")
     
     used, limit = get_token_usage_and_limit(user["id"])
     user["tokens"] = {"used": used, "limit": limit}
@@ -847,6 +829,7 @@ async def project_xmode(request: Request, project_id: str, file: str = "index.ht
         {
             "request": request, 
             "project_id": project_id, 
+            "project": project, # Now guaranteed to exist
             "file": file, 
             "user": user,
             "xmode": True
@@ -871,10 +854,7 @@ async def project_settings(request: Request, project_id: str):
         res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
         project = res.data if res else None
     except Exception as e:
-        return templates.TemplateResponse(
-            "projects/project-settings.html",
-            {"request": request, "project_id": project_id, "error": str(e), "user": user}
-        )
+        project = None
         
     return templates.TemplateResponse(
         "projects/project-settings.html",
@@ -899,20 +879,15 @@ async def project_settings_save(
 
 @app.get("/api/project/{project_id}/export")
 async def project_export(request: Request, project_id: str):
-    """
-    Premium Feature: Export project files as a ZIP archive.
-    """
     user = get_current_user(request)
     _require_project_owner(user, project_id)
 
-    # 1. Verify Premium Status (Double-check DB to ensure recent upgrade is caught)
     user_record = db_select_one("users", {"id": user["id"]}, "plan")
     current_plan = user_record.get("plan") if user_record else "free"
     
     if current_plan != "premium":
         raise HTTPException(status_code=403, detail="Exporting to ZIP is a Premium feature. Please upgrade.")
 
-    # 2. Fetch all files for the project
     res = (
         supabase.table("files")
         .select("path,content")
@@ -924,20 +899,16 @@ async def project_export(request: Request, project_id: str):
     if not files:
         raise HTTPException(status_code=404, detail="No files found in this project.")
 
-    # 3. Create ZIP in memory
     zip_buffer = io.BytesIO()
     try:
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             for file in files:
-                # Ensure path is clean
                 path = file.get("path", "unknown.txt").strip("/")
                 content = file.get("content") or ""
-                # Write file to zip
                 zf.writestr(path, content)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create ZIP: {e}")
 
-    # 4. Return as downloadable file
     zip_buffer.seek(0)
     filename = f"gorilla_project_{project_id[:8]}.zip"
     
@@ -1050,7 +1021,7 @@ async def serve_project_file(request: Request, project_id: str, path: str):
 
 
 # ==========================================================================
-# SSE EVENT BUS
+# EVENT BUS & UTILS
 # ==========================================================================
 class _ProgressBus:
     def __init__(self):
@@ -1093,42 +1064,30 @@ def emit_token_update(pid: str, used: int) -> None:
 
 
 # ==========================================================================
-# GATEKEEPER: LINTING & SYNTAX CHECKING (NON-BLOCKING)
+# GATEKEEPER: LINTING
 # ==========================================================================
 def lint_code_with_esbuild(content: str, filename: str) -> str | None:
-    """
-    Runs esbuild to check for syntax errors. 
-    This is a BLOCKING function, so it must be called with asyncio.to_thread.
-    """
-    # 1. SCOPE: Only check frontend files in static/ to avoid backend false positives
+    """Runs esbuild to check for syntax errors. (Blocking)"""
     if not filename.startswith("static/") or not filename.endswith(".js"):
         return None
 
     try:
-        # Create temp file
         with tempfile.NamedTemporaryFile(suffix=".js", delete=False, mode='w', encoding='utf-8') as tmp:
             tmp.write(content)
             tmp_path = tmp.name
 
-        # 2. RUN: Timed execution
-        # We use --log-level=error to keep output clean
         result = subprocess.run(
             ["npx", "esbuild", tmp_path, "--loader=jsx", "--format=esm", "--log-level=error"],
             capture_output=True,
             text=True,
-            timeout=10 # Strict timeout to prevent hanging
+            timeout=10
         )
         
         os.remove(tmp_path)
 
-        # 3. CHECK: If exit code != 0, it's a syntax error
         if result.returncode != 0:
             return result.stderr.strip()
             
-        return None
-
-    except subprocess.TimeoutExpired:
-        print(f"⚠️ Linter timed out on {filename}. Skipping.")
         return None
     except Exception as e:
         print(f"⚠️ Linter failed to run: {e}")
@@ -1136,13 +1095,8 @@ def lint_code_with_esbuild(content: str, filename: str) -> str | None:
 
 
 # ==========================================================================
-# AI AGENT WORKFLOW
+# AI AGENT WORKFLOW (THE FIXER)
 # ==========================================================================
-# ==========================================================================
-# AI AGENT WORKFLOW & HELPERS
-# ==========================================================================
-
-# 1. Define the Helper Function (Must exist before it is called!)
 async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
     res = (
         supabase.table("files")
@@ -1153,104 +1107,106 @@ async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
     rows = res.data if res and res.data else []
     return {r["path"]: (r.get("content") or "") for r in rows}
 
-# 2. Define the Retry Logic
-async def _start_server_with_retry(project_id: str):
+async def _start_server_with_retry(project_id: str, triggered_error: str = None):
     """
-    Internal robust server starter.
-    Loops automatically to catch USER CODE crashes, fix them via AI, and restart.
-    Stops immediately for INFRASTRUCTURE crashes (E2B/API errors).
+    Robust Starter:
+    1. Marks as BOOTING.
+    2. Runs AI fixes (if needed) in a thread.
+    3. Starts server.
     """
-    emit_status(project_id, "Booting server...")
+    _BOOTING_PROJECTS.add(project_id)
     
-    max_retries = 5 
-    history = []
-    
-    # Initial attempt to start
     try:
-        file_tree = await _fetch_file_tree(project_id)
-        info = await run_manager.start(project_id, file_tree)
-        
-        emit_status(project_id, "Server Running")
-        emit_log(project_id, "system", f"Server running at {info.url}")
-        emit_progress(project_id, "Ready", 100)
-        return # Success on first try
+        max_retries = 3
+        current_error = triggered_error 
+        history = []
+        coder = Coder()
 
-    except Exception as e:
-        err_msg = str(e)
-        
-        # --- CRITICAL FIX: Stop if it's a Backend/E2B Error ---
-        if "E2B" in err_msg or "Sandbox" in err_msg or "API Key" in err_msg:
-            emit_status(project_id, "System Error")
-            emit_log(project_id, "system", f"🛑 Infrastructure Error: {err_msg}")
-            emit_log(project_id, "system", "This is a backend configuration issue, not your code. Check server logs.")
-            return # DO NOT ENTER RETRY LOOP
+        for attempt in range(1, max_retries + 2):
+            # Yield control to allow other requests (like dashboard nav) to process
+            await asyncio.sleep(0.1)
 
-        # Otherwise, assume it's a user code crash
-        clean_error = err_msg.replace("App crashed during startup:", "").strip()
-        emit_status(project_id, "⚠️ Startup Failed. Auto-fixing...")
-        emit_log(project_id, "system", f"Crash: {clean_error[:200]}...")
-    
-    # Enter Retry Loop (Only for code errors)
-    coder = Coder()
-    
-    for attempt in range(max_retries):
-        emit_phase(project_id, "fixing")
-        emit_progress(project_id, f"Auto-Fixing (Attempt {attempt+1}/{max_retries})", 50)
-        
-        try:
-            file_tree = await _fetch_file_tree(project_id)
-            
-            fix_prompt = (
-                f"The application crashed during startup (Attempt {attempt+1}/{max_retries}) with this error:\n\n{clean_error}\n\n"
-                "Fix the code (app.py, requirements.txt, package.json etc) to resolve this startup error. "
-            )
-            
-            res = await coder.generate_code(
-                plan_section="Startup Fix",
-                plan_text=fix_prompt,
-                file_tree=file_tree,
-                project_name=project_id,
-                history=history
-            )
-            
-            if res.get("message"):
-                history.append({"role": "assistant", "content": res.get("message")})
-                emit_log(project_id, "coder", f"Applying fix: {res.get('message')}")
-            
-            ops = res.get("operations", [])
-            for op in ops:
-                p = op.get("path")
-                c = op.get("content")
-                if p and c:
-                    db_upsert("files", {"project_id": project_id, "path": p, "content": c}, on_conflict="project_id,path")
-                    emit_file_changed(project_id, p)
-            
-            emit_status(project_id, f"Restarting Server (Attempt {attempt+1})...")
-            new_tree = await _fetch_file_tree(project_id)
-            info = await run_manager.start(project_id, new_tree)
-            
-            emit_status(project_id, "Server Fixed & Running")
-            emit_log(project_id, "system", f"Server running at {info.url}")
-            emit_progress(project_id, "Ready", 100)
-            return
-            
-        except Exception as retry_err:
-            err_str = str(retry_err)
-            if "E2B" in err_str or "Sandbox" in err_str:
-                emit_log(project_id, "system", f"🛑 Critical System Error during retry: {err_str}")
+            # --- PHASE A: FIXING ---
+            if current_error:
+                emit_phase(project_id, "fixing")
+                emit_status(project_id, f"Analyzing Crash ({attempt})...")
+                
+                hint = ""
+                if "ENOENT" in current_error or "no such file" in current_error:
+                    hint = "\nHint: Server can't find a file. Check paths in server.js."
+                elif "require is not defined" in current_error:
+                    hint = "\nHint: 'require' is not supported. Use 'import' or delete server.js."
+
+                fix_prompt = (
+                    f"The app crashed with this error:\n\n{current_error}\n{hint}\n\n"
+                    "Fix the code (server.js, package.json) to resolve this."
+                )
+                
+                try:
+                    # Fetch files async
+                    file_tree = await _fetch_file_tree(project_id)
+                    
+                    # Run AI in thread (Non-blocking)
+                    res = await asyncio.to_thread(
+                        coder.generate_code,
+                        plan_section="Crash Fix",
+                        plan_text=fix_prompt,
+                        file_tree=file_tree,
+                        project_name=project_id,
+                        history=history
+                    )
+                    
+                    if res.get("message"):
+                        history.append({"role": "assistant", "content": res.get("message")})
+
+                    ops = res.get("operations", [])
+                    for op in ops:
+                        p = op.get("path"); c = op.get("content")
+                        if p and c:
+                            db_upsert("files", {"project_id": project_id, "path": p, "content": c}, on_conflict="project_id,path")
+                            emit_file_changed(project_id, p)
+                    
+                    emit_log(project_id, "coder", "Fix applied. Retrying start...")
+                    current_error = None
+                    
+                except Exception as e:
+                    print(f"Fixing failed: {e}")
+
+            # --- PHASE B: STARTING ---
+            try:
+                if attempt == 1 and not current_error:
+                     emit_status(project_id, "Booting server...")
+                else:
+                     emit_status(project_id, "Restarting server...")
+
+                # Yield control again before heavy lifting
+                await asyncio.sleep(0.1)
+
+                file_tree = await _fetch_file_tree(project_id)
+                info = await run_manager.start(project_id, file_tree)
+                
+                emit_status(project_id, "Server Running")
+                emit_progress(project_id, "Ready", 100)
                 return
 
-            if "App crashed" in err_str:
-                 clean_error = err_str.replace("App crashed during startup:", "").strip()
-            else:
-                 clean_error = err_str
-            
-            emit_log(project_id, "system", f"Fix attempt failed: {clean_error[:100]}...")
-            history.append({"role": "user", "content": f"That fix didn't work. The server crashed again with: {clean_error}"})
-            await asyncio.sleep(1) 
+            except Exception as e:
+                err_str = str(e)
+                
+                if "E2B" in err_str or "API Key" in err_str:
+                    emit_status(project_id, "System Error")
+                    emit_log(project_id, "system", f"Infrastructure Error: {err_str}")
+                    return
 
-    emit_status(project_id, "❌ Auto-fix failed after max retries.")
+                clean_error = err_str.replace("App crashed during startup:", "").strip()
+                emit_log(project_id, "system", f"Crash detected: {clean_error[:100]}...")
+                
+                current_error = clean_error
+                await asyncio.sleep(1) 
 
+        emit_status(project_id, "❌ Auto-fix failed.")
+        
+    finally:
+        _BOOTING_PROJECTS.discard(project_id)
 
 @app.post("/api/project/{project_id}/agent/start")
 async def agent_start(
@@ -1261,8 +1217,6 @@ async def agent_start(
 ):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
-    
-    # 1. Enforce Token Limit
     enforce_token_limit_or_raise(user["id"])
     
     emit_status(project_id, "Agent received prompt")
@@ -1273,70 +1227,38 @@ async def agent_start(
         total_run_tokens = 0
         try:
             await asyncio.sleep(0.5)
-            emit_progress(project_id, "Reading project files...", 5)
             file_tree = await _fetch_file_tree(project_id)
-
-            # --- [SELF-HEALING] INJECT RUNTIME ERRORS INTO PROMPT ---
-            # Try to read server_errors.txt from the runtime directory
+            
+            # [SELF-HEALING] Check for runtime errors
             try:
-                # We assume run_manager stores projects in ROOT_DIR/projects/{project_id}
-                # or a similar accessible local path since it writes server_errors.txt locally.
                 projects_dir = os.path.join(ROOT_DIR, "projects")
                 error_log_path = os.path.join(projects_dir, project_id, "server_errors.txt")
-                
                 if os.path.exists(error_log_path):
                     with open(error_log_path, 'r', encoding="utf-8") as f:
                         errors = f.read().strip()
                         if errors:
-                            # Append error context to the prompt
-                            prompt += f"\n\n[CRITICAL RUNTIME ERRORS DETECTED]\nThe following errors were logged by the server. You MUST fix them:\n{errors}\n"
-                            emit_log(project_id, "system", "🩺 Auto-Healing: Found crash logs. Instructing AI to fix.")
-                    
-                    # Clear the log after reading so we don't loop on old errors
-                    with open(error_log_path, 'w', encoding="utf-8") as f:
-                        f.write("")
-            except Exception as e:
-                # Fail silently if logs aren't found or accessible
-                pass
-            # --------------------------------------------------------
-            
+                            prompt += f"\n\n[CRITICAL RUNTIME ERRORS DETECTED]\n{errors}\n"
+                            emit_log(project_id, "system", "🩺 Auto-Healing: Found crash logs.")
+                    with open(error_log_path, 'w', encoding="utf-8") as f: f.write("")
+            except: pass
+
             planner = Planner()
-            
-            # CHOOSE CODER BASED ON XMODE
-            if xmode:
-                emit_status(project_id, "🔮 X-MODE ENGAGED")
-                coder = XCoder()
-            else:
-                coder = Coder()
+            coder = XCoder() if xmode else Coder()
             
             # --- PHASE 1: PLANNER ---
             emit_phase(project_id, "planner")
             emit_progress(project_id, "Planning...", 10)
             
-            # FIXED: Run synchronous Planner in a separate thread
             plan_res = await asyncio.to_thread(
                 planner.generate_plan,
                 user_request=prompt, 
                 project_context={"project_id": project_id, "files": list(file_tree.keys())}
             )
             
-            ptokens = plan_res.get("usage", {}).get("total_tokens", 0)
-            if int(ptokens) > 0:
-                total_run_tokens += int(ptokens)
-                new_total = add_monthly_tokens(user["id"], int(ptokens))
-                emit_token_update(project_id, new_total)
-            
-            assistant_msg = plan_res.get("assistant_message")
-            if assistant_msg:
-                emit_log(project_id, "assistant", assistant_msg)
+            tk = plan_res.get("usage", {}).get("total_tokens", 0)
+            if tk: add_monthly_tokens(user["id"], tk)
             
             tasks = plan_res["plan"].get("todo", [])
-            todo_md = plan_res.get("todo_md", "")
-            if todo_md:
-                # FIXED: Increased log limit from 5000 to 50000 characters
-                # The verbose planner output was getting cut off in the UI
-                emit_log(project_id, "planner", todo_md[:50000]) 
-
             if not tasks:
                 emit_status(project_id, "Response Complete")
                 emit_progress(project_id, "Done", 100)
@@ -1353,7 +1275,6 @@ async def agent_start(
                 emit_progress(project_id, f"Building step {i}/{total}...", pct)
                 emit_status(project_id, f"Implementing task {i}/{total}...")
                 
-                # Coder is async, so await directly
                 code_res = await coder.generate_code(
                     plan_section="Implementation",
                     plan_text=task,
@@ -1361,15 +1282,11 @@ async def agent_start(
                     project_name=project_id
                 )
                 
-                ctokens = code_res.get("usage", {}).get("total_tokens", 0)
-                if ctokens > 0:
-                    total_run_tokens += ctokens
-                    new_total = add_monthly_tokens(user["id"], ctokens)
-                    emit_token_update(project_id, new_total)
+                tk = code_res.get("usage", {}).get("total_tokens", 0)
+                if tk: add_monthly_tokens(user["id"], tk)
 
-                coder_msg = code_res.get("message")
-                if coder_msg:
-                    emit_log(project_id, "coder", coder_msg)
+                if code_res.get("message"):
+                    emit_log(project_id, "coder", code_res.get("message"))
 
                 ops = code_res.get("operations", [])
                 emit_phase(project_id, "files")
@@ -1379,21 +1296,15 @@ async def agent_start(
                     content = op.get("content")
                     
                     if path and content is not None:
-                        # --- NON-BLOCKING LINTER GATEKEEPER ---
+                        # LINTING
                         if path.startswith("static/") and path.endswith(".js"):
-                            emit_status(project_id, f"Linting {path}...")
                             try:
-                                # RUN IN THREAD POOL to prevent server hang
                                 lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
-                                
                                 if lint_err:
                                     emit_log(project_id, "system", f"❌ Syntax Error in {path}:\n{lint_err}")
                                     raise Exception(f"Syntax Error in {path}: {lint_err}")
                             except Exception as e:
-                                if "Syntax Error" in str(e):
-                                    raise e
-                                print(f"Linter thread warning: {e}")
-                        # -------------------------
+                                if "Syntax Error" in str(e): raise e
 
                         db_upsert(
                             "files", 
@@ -1404,18 +1315,13 @@ async def agent_start(
                 
                 file_tree = await _fetch_file_tree(project_id)
             
-            # --- FINISH CODING ---
+            # --- FINISH ---
             emit_status(project_id, "Coding Complete. Starting Server...")
             emit_progress(project_id, "Booting...", 100)
             
-            # --- PHASE 3: AUTO-START WITH RETRY ---
-            # Kept enabled as per request for Dev Preview
             await _start_server_with_retry(project_id)
             
         except Exception as e:
-            if total_run_tokens > 0:
-                add_monthly_tokens(user["id"], 0)
-            
             emit_status(project_id, "Error")
             emit_log(project_id, "system", f"Workflow failed: {e}")
             print(traceback.format_exc())
@@ -1451,13 +1357,48 @@ async def agent_events(request: Request, project_id: str):
             "X-Accel-Buffering": "no"
         }
     )
+# ==========================================================================
+# MIDDLEWARE: ASSET RESCUE (CRITICAL FOR REACT/VITE)
+# ==========================================================================
+@app.middleware("http")
+async def asset_rescue_middleware(request: Request, call_next):
+    """
+    catches 404s for assets like '/src/main.tsx' or '/vite.svg'
+    and redirects them to the correct project preview URL.
+    """
+    response = await call_next(request)
+    
+    if response.status_code == 404:
+        path = request.url.path
+        
+        # If it looks like a file extension (js, css, png, svg, json, tsx)
+        if "." in path.split("/")[-1]: 
+            referer = request.headers.get("referer")
+            
+            if referer:
+                # Case 1: Request from DEV PREVIEW (/run/{id})
+                match_run = re.search(r"/run/([a-zA-Z0-9-]+)", referer)
+                if match_run:
+                    project_id = match_run.group(1)
+                    # Redirect /src/main.tsx -> /run/{id}/src/main.tsx
+                    new_url = f"/run/{project_id}{path}"
+                    return RedirectResponse(new_url)
+
+                # Case 2: Request from PUBLIC APP (/app/{slug})
+                match_app = re.search(r"/app/([a-zA-Z0-9-]+)", referer)
+                if match_app:
+                    slug = match_app.group(1)
+                    new_url = f"/app/{slug}{path}"
+                    return RedirectResponse(new_url)
+                    
+    return response
 
 
 # ==========================================================================
-# SERVER PREVIEW RUNNER
+# SERVER PREVIEW RUNNER & PROXY
 # ==========================================================================
 run_manager = ProjectRunManager()
-deployer = Deployer(run_manager, supabase) # <--- Initialize Deployer
+deployer = Deployer(run_manager, supabase) 
 
 @app.post("/api/project/{project_id}/run/start")
 async def run_start(request: Request, project_id: str):
@@ -1467,11 +1408,14 @@ async def run_start(request: Request, project_id: str):
     if not DEV_MODE: 
         raise HTTPException(403, "Server preview is DEV_MODE only.")
         
-    # Trigger the robust starter in background so request returns fast
-    # but the user gets SSE updates
+    # Check if already booting to prevent double-clicks
+    if project_id in _BOOTING_PROJECTS:
+        return {"ok": True, "status": "already_booting"}
+
+    # Trigger the robust starter in background
     asyncio.create_task(_start_server_with_retry(project_id))
     
-    # Touch access time so monitor doesn't kill it immediately
+    # Touch access time
     _LAST_ACCESS[project_id] = time.time()
     
     return {"ok": True, "status": "starting"}
@@ -1491,89 +1435,84 @@ async def run_status(request: Request, project_id: str):
     _require_project_owner(user, project_id)
     
     running, port = run_manager.is_running(project_id)
-    return {"running": running, "port": port}
+    booting = project_id in _BOOTING_PROJECTS
+    return {"running": running, "port": port, "booting": booting}
 
 @app.api_route("/run/{project_id}/{path:path}", methods=["GET","POST","PUT","DELETE","OPTIONS","PATCH"])
 async def run_proxy(request: Request, project_id: str, path: str):
     """
     DEV MODE PROXY
-    Uses standard start, but tracks activity to keep sandbox alive.
+    1. Proxies traffic IF the server is running.
+    2. If booting -> Shows 'Booting'.
+    3. If stopped -> Shows 'Server Offline' (Does NOT auto-start).
     """
     user = get_current_user(request)
     _require_project_owner(user, project_id)
-    
-    if not DEV_MODE: 
-        raise HTTPException(403, "Dev mode only.")
-        
-    body = await request.body()
-    
-    # Update activity for Inactivity Monitor
+    if not DEV_MODE: raise HTTPException(403, "Dev only")
+
     _LAST_ACCESS[project_id] = time.time()
     
+    # --- SCENARIO 1: CURRENTLY BOOTING ---
+    if project_id in _BOOTING_PROJECTS:
+        loading_path = os.path.join(FRONTEND_TEMPLATES_DIR, "agentloading.html")
+        loading_html = "<h2>🚧 Booting...</h2><p>Server is starting up...</p>"
+        if os.path.exists(loading_path):
+            with open(loading_path, "r", encoding="utf-8") as f:
+                loading_html = f.read()
+        # Auto-refresh to check progress
+        loading_html = loading_html.replace("<head>", '<head><meta http-equiv="refresh" content="2">', 1)
+        return HTMLResponse(loading_html, status_code=200)
+
+    # --- SCENARIO 2: RUNNING (Try to Proxy) ---
     try:
         r = await run_manager.proxy(
             project_id=project_id,
             path=path or "",
             method=request.method,
             headers=dict(request.headers),
-            body=body,
+            body=await request.body(),
             query=request.url.query
         )
         return Response(
-            content=r.content,
-            status_code=r.status_code,
-            headers={k: v for k, v in r.headers.items() if k.lower() not in ("content-encoding", "transfer-encoding", "connection")},
+            content=r.content, 
+            status_code=r.status_code, 
+            headers={k: v for k, v in r.headers.items() if k.lower() not in ("content-encoding", "transfer-encoding", "connection")}, 
             media_type=r.headers.get("content-type")
         )
     except RuntimeError as e:
         err_msg = str(e)
         
+        # --- SCENARIO 3: CRASH / STOPPED ---
         if "CRASH_DETECTED" in err_msg:
             clean_error = err_msg.replace("CRASH_DETECTED:", "").strip()
             
-            # --- CASE 1: SERVER OFFLINE (BUILDING) ---
-            if "Server not running" in clean_error or "Connection refused" in clean_error:
-                loading_path = os.path.join(FRONTEND_TEMPLATES_DIR, "agentloading.html")
-                loading_html = "<h2>🚧 Building...</h2><p>The agent is working on your app.</p>"
-                if os.path.exists(loading_path):
-                    with open(loading_path, "r", encoding="utf-8") as f:
-                        loading_html = f.read()
-                return HTMLResponse(loading_html, status_code=200)
+            # If it's just "Server not running", show the "Click Run" screen
+            if "Server not running" in clean_error:
+                return templates.TemplateResponse(
+                    "projects/serverstopped.html", 
+                    {"request": request, "project_id": project_id}
+                )
 
-            # --- CASE 2: RUNTIME CRASH (AUTO-FIX) ---
-            print(f"🔥 RUNTIME AUTO-FIX TRIGGERED for {project_id}")
-            asyncio.create_task(_start_server_with_retry(project_id))
+            # If it's a REAL crash (connection failed while running), Auto-Fix it
+            print(f"🔥 Proxy caught crash for {project_id}: {clean_error}")
+            asyncio.create_task(_start_server_with_retry(project_id, triggered_error=clean_error))
             
+            # Show "Fixing" Screen
             loading_path = os.path.join(FRONTEND_TEMPLATES_DIR, "agentloading.html")
-            loading_html = "<h2>💥 App Crashed</h2><p>AI is analyzing and fixing the code...</p>"
+            loading_html = "<h2>💥 Fixing...</h2><p>AI is resolving the crash...</p>"
             if os.path.exists(loading_path):
                 with open(loading_path, "r", encoding="utf-8") as f:
                     loading_html = f.read()
             loading_html = loading_html.replace("<head>", '<head><meta http-equiv="refresh" content="3">', 1)
-            
             return HTMLResponse(loading_html, status_code=200)
 
         raise HTTPException(502, f"Proxy failed: {e}")
 
 @app.get("/projects/{project_id}/game", response_class=HTMLResponse)
 async def project_game(request: Request, project_id: str):
-    """
-    Renders the Waiting Room Game (Snake).
-    """
     user = get_current_user(request)
     _require_project_owner(user, project_id)
-    
-    try:
-        db_user = db_select_one("users", {"id": user["id"]}, "plan")
-        if db_user:
-            user["plan"] = db_user.get("plan", "free")
-    except Exception:
-        pass
-
-    return templates.TemplateResponse(
-        "projects/game.html",
-        {"request": request, "project_id": project_id, "user": user}
-    )
+    return templates.TemplateResponse("projects/game.html", {"request": request, "project_id": project_id, "user": user})
 
 @app.post("/api/project/{project_id}/agent/ping")
 async def agent_ping(request: Request, project_id: str):
@@ -1582,16 +1521,13 @@ async def agent_ping(request: Request, project_id: str):
 
 
 # ==========================================================================
-# 🚀 PUBLIC APP HOSTING (Consolidated "Invincible" Route)
+# 🚀 PUBLIC APP HOSTING (Consolidated Route)
 # ==========================================================================
 @app.api_route("/app/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"])
 async def public_app_catchall(request: Request, full_path: str):
     """
-    Catches ALL traffic to /app/..., parses the slug manually, and routes it.
-    This avoids FastAPI strict-slash confusion.
+    Catches ALL traffic to /app/..., parses the slug, and routes it.
     """
-    # 1. Clean the path and split it
-    # full_path is "my-slug/static/main.js" or "my-slug/"
     clean_path = full_path.strip("/")
     parts = clean_path.split("/", 1)
     
@@ -1601,70 +1537,44 @@ async def public_app_catchall(request: Request, full_path: str):
     project_slug = parts[0]
     remainder = parts[1] if len(parts) > 1 else ""
 
-    # 2. Handle Root Redirection Logic
-    # If the user visits "/app/my-slug" (no slash), we MUST redirect to "/app/my-slug/"
-    # Otherwise relative paths in index.html will break.
+    # Redirect root to trailing slash for relative paths
     if len(parts) == 1 and not str(request.url.path).endswith("/"):
          return RedirectResponse(url=f"/app/{project_slug}/")
 
-    # 3. Hand off to Deployer (Lazy Loading handled inside if error thrown)
     try:
-        # We need the ID to track access for inactivity monitor
-        # This is a bit inefficient (deployer does a lookup, we do another), but clean
-        res = await deployer.handle_request(request, project_slug, remainder)
-        
-        # If successful, we try to find the ID to update access time
-        # This is optimization; deployer handles the proxying
+        # Access Tracking (Lazy)
         try:
-             # Quick lookup to update _LAST_ACCESS so it doesn't die while being used
              r = supabase.table("projects").select("id").eq("subdomain", project_slug).single().execute()
              if r.data:
                  _LAST_ACCESS[r.data['id']] = time.time()
-        except:
-            pass
+        except: pass
             
-        return res
+        return await deployer.handle_request(request, project_slug, remainder)
         
     except RuntimeError as e:
         err_msg = str(e)
-        
         if "CRASH_DETECTED" in err_msg:
-            # --- LAZY LOADING LOGIC FOR PUBLIC URL ---
+            clean_error = err_msg.replace("CRASH_DETECTED:", "").strip()
+
+            # --- LAZY LOADING ---
             try:
                 res = supabase.table("projects").select("id").eq("subdomain", project_slug).single().execute()
                 if res.data:
                     project_id = res.data['id']
                     
-                    # Mark as accessed
                     _LAST_ACCESS[project_id] = time.time()
                     
                     if project_id not in _BOOTING_PROJECTS:
-                        print(f"🌍 Public Lazy Boot: {project_id}")
+                        print(f"🌍 Public Boot: {project_id}")
                         _BOOTING_PROJECTS.add(project_id)
-                        task = asyncio.create_task(_start_server_with_retry(project_id))
+                        task = asyncio.create_task(_start_server_with_retry(project_id, triggered_error=clean_error))
                         task.add_done_callback(lambda _: _BOOTING_PROJECTS.discard(project_id))
                     
-                    loading_path = os.path.join(FRONTEND_TEMPLATES_DIR, "agentloading.html")
-                    loading_html = "<h2>⚡ Waking up App...</h2><p>This may take 20s...</p>"
-                    if os.path.exists(loading_path):
-                        with open(loading_path, "r", encoding="utf-8") as f:
-                            loading_html = f.read()
-                    
-                    # Inject Refresh
-                    loading_html = loading_html.replace("<head>", '<head><meta http-equiv="refresh" content="3">', 1)
-                    return HTMLResponse(loading_html, status_code=200)
-            except Exception:
-                pass
+                    return HTMLResponse("<html><head><meta http-equiv='refresh' content='3'></head><body><h2>Waking up app...</h2></body></html>")
+            except Exception: pass
                 
         raise HTTPException(502, "Service Unavailable")
 
-# ==========================================================================
-# HEALTH CHECK
-# ==========================================================================
 @app.get("/health")
 async def health():
-    return {
-        "ok": True, 
-        "ts": int(time.time()), 
-        "dev_mode": DEV_MODE
-    }
+    return {"ok": True, "ts": int(time.time()), "dev_mode": DEV_MODE}
