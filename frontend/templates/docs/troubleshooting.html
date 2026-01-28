@@ -1,0 +1,35 @@
+{% extends "docs/base.html" %}
+{% block title %}Troubleshooting{% endblock %}
+
+{% block content %}
+  <h1>Troubleshooting</h1>
+  <p>Stuck? Here are solutions to the most common issues.</p>
+
+  <h2>1. "Server Stopped" or Red Screen</h2>
+  <p>If you see a red "Connection Refused" screen in the preview:</p>
+  <ul>
+    <li><strong>Wait 5 seconds:</strong> The container might just be waking up.</li>
+    <li><strong>Click Refresh:</strong> Hit the refresh icon in the preview header.</li>
+    <li><strong>Check the Chat:</strong> Did the AI report a crash? If so, it is likely already fixing it.</li>
+  </ul>
+
+  <h2>2. "404 Not Found"</h2>
+  <p>If your app loads but says "404":</p>
+  <ul>
+    <li>For <strong>Standard Projects</strong>: Ensure you have an `index.html` file.</li>
+    <li>For <strong>X-Mode</strong>: Ensure your `vite.config.ts` has the correct base path. The Auto-Fixer usually handles this.</li>
+  </ul>
+
+  <h2>3. The AI is Loop-Fixing</h2>
+  <p>Sometimes the AI gets stuck trying to fix the same error over and over. If this happens:</p>
+  <ol>
+    <li>Stop the server (Refresh the page).</li>
+    <li>Give the AI a <strong>New Prompt</strong> with a hint (e.g., "Stop trying to use that library, use standard CSS instead").</li>
+  </ol>
+
+  <h2>4. Usage Limits</h2>
+  <p>If the chat stops responding, you may have hit your monthly token limit. Check your <a href="/dashboard">Dashboard</a> widget.</p>
+
+  <br>
+  <a href="/contact" style="background:var(--accent); color:#fff; padding:10px 20px; border-radius:6px;">Still stuck? Contact Us &rarr;</a>
+{% endblock %}

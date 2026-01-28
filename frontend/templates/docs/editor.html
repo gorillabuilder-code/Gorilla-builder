@@ -1,0 +1,35 @@
+{% extends "docs/base.html" %}
+{% block title %}The Editor{% endblock %}
+
+{% block content %}
+  <h1>The Editor Workspace</h1>
+  <p>Once you create a project, you land in the Editor. This is a split-screen environment designed for rapid iteration.</p>
+
+  <h2>1. File Tree (Left)</h2>
+  <p>This shows all the files the AI has generated. </p>
+  <ul>
+    <li>Click a file to view its code.</li>
+    <li>Standard web apps usually have `index.html`, `style.css`, and `script.js`.</li>
+    <li>React/Vite apps (X-Mode) will have `src/`, `package.json`, and `vite.config.ts`.</li>
+  </ul>
+
+  <h2>2. Code Editor (Center)</h2>
+  <p>This is a fully functional Monaco editor (like VS Code). You can:</p>
+  <ul>
+    <li>Manually edit code if you know how.</li>
+    <li>Copy code to your clipboard.</li>
+    <li>Watch the AI write code in real-time.</li>
+  </ul>
+
+  <h2>3. Live Preview (Right)</h2>
+  <p>This is your actual running app. It is not a screenshot; it is a live web server.</p>
+  <div class="note">
+    <strong>Tip:</strong> If the preview is stuck or loading, click the <i class="ph-bold ph-arrows-clockwise"></i> Refresh button in the preview header.
+  </div>
+
+  <h2>4. Chat Interface (Bottom Right)</h2>
+  <p>This is where you talk to the AI. You can ask for changes, report bugs, or request new features. The AI reads your current code before answering.</p>
+
+  <br>
+  <a href="/docs/agent-workflow" style="background:var(--accent); color:#fff; padding:10px 20px; border-radius:6px;">Next: AI Workflow &rarr;</a>
+{% endblock %}

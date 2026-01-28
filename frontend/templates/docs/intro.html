@@ -1,0 +1,34 @@
+{% extends "docs/base.html" %}
+{% block title %}Introduction{% endblock %}
+
+{% block content %}
+  <h1>Welcome to Gorilla Builder</h1>
+  <p>Gorilla Builder is an AI-powered development environment designed to take you from a simple text prompt to a fully deployed web application in seconds. We combine the power of Large Language Models (LLMs) with a live, sandboxed development environment.</p>
+
+  <div class="note">
+    <strong>Note:</strong> You do not need to know how to code to use Gorilla, but knowing basic HTML/CSS/JS can help you refine your apps.
+  </div>
+
+  <h2>How it Works</h2>
+  <p>The process is simple:</p>
+  <ol style="line-height: 2; color: #ccc;">
+    <li><strong>Prompt:</strong> You describe your idea (e.g., "A personal finance tracker with charts").</li>
+    <li><strong>Plan:</strong> Our AI Planner breaks your idea down into actionable steps.</li>
+    <li><strong>Code:</strong> The AI Coder writes the files (HTML, CSS, JS, React, etc.).</li>
+    <li><strong>Preview:</strong> The server boots up instantly, letting you interact with your app.</li>
+  </ol>
+
+  <h2>Quick Start</h2>
+  <p>To create your first project:</p>
+  <ol style="line-height: 2; color: #ccc;">
+    <li>Go to your <a href="/dashboard">Dashboard</a>.</li>
+    <li>Type your idea into the main input box.</li>
+    <li>Click the <strong>Arrow</strong> button.</li>
+    <li>Watch as the AI builds your project in real-time.</li>
+  </ol>
+
+  <h2>Next Steps</h2>
+  <p>Learn how to navigate your workspace in the next section.</p>
+  <br>
+  <a href="/docs/dashboard" style="background:var(--accent); color:#fff; padding:10px 20px; border-radius:6px;">Next: The Dashboard &rarr;</a>
+{% endblock %}

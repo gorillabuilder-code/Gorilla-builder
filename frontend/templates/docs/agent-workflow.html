@@ -1,0 +1,35 @@
+{% extends "docs/base.html" %}
+{% block title %}AI Workflow{% endblock %}
+
+{% block content %}
+  <h1>How the AI Agent Works</h1>
+  <p>Gorilla is not just a text generator; it is an autonomous agent that plans, codes, and fixes itself. To build apps with AI features</p>
+
+  <h2>The 3-Step Process</h2>
+  
+  <h3>Phase 1: Planning</h3>
+  <p>When you send a request, the <strong>Planner Agent</strong> analyzes your file structure. It creates a step-by-step "Todo List" of what files need to be created or modified.</p>
+
+  <h3>Phase 2: Coding</h3>
+  <p>The <strong>Coder Agent</strong> picks up the plan. It writes the code for each file. </p>
+  <ul>
+    <li>It knows about modern frameworks (React, Vue, Tailwind).</li>
+    <li>It automatically manages imports and dependencies.</li>
+  </ul>
+
+  <h3>Phase 3: Healing (Auto-Fix)</h3>
+  <p>This is the magic part. After writing the code, Gorilla tries to start the server. If the server crashes (e.g., a missing comma or wrong import), Gorilla <strong>reads the error log</strong>, understands what went wrong, and automatically writes a patch to fix it.</p>
+
+  <div class="note">
+    You might see messages like "Analyzing Crash..." or "Auto-Fixing". This is normal! It means the agent is polishing the code for you.
+  </div>
+
+  <h2>Best Practices</h2>
+  <ul>
+    <li><strong>One thing at a time:</strong> Don't ask for a database, a login system, and a payment gateway in one message. Break it down.</li>
+    <li><strong>Be patient:</strong> Complex changes might take 30-60 seconds as the AI thinks and writes.</li>
+  </ul>
+
+  <br>
+  <a href="/docs/x-mode" style="background:var(--accent); color:#fff; padding:10px 20px; border-radius:6px;">Next: X-Mode (Pro) &rarr;</a>
+{% endblock %}

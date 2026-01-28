@@ -1,0 +1,37 @@
+{% extends "docs/base.html" %}
+{% block title %}The Dashboard{% endblock %}
+
+{% block content %}
+  <h1>The Dashboard</h1>
+  <p>Your Dashboard is command central. Here you can manage your projects, check your credit usage, and upgrade your plan.</p>
+
+  <h2>1. The Builder Bar</h2>
+  <p>At the center of the screen is the <strong>Builder Bar</strong>. This is where every project starts. Enter a prompt here to spawn a new environment.</p>
+  <p><em>Tip: You can click the "Suggestion Chips" below the bar to auto-fill common ideas.</em></p>
+
+  <h2>2. Project Cards</h2>
+  <p>Your recent projects appear as cards in the grid below. Each card shows:</p>
+  <ul>
+    <li>Project Name</li>
+    <li>Brief Description (generated from your prompt)</li>
+    <li>Last Edited Date</li>
+  </ul>
+  <p>Click <strong>Open</strong> to enter the standard editor.</p>
+
+  <h2>3. Credit Widget</h2>
+  <p>In the top right, you will see your <strong>Token Balance</strong>. Every time the AI writes code or fixes a bug, it consumes tokens. </p>
+  <ul>
+    <li><strong>Free Plan:</strong> Limited tokens per month.</li>
+    <li><strong>Premium Plan:</strong> Higher limits and access to X-Mode.</li>
+  </ul>
+
+  <div class="note">
+    Run out of tokens? You can <a href="/pricing">top up</a> at any time or wait for the monthly reset.
+  </div>
+
+  <h2>4. X-Mode (Premium Only)</h2>
+  <p>If you are a Pro user, you will see a glowing yellow <strong>⚡ X-MODE</strong> button on your project cards. This launches the advanced React/Vite environment instantly, and USEs TOP-CLASS coding LLMs like KIMI-K2.5.</p>
+
+  <br>
+  <a href="/docs/prompting" style="background:var(--accent); color:#fff; padding:10px 20px; border-radius:6px;">Next: Prompting Guide &rarr;</a>
+{% endblock %}

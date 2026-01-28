@@ -1,0 +1,40 @@
+{% extends "docs/base.html" %}
+{% block title %}Prompting Guide{% endblock %}
+
+{% block content %}
+  <h1>Prompting Guide</h1>
+  <p>The quality of your app depends heavily on how you describe it. Think of the AI as a junior developer: it knows how to code perfectly, but it needs clear instructions on <em>what</em> to build.</p>
+
+  <h2>The Golden Rule: Be Specific</h2>
+  <p>Vague prompts lead to generic apps. Specific prompts lead to polished products.</p>
+  
+  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-bottom:40px;">
+    <div style="background:rgba(255,50,50,0.1); padding:20px; border-radius:8px; border:1px solid rgba(255,50,50,0.2);">
+      <h3 style="color:#ff6b6b; margin-top:0;">❌ Bad Prompt</h3>
+      <p style="margin-bottom:0;">"Make a store."</p>
+    </div>
+    <div style="background:rgba(50,255,100,0.1); padding:20px; border-radius:8px; border:1px solid rgba(50,255,100,0.2);">
+      <h3 style="color:#4ade80; margin-top:0;">✅ Good Prompt</h3>
+      <p style="margin-bottom:0;">"Create a modern e-commerce store for selling sneakers. It should have a dark theme, a grid of products with hover effects, a shopping cart sidebar, and a checkout form."</p>
+    </div>
+  </div>
+
+  <h2>Structure of a Great Prompt</h2>
+  <ol style="line-height:1.8; color:#ccc;">
+    <li><strong>Role/Context:</strong> "Act as an expert React developer..."</li>
+    <li><strong>Core Functionality:</strong> "Build a task manager with drag-and-drop..."</li>
+    <li><strong>Design Style:</strong> "Use a minimalist black and white aesthetic..."</li>
+    <li><strong>Technical Constraints:</strong> "Use Tailwind CSS and keep everything in one file if possible."</li>
+  </ol>
+
+  <h2>Iterative Prompting</h2>
+  <p>You don't have to get it right on the first try. Start simple, then use the Chat Interface to refine:</p>
+  <ul>
+    <li>"Now add a search bar."</li>
+    <li>"Make the buttons rounder."</li>
+    <li>"Change the background color to dark blue."</li>
+  </ul>
+
+  <br>
+  <a href="/docs/editor" style="background:var(--accent); color:#fff; padding:10px 20px; border-radius:6px;">Next: The Editor &rarr;</a>
+{% endblock %}

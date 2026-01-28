@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{% block title %}Docs{% endblock %} · gor://a</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <style>
+    @font-face { font-family: 'din-next-w01-light'; src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2'); }
+    :root {
+      --bg: #050505; --sidebar: #0a0a0c; --border: #222; --accent: #3b6cff; --text: #fff; --text-muted: #888;
+    }
+    * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui; }
+    body { margin: 0; background: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
+    
+    /* SIDEBAR */
+    aside { width: 260px; background: var(--sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 20px; overflow-y: auto; flex-shrink: 0; }
+    .brand { font-size: 20px; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 10px; margin-bottom: 30px; text-decoration: none; }
+    .brand svg { width: 24px; fill: var(--text); }
+    
+    .nav-group { margin-bottom: 24px; }
+    .nav-title { font-size: 11px; text-transform: uppercase; color: #555; margin-bottom: 8px; font-weight: 700; letter-spacing: 1px; }
+    .nav-link { display: flex; align-items: center; gap: 10px; color: var(--text-muted); text-decoration: none; padding: 8px 10px; border-radius: 6px; font-size: 14px; transition: 0.2s; }
+    .nav-link:hover { background: rgba(255,255,255,0.05); color: #fff; }
+    .nav-link.active { background: rgba(59, 108, 255, 0.1); color: var(--accent); }
+    .nav-link i { font-size: 16px; }
+
+    /* CONTENT */
+    main { flex: 1; overflow-y: auto; padding: 60px 15%; scroll-behavior: smooth; }
+    
+    h1 { font-size: 32px; margin: 0 0 10px 0; }
+    h2 { font-size: 22px; margin: 40px 0 15px 0; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+    p { line-height: 1.6; color: #ccc; margin-bottom: 20px; font-size: 16px; }
+    
+    code { background: #1a1a1f; padding: 2px 6px; border-radius: 4px; font-family: monospace; color: #e0e0e0; font-size: 0.9em; }
+    pre { background: #111; padding: 20px; border-radius: 8px; overflow-x: auto; border: 1px solid var(--border); }
+    pre code { background: transparent; padding: 0; color: #aaa; }
+
+    .note { background: rgba(59, 108, 255, 0.1); border-left: 3px solid var(--accent); padding: 15px; border-radius: 4px; margin: 20px 0; color: #dae4ff; }
+    
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* SCROLLBAR */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+  <aside>
+    <a href="/dashboard" class="brand">
+      <i class="ph-fill ph-arrow-left"></i> Back to App
+    </a>
+
+    <div class="nav-group">
+      <div class="nav-title">Getting Started</div>
+      <a href="/docs/intro" class="nav-link {% if page=='intro' %}active{% endif %}"><i class="ph ph-flag"></i> Introduction</a>
+      <a href="/docs/dashboard" class="nav-link {% if page=='dashboard' %}active{% endif %}"><i class="ph ph-squares-four"></i> The Dashboard</a>
+      <a href="/docs/billing" class="nav-link {% if page=='billing' %}active{% endif %}"><i class="ph ph-credit-card"></i> Credits & Plans</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-title">Building</div>
+      <a href="/docs/prompting" class="nav-link {% if page=='prompting' %}active{% endif %}"><i class="ph ph-magic-wand"></i> Prompting Guide</a>
+      <a href="/docs/editor" class="nav-link {% if page=='editor' %}active{% endif %}"><i class="ph ph-code"></i> The Editor</a>
+      <a href="/docs/agent-workflow" class="nav-link {% if page=='agent' %}active{% endif %}"><i class="ph ph-robot"></i> AI Workflow</a>
+      <a href="/docs/files" class="nav-link {% if page=='files' %}active{% endif %}"><i class="ph ph-folder"></i> Files & Assets</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-title">Advanced</div>
+      <a href="/docs/x-mode" class="nav-link {% if page=='xmode' %}active{% endif %}"><i class="ph-fill ph-lightning"></i> X-Mode (Pro)</a>
+      <a href="/docs/deployment" class="nav-link {% if page=='deploy' %}active{% endif %}"><i class="ph ph-rocket"></i> Deployment</a>
+      <a href="/docs/troubleshooting" class="nav-link {% if page=='trouble' %}active{% endif %}"><i class="ph ph-warning-circle"></i> Troubleshooting</a>
+    </div>
+    
+    <div class="nav-group">
+      <div class="nav-title">Company</div>
+      <a href="/about" class="nav-link"><i class="ph ph-users"></i> About Us</a>
+      <a href="/contact" class="nav-link"><i class="ph ph-envelope"></i> Contact</a>
+    </div>
+  </aside>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+</body>
+</html>

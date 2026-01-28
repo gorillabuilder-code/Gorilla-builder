@@ -1,0 +1,33 @@
+{% extends "docs/base.html" %}
+{% block title %}Files & Assets{% endblock %}
+
+{% block content %}
+  <h1>Files & Assets</h1>
+  <p>Gorilla gives you full access to the source code of your AI application. You are not locked into a "black box", you own your code.</p>
+
+  <h2>File Structure</h2>
+  <p>The file tree on the left side of the Editor shows your project structure:</p>
+  <ul>
+    <li><strong>Standard Projects:</strong> Typically contain `index.html`, `style.css`, and `script.js`. Simple and effective.</li>
+    <li><strong>X-Mode Projects:</strong> Follow modern conventions with a `src/` folder, `package.json`, `vite.config.ts`, and component files (e.g., `App.tsx`).</li>
+  </ul>
+
+  <h2>Uploading Images & Assets</h2>
+  <p>Currently, the best way to use images is to link to external URLs (like Unsplash, Imgur, or your own CDN). </p>
+  
+  <p><em>Example:</em></p>
+  <pre><code>&lt;img src="https://images.unsplash.com/photo-12345..." alt="My Image" /&gt;</code></pre>
+
+  <p>We are working on a native "Drag & Drop" file uploader which will be released in the next update.</p>
+
+  <h2>Downloading Your Code</h2>
+  <p>You can export your entire project at any time:</p>
+  <ol style="line-height:1.8; color:#ccc;">
+    <li>Click the <strong>Settings</strong> (gear icon) in the top right.</li>
+    <li>Click <strong>Export to ZIP</strong>.</li>
+    <li>This downloads a standard archive you can host anywhere (Netlify, Vercel, or your own server).</li>
+  </ol>
+
+  <br>
+  <a href="/docs/billing" style="background:var(--accent); color:#fff; padding:10px 20px; border-radius:6px;">Next: Credits & Billing &rarr;</a>
+{% endblock %}

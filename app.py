@@ -414,7 +414,45 @@ async def favicon():
     if os.path.exists(p): 
         return FileResponse(p)
     raise HTTPException(status_code=404)
+# ==========================================================================
+# 📚 DOCUMENTATION & COMPANY ROUTES
+# ==========================================================================
 
+# 1. Master Route for Docs
+@app.get("/docs/{page}", response_class=HTMLResponse)
+async def docs_page(request: Request, page: str):
+    valid_pages = [
+        "intro", "dashboard", "billing", 
+        "prompting", "editor", "agent-workflow", "files",
+        "x-mode", "deployment", "troubleshooting",
+        "about", "contact" # Mapped here for sidebar convenience
+    ]
+    
+    if page not in valid_pages:
+        # Default to intro if page is invalid, or 404
+        return RedirectResponse("/docs/intro")
+        
+    return templates.TemplateResponse(
+        f"docs/{page}.html", 
+        {"request": request, "page": page}
+    )
+@app.get("/docs", response_class=HTMLResponse)
+async def about_page(request: Request):
+    return templates.TemplateResponse("docs/intro.html", {"request": request, "page": "about"})
+
+# 2. Direct Shortcuts for About/Contact
+@app.get("/about", response_class=HTMLResponse)
+async def about_page(request: Request):
+    return templates.TemplateResponse("docs/about.html", {"request": request, "page": "about"})
+
+@app.get("/contact", response_class=HTMLResponse)
+async def contact_page(request: Request):
+    return templates.TemplateResponse("docs/contact.html", {"request": request, "page": "contact"})
+
+# 3. Redirect /docs root to intro
+@app.get("/docs")
+async def docs_root():
+    return RedirectResponse("/docs/intro")
 
 # ==========================================================================
 # AUTH API ROUTES (UPDATED FOR 2FA)

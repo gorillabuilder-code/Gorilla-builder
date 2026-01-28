@@ -1,0 +1,28 @@
+{% extends "docs/base.html" %}
+{% block title %}Deployment{% endblock %}
+
+{% block content %}
+  <h1>Deployment & Sharing</h1>
+  <p>One of the best features of Gorilla is that every project is <strong>deployed instantly</strong>. There is no "publish" button—if it works in the preview, it's live on the web.</p>
+
+  <h2>Public Links</h2>
+  <p>Every project gets a unique, public URL that you can share with friends, colleagues, or customers.</p>
+  
+  <pre><code>https://gorillabuilder.dev/app/your-project-name-1234</code></pre>
+
+  <p>You can find this link by clicking the <strong>"Open in New Tab"</strong> icon in the top-right corner of the Editor preview pane.</p>
+
+  <h2>"Sleeping" Apps & Cold Starts</h2>
+  <p>To keep our service affordable, apps "go to sleep" after a period of inactivity. </p>
+  <ul>
+    <li><strong>The Wake-Up Process:</strong> When someone visits your link, they might see a "Waking up app..." screen for a few seconds.</li>
+    <li><strong>This is normal:</strong> Our backend is spinning up the container just for them.</li>
+    <li><strong>Auto-Fix on Boot:</strong> If the app crashed while sleeping, the wake-up process will even try to auto-repair it before the user sees it!</li>
+  </ul>
+
+  <h2>Custom Subdomains</h2>
+  <p>Currently, subdomains are generated based on your project name. Custom domains (e.g., `yourname.com`) are coming soon for Enterprise users.</p>
+
+  <br>
+  <a href="/docs/files" style="background:var(--accent); color:#fff; padding:10px 20px; border-radius:6px;">Next: Files & Assets &rarr;</a>
+{% endblock %}
