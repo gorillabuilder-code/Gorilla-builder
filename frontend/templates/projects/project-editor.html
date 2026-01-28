@@ -41,7 +41,7 @@
     ];
 
     if (fileName) {
-        if (fileName.endsWith('.js') || fileName.endsWith('.jsx') || fileName.endsWith('.ts') || fileName.endsWith('.json')) {
+        if (fileName.endsWith('.js') || fileName.endsWith('.tsx') || fileName.endsWith('.ts') || fileName.endsWith('.json')) {
             extensions.push(javascript());
         } else if (fileName.endsWith('.html')) {
             extensions.push(html());

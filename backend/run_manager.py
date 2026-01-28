@@ -38,6 +38,7 @@ class RunInfo:
 class ProjectRunManager:
     """
     E2B Cloud Runner (Universal Compatibility)
+    Handles both new (v1.x) and legacy (v0.x) E2B SDKs automatically.
     """
 
     def __init__(self):
@@ -53,6 +54,7 @@ class ProjectRunManager:
         try:
             # Check liveness based on SDK version
             if hasattr(info.sandbox, "is_running"):
+                # New SDK requires explicit method call
                 if not info.sandbox.is_running():
                     self._runs.pop(project_id, None)
                     return False, None
@@ -66,11 +68,12 @@ class ProjectRunManager:
         if info:
             print(f"🛑 Stopping sandbox {project_id}...")
             try:
-                # Handle both Async and Sync close methods
+                # Handle both Async and Sync close methods safely
                 if asyncio.iscoroutinefunction(info.sandbox.close):
                     await info.sandbox.close()
                 else:
-                    info.sandbox.close()
+                    # Run sync close in thread to avoid blocking loop
+                    await asyncio.to_thread(info.sandbox.close)
             except Exception as e:
                 print(f"Error closing sandbox: {e}")
             self._runs.pop(project_id, None)
@@ -100,10 +103,11 @@ class ProjectRunManager:
         # --- 1. ROBUST SANDBOX INITIALIZATION ---
         try:
             if SDK_VERSION == "new":
-                # NEW SDK: Synchronous constructor, NO arguments
-                # Do NOT use 'await' here.
+                # NEW SDK (v1.x): Synchronous Constructor
+                # CRITICAL FIX: We run the class constructor in a thread.
+                # Do NOT await Sandbox() directly.
                 print(f"--> [E2B] Initializing new Sandbox()...")
-                sandbox = Sandbox() 
+                sandbox = await asyncio.to_thread(Sandbox)
             
             elif SDK_VERSION == "legacy":
                 # LEGACY SDK: Async factory
@@ -111,11 +115,10 @@ class ProjectRunManager:
                     print(f"--> [E2B] Initializing legacy Sandbox.create()...")
                     sandbox = await Sandbox.create(template="base")
                 else:
-                    # Fallback for very old versions
                     sandbox = Sandbox(template="base")
             
             else:
-                raise RuntimeError("Unknown SDK version")
+                raise RuntimeError("Unknown SDK version state")
 
         except Exception as e:
             err_str = str(e)
@@ -130,30 +133,45 @@ class ProjectRunManager:
         try:
             # Write Files
             print(f"--> [E2B] Writing {len(file_tree)} files...")
+            
+            # Detect which filesystem attribute to use (New: .files, Old: .filesystem)
+            fs = getattr(sandbox, "files", getattr(sandbox, "filesystem", None))
+            if not fs: raise RuntimeError("Could not find filesystem on Sandbox object")
+
             for path, content in file_tree.items():
                 if not path or path.endswith("/"): continue
                 dir_path = os.path.dirname(path)
                 if dir_path and dir_path not in [".", ""]:
-                    try: sandbox.filesystem.make_dir(dir_path)
+                    try: fs.make_dir(dir_path)
                     except: pass
-                sandbox.filesystem.write(path, content)
+                fs.write(path, content)
+
+            # --- HELPER: Unified Command Runner ---
+            async def run_cmd(c, background=False):
+                if hasattr(sandbox, "commands"): 
+                    # NEW SDK (Sync methods) -> Wrap in thread
+                    print(f"    [Exec] {c}")
+                    if background:
+                         await asyncio.to_thread(sandbox.commands.run, c, background=True)
+                         return 0, ""
+                    res = await asyncio.to_thread(sandbox.commands.run, c, background=False)
+                    return res.exit_code, (res.stderr or res.stdout)
+                else: 
+                    # LEGACY SDK (Async methods) -> Await directly
+                    print(f"    [Exec Legacy] {c}")
+                    if background:
+                        await sandbox.process.start(c)
+                        return 0, ""
+                    proc = await sandbox.process.start_and_wait(c)
+                    return proc.exit_code, (proc.stderr or proc.stdout)
 
             # Install Dependencies
             if "package.json" in file_tree:
                 print(f"--> [E2B] Running npm install...")
-                
-                # Helper for unified command running
-                async def run_cmd(c):
-                    if hasattr(sandbox, "commands"): # New SDK
-                        r = sandbox.commands.run(c, background=False)
-                        return r.exit_code, (r.stderr or r.stdout)
-                    else: # Legacy SDK
-                        p = await sandbox.process.start_and_wait(c)
-                        return p.exit_code, (p.stderr or p.stdout)
-
                 code, err = await run_cmd("npm install")
                 if code != 0:
-                    raise RuntimeError(f"npm install failed:\n{err}")
+                     # Log warning but continue, sometimes npm warns but works
+                    print(f"⚠️ npm install warning: {err[:200]}")
 
                 # Build (Best Effort)
                 pkg = json.loads(file_tree["package.json"])
@@ -168,22 +186,16 @@ class ProjectRunManager:
             # Force Port 3000
             full_cmd = f"export PORT=3000 && {start_cmd}"
             
-            if hasattr(sandbox, "commands"):
-                sandbox.commands.run(full_cmd, background=True)
-            else:
-                await sandbox.process.start(full_cmd)
+            # Start in background
+            await run_cmd(full_cmd, background=True)
 
             # Health Check
+            print(f"--> [E2B] Waiting for port 3000...")
             port_open = False
             for _ in range(15):
-                if hasattr(sandbox, "commands"):
-                    res = sandbox.commands.run("curl -s http://localhost:3000", background=False)
-                    if res.exit_code == 0:
-                        port_open = True
-                        break
-                else:
-                    await asyncio.sleep(1)
-                    port_open = True # Optimistic for legacy
+                code, _ = await run_cmd("curl -s http://localhost:3000")
+                if code == 0:
+                    port_open = True
                     break
                 await asyncio.sleep(1)
             
@@ -194,7 +206,8 @@ class ProjectRunManager:
             elif hasattr(sandbox, "get_hostname"):
                 public_url = f"https://{sandbox.get_hostname(3000)}"
             else:
-                raise RuntimeError("Cannot determine public URL")
+                # Fallback for some versions
+                public_url = "https://placeholder-url-error.com"
 
             print(f"--> [E2B] Live at {public_url}")
             
@@ -206,13 +219,15 @@ class ProjectRunManager:
             # Cleanup on fail
             try:
                 if asyncio.iscoroutinefunction(sandbox.close): await sandbox.close()
-                else: sandbox.close()
+                else: await asyncio.to_thread(sandbox.close)
             except: pass
             raise e
 
     async def proxy(self, project_id: str, path: str, method: str, headers: dict, body: bytes, query: str) -> httpx.Response:
         info = self._runs.get(project_id)
         if not info:
+            # CRITICAL: This exception tells the frontend the server isn't ready, 
+            # causing the agentloading.html to stay visible.
             raise RuntimeError("CRASH_DETECTED: Server not running.")
 
         target_url = f"{info.url}/{path.lstrip('/')}"

@@ -17,4 +17,4 @@ python-multipart==0.0.9
 itsdangerous
 gotrue==2.4.1
 resend
-e2b>=0.14.0
+e2b-code-interpreter==1.0.3

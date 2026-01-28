@@ -348,15 +348,9 @@ def send_otp_email(to_email: str, code: str):
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Verification Email</title>
-    <style>
-        @font-face {
-            font-family: 'din-next-w01-light';
-            src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2');
-            font-display: swap;
-        }
-    </style>
+
 </head>
-<body style="margin: 0; padding: 0; background-color: #0b1020; font-family: din-next-w01-light,Tahoma, Geneva, Verdana, sans-serif;">
+<body style="margin: 0; padding: 0; background-color: #0b1020; font-family: Tahoma, Geneva, Verdana, sans-serif;">
     <div style="width: 100%; padding: 40px 0; background-color: #0b1020;">
         <div style="max-width: 420px; margin: 0 auto; background-color: #0f1530; padding: 40px; border-radius: 18px; color: #ffffff;">
             
@@ -1144,6 +1138,11 @@ def lint_code_with_esbuild(content: str, filename: str) -> str | None:
 # ==========================================================================
 # AI AGENT WORKFLOW
 # ==========================================================================
+# ==========================================================================
+# AI AGENT WORKFLOW & HELPERS
+# ==========================================================================
+
+# 1. Define the Helper Function (Must exist before it is called!)
 async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
     res = (
         supabase.table("files")
@@ -1154,35 +1153,44 @@ async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
     rows = res.data if res and res.data else []
     return {r["path"]: (r.get("content") or "") for r in rows}
 
-# --- NEW: Internal Robust Starter Function ---
+# 2. Define the Retry Logic
 async def _start_server_with_retry(project_id: str):
     """
     Internal robust server starter.
-    Loops automatically to catch crashes, fix them via AI, and restart.
-    Emits events to the frontend so the user sees 'Booting -> Crash -> Fixing -> Retry'.
+    Loops automatically to catch USER CODE crashes, fix them via AI, and restart.
+    Stops immediately for INFRASTRUCTURE crashes (E2B/API errors).
     """
     emit_status(project_id, "Booting server...")
     
-    max_retries = 15
+    max_retries = 5 
     history = []
     
     # Initial attempt to start
     try:
         file_tree = await _fetch_file_tree(project_id)
         info = await run_manager.start(project_id, file_tree)
+        
         emit_status(project_id, "Server Running")
-        # FIXED: Use info.url instead of info.port
         emit_log(project_id, "system", f"Server running at {info.url}")
         emit_progress(project_id, "Ready", 100)
         return # Success on first try
+
     except Exception as e:
-        # Initial crash detected, enter fix loop
         err_msg = str(e)
+        
+        # --- CRITICAL FIX: Stop if it's a Backend/E2B Error ---
+        if "E2B" in err_msg or "Sandbox" in err_msg or "API Key" in err_msg:
+            emit_status(project_id, "System Error")
+            emit_log(project_id, "system", f"🛑 Infrastructure Error: {err_msg}")
+            emit_log(project_id, "system", "This is a backend configuration issue, not your code. Check server logs.")
+            return # DO NOT ENTER RETRY LOOP
+
+        # Otherwise, assume it's a user code crash
         clean_error = err_msg.replace("App crashed during startup:", "").strip()
         emit_status(project_id, "⚠️ Startup Failed. Auto-fixing...")
         emit_log(project_id, "system", f"Crash: {clean_error[:200]}...")
     
-    # Enter Retry Loop
+    # Enter Retry Loop (Only for code errors)
     coder = Coder()
     
     for attempt in range(max_retries):
@@ -1190,19 +1198,13 @@ async def _start_server_with_retry(project_id: str):
         emit_progress(project_id, f"Auto-Fixing (Attempt {attempt+1}/{max_retries})", 50)
         
         try:
-            # 1. Fetch latest code (it changes every loop)
             file_tree = await _fetch_file_tree(project_id)
             
-            # 2. Generate Fix
             fix_prompt = (
                 f"The application crashed during startup (Attempt {attempt+1}/{max_retries}) with this error:\n\n{clean_error}\n\n"
-                "Fix the code (app.py, requirements.txt, etc) to resolve this startup error. "
-                "If a module is missing, add it to requirements.txt."
+                "Fix the code (app.py, requirements.txt, package.json etc) to resolve this startup error. "
             )
             
-            # RUN IN THREAD POOL
-            # Note: Coder.generate_code is now async in your latest coder.py, so we await it directly.
-            # If it was sync, we would use asyncio.to_thread.
             res = await coder.generate_code(
                 plan_section="Startup Fix",
                 plan_text=fix_prompt,
@@ -1215,7 +1217,6 @@ async def _start_server_with_retry(project_id: str):
                 history.append({"role": "assistant", "content": res.get("message")})
                 emit_log(project_id, "coder", f"Applying fix: {res.get('message')}")
             
-            # 3. Apply Fixes
             ops = res.get("operations", [])
             for op in ops:
                 p = op.get("path")
@@ -1224,23 +1225,21 @@ async def _start_server_with_retry(project_id: str):
                     db_upsert("files", {"project_id": project_id, "path": p, "content": c}, on_conflict="project_id,path")
                     emit_file_changed(project_id, p)
             
-            # 4. Retry Start
-            emit_status(project_id, f"Restaring Server (Attempt {attempt+1})...")
-            
-            # Refresh tree for start
+            emit_status(project_id, f"Restarting Server (Attempt {attempt+1})...")
             new_tree = await _fetch_file_tree(project_id)
-            
             info = await run_manager.start(project_id, new_tree)
             
-            # If we get here, it started!
             emit_status(project_id, "Server Fixed & Running")
             emit_log(project_id, "system", f"Server running at {info.url}")
             emit_progress(project_id, "Ready", 100)
             return
             
         except Exception as retry_err:
-            # Fix failed or Server crashed again
             err_str = str(retry_err)
+            if "E2B" in err_str or "Sandbox" in err_str:
+                emit_log(project_id, "system", f"🛑 Critical System Error during retry: {err_str}")
+                return
+
             if "App crashed" in err_str:
                  clean_error = err_str.replace("App crashed during startup:", "").strip()
             else:

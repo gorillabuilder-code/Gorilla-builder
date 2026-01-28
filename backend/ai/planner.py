@@ -142,7 +142,7 @@ class Planner:
     "   - `src/App.tsx` (Main Router).\n"
     "   - `src/main.tsx` (Entry point).\n"
     "2. **Task Strategy:**\n"
-    "   - **NEVER** assign a task to create `package.json`, `index.html`, or `server.js`. They exist.\n"
+    "   - **NEVER** assign a task to create `package.json` or `index.html`. They exist.\n"
     "   - **Task 1** should almost always be: Modify `src/pages/Index.tsx` to implement the core layout using existing Shadcn components.\n"
     "   - **Styling:** Use Tailwind CSS utility classes. Do not create .css files.\n"
     "   - **Components:** Create new specific components in `src/components/` (e.g., `src/components/DashboardChart.tsx`).\n"
