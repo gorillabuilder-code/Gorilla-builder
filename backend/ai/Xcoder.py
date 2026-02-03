@@ -1,6 +1,6 @@
 """
-coder.py — gor://a AI Code Generation Engine (Fireworks Minimax-M2P1)
-- Calls Fireworks AI chat completions (Minimax-M2P1)
+coder.py — gor://a AI Code Generation Engine (OpenRouter GPT-5.2 Codex)
+- Calls OpenRouter API (openai/gpt-5.2-codex)
 - Uses Regex to reliably extract JSON from "chatty" models
 - Enforces a 'message' field so the AI talks to the user
 - Returns token usage statistics
@@ -15,14 +15,18 @@ from typing import Dict, Any, List, Optional, Tuple
 import asyncio
 import httpx
 
-# --- Configuration for Fireworks AI ---
-FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
-# Using Minimax as requested for high-quality reasoning
-FIREWORKS_MODEL = os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/kimi-k2p5")
-FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
+# --- Configuration for OpenRouter ---
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+# Using OpenAI GPT-5.2 Codex via OpenRouter
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-5.2-codex")
+OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 
-if not FIREWORKS_API_KEY:
-    raise RuntimeError("FIREWORKS_API_KEY must be configured in the environment")
+# OpenRouter specific headers for rankings/stats
+SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev")
+SITE_NAME = os.getenv("SITE_NAME", "Gorilla Builder")
+
+if not OPENROUTER_API_KEY:
+    raise RuntimeError("OPENROUTER_API_KEY must be configured in the environment")
 
 ALLOWED_ACTIONS = {"create_file", "overwrite_file"}
 ACTION_NORMALIZE = {
@@ -75,30 +79,32 @@ class XCoder:
         # Key: project_name, Value: List of message dicts
         self.project_states: Dict[str, List[Dict[str, str]]] = {}
 
-    async def _call_fireworks(
+    async def _call_openrouter(
         self, 
         messages: List[Dict[str, str]], 
         temperature: float = 0.1,
     ) -> Tuple[str, int]:
         """ Returns (content, total_tokens) """
         payload = {
-            "model": FIREWORKS_MODEL,
+            "model": OPENROUTER_MODEL,
             "messages": messages,
             "temperature": temperature,
         }
         headers = {
-            "Authorization": f"Bearer {FIREWORKS_API_KEY}",
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
             "Content-Type": "application/json",
+            "HTTP-Referer": SITE_URL,
+            "X-Title": SITE_NAME,
         }
         
         async with httpx.AsyncClient(timeout=self.timeout_s) as client:
-            resp = await client.post(FIREWORKS_URL, json=payload, headers=headers)
+            resp = await client.post(OPENROUTER_URL, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()
             
             content = data["choices"][0]["message"]["content"]
             usage = data.get("usage", {})
-            total_tokens = int(usage.get("total_tokens", 0)) * 2.5
+            total_tokens = int(usage.get("total_tokens", 0))*5
             
             return content, total_tokens
 
@@ -198,11 +204,11 @@ class XCoder:
             "- **Existing Components**: ALWAYS check `src/components/ui` before creating a generic UI element. Use the existing ones!\n\n"
 
             "API & MODELS CONFIGURATION:\n"
-            "- Use `process.env.FIREWORKS_API_KEY` for AI. \n"
-            "- Chat: 'accounts/fireworks/models/qwen3-8b'\n"
-            "- STT: 'accounts/fireworks/models/whisper-v3-turbo'\n"
-            "- Vision: 'accounts/fireworks/models/qwen3-vl-30b-a3b-instruct'\n"
-            "- Image Gen: 'accounts/fireworks/models/playground-v2-5-1024px-aesthetic'\n"
+            "- Use `process.env.OPENROUTER_API_KEY` for AI. \n"
+            "- Chat: 'openai/gpt-5.2-codex'\n"
+            "- STT: 'openai/whisper-large-v3'\n"
+            "- Vision: 'google/gemini-flash-1.5'\n"
+            "- Image Gen: 'stabilityai/stable-diffusion-3-medium'\n"
             "- Background Removal: Use `process.env.REM_BG_API_KEY`\n\n"
 
             "RESPONSE FORMAT (JSON ONLY):\n"
@@ -252,10 +258,10 @@ class XCoder:
         # Retry Loop
         for attempt in range(max_retries + 1):
             try:
-                # Call Fireworks
-                raw, tokens = await self._call_fireworks(messages, temperature=0.6)
+                # Call OpenRouter
+                raw, tokens = await self._call_openrouter(messages, temperature=0.6)
                 last_raw = raw
-                cumulative_tokens += tokens * 2.5
+                cumulative_tokens += tokens # OpenRouter tokens are standard
                 
                 parsed = _extract_json(raw)
                 if not parsed:

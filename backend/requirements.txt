@@ -3,7 +3,6 @@ uvicorn[standard]==0.30.5
 supabase==2.3.1
 pydantic==1.10.15
 python-dotenv==1.0.1
-httpx ==0.25.2
 Pillow==10.4.0
 rembg==2.0.57
 pdfplumber==0.11.2
@@ -18,3 +17,5 @@ itsdangerous
 gotrue==2.4.1
 resend
 e2b-code-interpreter==1.0.3
+python-multipart
+httpx 
