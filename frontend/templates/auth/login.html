@@ -5,7 +5,6 @@
   <title>Sign in · gor://a</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Same DIN Next -->
   <style>
     @font-face {
       font-family: 'din-next-w01-light';
@@ -50,6 +49,18 @@
       font-size: 14px;
     }
 
+    /* Error Banner Style */
+    .error-banner {
+      background: rgba(255, 75, 75, 0.15);
+      border: 1px solid rgba(255, 75, 75, 0.3);
+      color: #ff5f5f;
+      padding: 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
     .oauth-btn {
       width: 100%;
       display: flex;
@@ -64,12 +75,9 @@
       cursor: pointer;
       font-size: 23px;
       margin-bottom: 12px;
+      transition: opacity 0.2s;
     }
-
-    .oauth-btn.github {
-      background: #111;
-      color: #fff;
-    }
+    .oauth-btn:hover { opacity: 0.9; }
 
     .divider {
       display: flex;
@@ -92,7 +100,8 @@
     label {
       font-size: 13px;
       opacity: 0.7;
-      display: block;
+      display: flex;
+      justify-content: space-between;
       margin-bottom: 6px;
     }
 
@@ -105,7 +114,11 @@
       color: #fff;
       margin-bottom: 16px;
       font-size: 14px;
+      outline: none;
+      border: 1px solid transparent;
+      transition: border-color 0.2s;
     }
+    input:focus { border-color: #3b6cff; }
 
     .primary {
       width: 100%;
@@ -116,7 +129,10 @@
       color: #fff;
       font-size: 24px;
       cursor: pointer;
+      margin-top: 10px;
+      transition: background 0.2s;
     }
+    .primary:hover { background: #2f5ce0; }
 
     .footer {
       margin-top: 22px;
@@ -125,10 +141,13 @@
       text-align: center;
     }
 
-    .footer a {
+    .footer a, .forgot-link {
       color: #6ea0ff;
       text-decoration: none;
+      cursor: pointer;
     }
+    .forgot-link { font-size: 12px; }
+    .forgot-link:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -137,19 +156,33 @@
     <h1>Start building AI apps</h1>
     <p class="sub">Create, ship, and evolve AI-powered products, fast.</p>
 
-    <button class="oauth-btn" onclick="location.href='/auth/google'">
-      Sign up with Google <svg width="40px" height="40px" viewBox="-3 0 262 262" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid"><path d="M255.878 133.451c0-10.734-.871-18.567-2.756-26.69H130.55v48.448h71.947c-1.45 12.04-9.283 30.172-26.69 42.356l-.244 1.622 38.755 30.023 2.685.268c24.659-22.774 38.875-56.282 38.875-96.027" fill="#4285F4"/><path d="M130.55 261.1c35.248 0 64.839-11.605 86.453-31.622l-41.196-31.913c-11.024 7.688-25.82 13.055-45.257 13.055-34.523 0-63.824-22.773-74.269-54.25l-1.531.13-40.298 31.187-.527 1.465C35.393 231.798 79.49 261.1 130.55 261.1" fill="#34A853"/><path d="M56.281 156.37c-2.756-8.123-4.351-16.827-4.351-25.82 0-8.994 1.595-17.697 4.206-25.82l-.073-1.73L15.26 71.312l-1.335.635C5.077 89.644 0 109.517 0 130.55s5.077 40.905 13.925 58.602l42.356-32.782" fill="#FBBC05"/><path d="M130.55 50.479c24.514 0 41.05 10.589 50.479 19.438l36.844-35.974C195.245 12.91 165.798 0 130.55 0 79.49 0 35.393 29.301 13.925 71.947l42.211 32.783c10.59-31.477 39.891-54.251 74.414-54.251" fill="#EB4335"/></svg>
-    </button>
+    {% if error %}
+    <div class="error-banner">
+      {{ error }}
+    </div>
+    {% endif %}
 
+    <button class="oauth-btn" onclick="location.href='/auth/google'">
+      Sign up with Google 
+      <svg width="40px" height="40px" viewBox="-3 0 262 262" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid">
+        <path d="M255.878 133.451c0-10.734-.871-18.567-2.756-26.69H130.55v48.448h71.947c-1.45 12.04-9.283 30.172-26.69 42.356l-.244 1.622 38.755 30.023 2.685.268c24.659-22.774 38.875-56.282 38.875-96.027" fill="#4285F4"/>
+        <path d="M130.55 261.1c35.248 0 64.839-11.605 86.453-31.622l-41.196-31.913c-11.024 7.688-25.82 13.055-45.257 13.055-34.523 0-63.824-22.773-74.269-54.25l-1.531.13-40.298 31.187-.527 1.465C35.393 231.798 79.49 261.1 130.55 261.1" fill="#34A853"/>
+        <path d="M56.281 156.37c-2.756-8.123-4.351-16.827-4.351-25.82 0-8.994 1.595-17.697 4.206-25.82l-.073-1.73L15.26 71.312l-1.335.635C5.077 89.644 0 109.517 0 130.55s5.077 40.905 13.925 58.602l42.356-32.782" fill="#FBBC05"/>
+        <path d="M130.55 50.479c24.514 0 41.05 10.589 50.479 19.438l36.844-35.974C195.245 12.91 165.798 0 130.55 0 79.49 0 35.393 29.301 13.925 71.947l42.211 32.783c10.59-31.477 39.891-54.251 74.414-54.251" fill="#EB4335"/>
+      </svg>
+    </button>
 
     <div class="divider">or</div>
 
     <form method="POST" action="/auth/login">
       <label>Email</label>
-      <input type="email" name="email" required />
+      <input type="email" name="email" required placeholder="name@example.com" />
 
-      <label>Password</label>
-      <input type="password" name="password" required />
+      <label>
+        Password
+        <a href="/auth/forgot-password" class="forgot-link">Forgot password?</a>
+      </label>
+      <input type="password" name="password" required placeholder="••••••••" />
 
       <button class="primary" type="submit">Sign in</button>
     </form>

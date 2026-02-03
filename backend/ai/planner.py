@@ -1,5 +1,5 @@
 """
-planner.py — gor://a Deterministic AI Capability Planner (Fireworks DeepSeek V3.2)
+planner.py — gor://a Deterministic AI Capability Planner (OpenRouter Moonshot Kimi)
 """
 
 from __future__ import annotations
@@ -16,12 +16,16 @@ import httpx
 # Configuration
 # -------------------------------------------------
 
-FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "accounts/cogito/models/cogito-671b-v2-p1") 
-FIREWORKS_URL = os.getenv("FIREWORKS_URL", "https://api.fireworks.ai/inference/v1/chat/completions")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "z-ai/glm-4.7-flash") 
+OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 
-if not FIREWORKS_API_KEY:
-    raise RuntimeError("FIREWORKS_API_KEY must be set")
+# OpenRouter specific headers for rankings/stats
+SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev")
+SITE_NAME = os.getenv("SITE_NAME", "Gorilla Builder")
+
+if not OPENROUTER_API_KEY:
+    raise RuntimeError("OPENROUTER_API_KEY must be set")
 
 # -------------------------------------------------
 # Helpers
@@ -165,7 +169,7 @@ class Planner:
     "   - Image Gen: 'accounts/fireworks/models/playground-v2-5-1024px-aesthetic'\n"
     "   - BG Removal: Use `process.env.REM_BG_API_KEY`.\n"
     "3. **Volume:** \n"
-    "   - Simple Apps: 3-6 tasks (Focus on editing Index.tsx and connecting UI).\n"
+    "   - Simple Apps: 4-6 tasks (Focus on editing Index.tsx and connecting UI).\n"
     "   - Complex Apps: 10-15 tasks."
         )
         
@@ -193,7 +197,9 @@ class Planner:
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {FIREWORKS_API_KEY}"
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "HTTP-Referer": SITE_URL, # OpenRouter Requirement
+            "X-Title": SITE_NAME,     # OpenRouter Requirement
         }
 
         # --- RETRY LOGIC (503s AND Invalid JSON) ---
@@ -201,7 +207,7 @@ class Planner:
         for attempt in range(max_retries + 1):
             try:
                 with httpx.Client(timeout=120.0) as client:
-                    resp = client.post(FIREWORKS_URL, json=payload, headers=headers)
+                    resp = client.post(OPENROUTER_URL, json=payload, headers=headers)
                     
                     if resp.status_code == 503:
                         if attempt < max_retries:
@@ -233,7 +239,7 @@ class Planner:
                 tasks = data.get("tasks", [])
                 assistant_message = data.get("assistant_message", "Plan updated.")
                 usage = data_api.get("usage", {})
-                total_tokens = int(usage.get("total_tokens", 0))*1.25
+                total_tokens = int(usage.get("total_tokens", 0))*2.25
 
                 base_plan = {
                     "capabilities": [],

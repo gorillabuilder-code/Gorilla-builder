@@ -1,10 +1,14 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Create Project · gor://a</title>
+  
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
   <style>
+    /* --- FONTS & VARS (Matched to Dashboard) --- */
     @font-face {
       font-family: 'din-next-w01-light';
       font-style: normal;
@@ -13,174 +17,180 @@
       font-display: swap;
     }
 
-    /* --- THEME VARIABLES --- */
     :root {
-      --bg: #0b1020;
-      --card-bg: rgba(255,255,255,.05);
-      --border: rgba(255,255,255,.08);
-      --input-bg: #0f1530;
-      --text: #fff;
-      
-      /* Default Blue Accent */
+      --bg: #050505;
+      --panel-bg: rgba(20, 20, 25, 0.6);
+      --border: rgba(255, 255, 255, 0.08);
       --accent: #3b6cff;
-      --btn-text: #fff;
+      --accent-glow: rgba(59, 108, 255, 0.25);
+      --text: #ffffff;
+      --text-muted: #8a8a93;
+      --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E");
     }
 
-    /* PREMIUM OVERRIDES */
     body.premium {
-      --bg: #050810;
-      --card-bg: rgba(255, 255, 255, 0.03); /* Slightly darker card for contrast */
-      
-      /* Premium Gold Accent */
-      --accent: #ffd700;
-      --btn-text: #000; /* Black text on Gold for readability */
-      
-      /* Premium Gradient Background */
-      background-image: 
-        radial-gradient(circle at 15% 10%, rgba(255, 215, 0, 0.05) 0%, transparent 40%),
-        radial-gradient(circle at 85% 90%, rgba(147, 51, 234, 0.08) 0%, transparent 40%) !important;
+      --accent: #ffd700; 
+      --accent-glow: rgba(255, 215, 0, 0.2);
     }
+
+    * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; outline: none; }
 
     body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      font-family: 'din-next-w01-light', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      margin: 0; background: var(--bg); color: var(--text);
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
     }
 
-    .wrap {
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 24px;
+    /* --- EFFECTS --- */
+    .noise-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background-image: var(--noise); pointer-events: none; z-index: 0;
+    }
+    .glow-spot {
+      position: fixed; width: 600px; height: 600px;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+      opacity: 0.4; pointer-events: none; z-index: 0;
+      top: -200px; left: 50%; transform: translateX(-50%); filter: blur(80px);
     }
 
+    /* --- CARD --- */
     .card {
-      width: min(520px, 100%);
-      background: var(--card-bg);
+      width: min(480px, 90%);
+      background: var(--panel-bg);
       border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 32px;
-      /* Add subtle premium glow if premium */
-      transition: box-shadow 0.3s ease;
-    }
-    
-    body.premium .card {
-      border-color: rgba(255, 215, 0, 0.15);
-      box-shadow: 0 10px 40px -10px rgba(0,0,0,0.5);
+      backdrop-filter: blur(20px);
+      border-radius: 20px;
+      padding: 40px;
+      position: relative; z-index: 1;
+      box-shadow: 0 20px 50px -10px rgba(0,0,0,0.5);
+      outline: #ffd700;
     }
 
-    h1 { margin: 0 0 8px; font-size: 24px; font-weight: 500; }
-    p { margin: 0 0 24px; color: rgba(255,255,255,0.5); font-size: 14px; }
+    h1 { margin: 0 0 8px; font-size: 28px; font-weight: 300; letter-spacing: -0.5px; }
+    p { margin: 0 0 32px; color: var(--text-muted); font-size: 15px; }
 
-    .row { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; }
+    /* --- FORM --- */
+    .form-group { margin-bottom: 20px; }
+    label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
     
-    label { font-size: 12px; opacity: .8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
-
     input, textarea {
-      padding: 14px;
-      border-radius: 12px;
-      border: 1px solid rgba(255,255,255,.12);
-      background: var(--input-bg);
+      width: 100%;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border);
       color: #fff;
-      outline: none;
-      font-size: 14px;
-      transition: border-color 0.2s;
+      padding: 14px 16px;
+      border-radius: 10px;
+      font-size: 15px;
+      transition: all 0.2s;
     }
-    
     input:focus, textarea:focus {
       border-color: var(--accent);
+      background: rgba(0,0,0,0.5);
+      box-shadow: 0 0 0 1px var(--accent);
     }
+    textarea { min-height: 100px; resize: none; }
 
-    textarea { min-height: 100px; resize: vertical; }
-
-    button {
-      width: 100%;
-      padding: 14px;
-      border-radius: 12px;
-      border: 0;
-      background: var(--accent);
-      color: var(--btn-text);
-      font-weight: 600;
-      font-size: 14px;
-      cursor: pointer;
-      margin-top: 12px;
-      font-family: 'din-next-w01-light', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      transition: transform 0.2s, box-shadow 0.2s;
-    }
-
-    button:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.2); 
-    }
-    
-    body.premium button:hover {
-      box-shadow: 0 4px 15px rgba(255, 215, 0, 0.25);
-    }
-
-    a { color: #a9c1ff; transition: color 0.2s; text-decoration: none; }
-    a:hover { color: #fff; }
-    
-    body.premium a { color: #ffe580; }
-    body.premium a:hover { color: #fff; }
-
-    /* PROMPT PREVIEW BOX */
+    /* --- PROMPT PREVIEW --- */
     .prompt-preview {
-        background: rgba(59, 108, 255, 0.1);
-        border: 1px solid rgba(59, 108, 255, 0.3);
-        border-radius: 12px;
-        padding: 12px 16px;
-        margin-bottom: 24px;
-        font-size: 13px;
-        color: #a3b8ff;
-        display: flex;
-        gap: 12px;
-        align-items: center;
+      background: rgba(255,255,255,0.03);
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      padding: 12px 16px;
+      margin-bottom: 30px;
+      display: flex; gap: 12px; align-items: start;
     }
-    body.premium .prompt-preview {
-        background: rgba(255, 215, 0, 0.1);
-        border-color: rgba(255, 215, 0, 0.3);
-        color: #ffe580;
+    .prompt-icon { color: var(--accent); font-size: 18px; margin-top: 2px; }
+    .prompt-content strong { color: #fff; display: block; font-size: 13px; margin-bottom: 2px; }
+    .prompt-content span { color: var(--text-muted); font-size: 13px; line-height: 1.4; display: block; }
+
+    /* --- BUTTONS --- */
+    .btn-group { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
+
+    .btn {
+      width: 100%; padding: 14px; border-radius: 12px; border: none; cursor: pointer;
+      font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: all 0.2s;
     }
+    
+    /* Standard Button */
+    .btn-primary {
+      background: #fff; color: #000;
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(255,255,255,0.15); }
+
+    /* X-Mode Button (Purple) */
+    .btn-xmode {
+      background: linear-gradient(135deg, #7c3aed, #6d28d9);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.1);
+      box-shadow: 0 4px 15px rgba(124, 58, 237, 0.3);
+    }
+    .btn-xmode:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(124, 58, 237, 0.5);
+      filter: brightness(1.1);
+    }
+
+    .back-link {
+      display: block; text-align: center; margin-top: 24px;
+      color: var(--text-muted); text-decoration: none; font-size: 13px;
+    }
+    .back-link:hover { color: #fff; }
 
   </style>
 </head>
 
 <body class="{% if user.plan == 'premium' %}premium{% endif %}">
-  <div class="wrap">
-    <div class="card">
-      <h1>Create project</h1>
-      <p>Configure your new application.</p>
 
-      {% if initial_prompt %}
-      <div class="prompt-preview">
-        <span style="font-size: 18px;">✨</span>
-        <div>
-          <strong style="color:var(--accent)">AI Agent Ready</strong><br>
-          <span style="opacity: 0.8">"{{ initial_prompt[:60] }}..."</span>
-        </div>
+  <div class="noise-overlay"></div>
+  <div class="glow-spot"></div>
+
+  <div class="card">
+    <h1>Initialize Project</h1>
+    <p>Review details before the AI begins construction.</p>
+
+    {% if initial_prompt %}
+    <div class="prompt-preview">
+      <i class="ph-fill ph-sparkle prompt-icon"></i>
+      <div class="prompt-content">
+        <strong>Prompt Loaded</strong>
+        <span>"{{ initial_prompt[:80] }}..."</span>
       </div>
-      {% endif %}
-
-      <form method="post" action="/projects/create">
-        <input type="hidden" name="prompt" value="{{ initial_prompt or '' }}">
-
-        <div class="row">
-          <label>Project Name</label>
-          <input name="name" placeholder="e.g. My Awesome App" required autofocus />
-        </div>
-        <div class="row">
-          <label>Description</label>
-          <textarea name="description" placeholder="Briefly describe what this app does..."></textarea>
-        </div>
-        <button type="submit">Create & Build</button>
-      </form>
-      
-      <p style="opacity:.7;font-size:13px;margin-top:20px;text-align:center;">
-        <a href="/dashboard">Back to dashboard</a>
-      </p>
     </div>
+    {% endif %}
+
+    <form method="post" action="/projects/create">
+      <input type="hidden" name="prompt" value="{{ initial_prompt or '' }}">
+
+      <div class="form-group">
+        <label>Project Name</label>
+        <input name="name" placeholder="e.g. Finance Dashboard" required autofocus />
+      </div>
+
+      <div class="form-group">
+        <label>Description</label>
+        <textarea name="description" placeholder="A brief summary of what this app does...">{{ initial_prompt }}</textarea>
+      </div>
+
+      <div class="btn-group">
+        {% if user.plan == 'premium' %}
+          <button type="submit" name="xmode" value="true" class="btn btn-xmode">
+            <i class="ph-fill ph-lightning"></i> Create in X-Mode (Manual Prompting)
+          </button>
+          
+          <button type="submit" name="xmode" value="false" class="btn btn-primary" style="background:transparent; color:var(--text-muted); border:1px solid var(--border);">
+            Standard Build
+          </button>
+        {% else %}
+          <button type="submit" class="btn btn-primary">
+            Build Project <i class="ph-bold ph-arrow-right"></i>
+          </button>
+        {% endif %}
+      </div>
+    </form>
+    
+    <a href="/dashboard" class="back-link">Cancel & Return</a>
   </div>
+
 </body>
 </html>
