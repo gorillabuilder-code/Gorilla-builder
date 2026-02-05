@@ -232,7 +232,7 @@ class Coder:
             "3. NEVER use literal '\\n'. Use physical newlines.\n\n"
 
             "RULES (React/TSX/TS):\n"
-            "1. **Use Functional Components** with TypeScript interfaces.\n"
+            "1. **Use Functional Components** with TypeScript interfaces. Do not build a server.js\n"
             "2. **Styling**: Tailwind ONLY. No CSS files unless absolutely necessary.\n"
             "3. **Self-Correction**: If the user prompt reports a crash, analyze the stack trace and fix the specific file causing it.\n"
         )

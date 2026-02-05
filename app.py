@@ -1522,12 +1522,17 @@ async def agent_start(
         enforce_token_limit_or_raise(user["id"])
     except HTTPException as e:
         if e.status_code == 402:
-            emit_log(
-                project_id, 
-                "assistant", 
-                "🛑 <b>You have run out of credits.</b><br>"
-                "Please <a href='/pricing' target='_blank' style='color:#ffd700; text-decoration:underline; font-weight:bold;'>Upgrade to Pro</a> to continue building."
+            alert_html = (
+                f'<div style="background:#0f172a; border:1px solid rgba(239,68,68,0.2); border-left:3px solid #ef4444; border-radius:12px; padding:24px; margin-top:20px; font-family:system-ui,-apple-system,sans-serif; box-shadow:0 10px 30px rgba(0,0,0,0.4);">'
+                f'  <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; padding-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.05);">'
+                f'    <div style="width:24px; height:24px; display:flex; align-items:center; justify-content:center; background:rgba(239,68,68,0.1); color:#ef4444; border-radius:50%; font-size:14px; font-weight:bold;">!</div>'
+                f'    <div style="color:#e2e8f0; font-size:16px; font-weight:400; letter-spacing:0.5px; text-transform:uppercase;">Usage Limit Reached</div>'
+                f'  </div>'
+                f'  <div style="color:#cbd5e1; font-size:14px; line-height:1.6; margin-bottom:20px;">You have reached your monthly token limit. Upgrade to Pro to continue generating code and accessing advanced features.</div>'
+                f'  <a href="/pricing" target="_blank" style="display:inline-block; background:#ef4444; color:#ffffff; padding:10px 20px; border-radius:6px; font-size:13px; font-weight:500; text-decoration:none; letter-spacing:0.5px; box-shadow:0 4px 6px rgba(239,68,68,0.2);">Upgrade Plan</a>'
+                f'</div>'
             )
+            emit_log(project_id, "assistant", alert_html)
             return {"started": False}
         raise e
     
@@ -1540,7 +1545,7 @@ async def agent_start(
             await asyncio.sleep(0.5)
             file_tree = await _fetch_file_tree(project_id)
             
-            # [SELF-HEALING] Check for runtime errors
+            # [SELF-HEALING]
             try:
                 projects_dir = os.path.join(ROOT_DIR, "projects")
                 error_log_path = os.path.join(projects_dir, project_id, "server_errors.txt")
@@ -1554,7 +1559,7 @@ async def agent_start(
             except: pass
 
             planner = Planner()
-            coder = XCoder() if xmode else Coder()
+            coder = XCoder() if (xmode and 'XCoder' in globals()) else Coder()
             
             # --- PHASE 1: PLANNER ---
             emit_phase(project_id, "planner")
@@ -1569,119 +1574,47 @@ async def agent_start(
             tk = plan_res.get("usage", {}).get("total_tokens", 0)
             if tk: add_monthly_tokens(user["id"], tk)
             
-            # --- DISPLAY PLAN (MIRO BOARD STYLE) ---
-            # Using HTML/CSS injection for rich UI in chat logs
+            # --- DISPLAY PLAN (CLEAN VERSION) ---
             raw_plan = plan_res.get("plan", {})
             real_assistant_msg = plan_res.get("assistant_message")
             
-            # 1. Emit the Assistant's Message
             emit_log(project_id, "assistant", real_assistant_msg or "I have created a plan for your application.")
 
-            # 2. Emit the Plan with "Cool" Styling
             tasks = raw_plan.get("todo", [])
             if tasks:
-                # Generate a unique ID to prevent style collisions in the chat log
-                uid = f"plan_{uuid.uuid4().hex[:6]}"
-                
-                # Inline CSS for the "Miro Board" look
-                plan_html = f"""
-                <style>
-                    .{uid}-board {{
-                        background: radial-gradient(circle at top left, #1e293b, #0f172a);
-                        border: 1px solid rgba(148, 163, 184, 0.1);
-                        border-radius: 12px;
-                        padding: 20px;
-                        margin-top: 15px;
-                        font-family: system-ui, -apple-system, sans-serif;
-                        position: relative;
-                        overflow: hidden;
-                        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
-                    }}
-                    /* Subtle Grid Background */
-                    .{uid}-board::before {{
-                        content: '';
-                        position: absolute;
-                        inset: 0;
-                        background-image: radial-gradient(rgba(255,255,255,0.08) 1px, transparent 1px);
-                        background-size: 24px 24px;
-                        opacity: 0.5;
-                        pointer-events: none;
-                    }}
-                    .{uid}-header {{
-                        display: flex;
-                        align-items: center;
-                        gap: 12px;
-                        margin-bottom: 20px;
-                        position: relative;
-                        z-index: 2;
-                    }}
-                    .{uid}-pulse {{
-                        width: 10px;
-                        height: 10px;
-                        background-color: #4ade80; /* Green glow */
-                        border-radius: 50%;
-                        box-shadow: 0 0 10px #4ade80;
-                        animation: {uid}-pulse-anim 2s infinite;
-                    }}
-                    .{uid}-title {{
-                        font-size: 14px;
-                        font-weight: 700;
-                        text-transform: uppercase;
-                        letter-spacing: 1.5px;
-                        color: #94a3b8;
-                    }}
-                    .{uid}-task {{
-                        background: rgba(30, 41, 59, 0.6);
-                        border-left: 3px solid #6366f1; /* Indigo accent */
-                        padding: 12px 16px;
-                        margin-bottom: 8px;
-                        border-radius: 6px;
-                        color: #e2e8f0;
-                        font-size: 14px;
-                        display: flex;
-                        gap: 12px;
-                        align-items: flex-start;
-                        backdrop-filter: blur(5px);
-                        transition: all 0.2s ease;
-                        position: relative;
-                        z-index: 2;
-                    }}
-                    .{uid}-task:hover {{
-                        transform: translateX(4px);
-                        background: rgba(30, 41, 59, 0.9);
-                        border-left-color: #a855f7; /* Purple hover */
-                        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-                    }}
-                    .{uid}-num {{
-                        font-family: 'Courier New', monospace;
-                        color: #6366f1;
-                        font-weight: bold;
-                        opacity: 0.8;
-                    }}
-                    @keyframes {uid}-pulse-anim {{
-                        0% {{ box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.7); }}
-                        70% {{ box-shadow: 0 0 0 6px rgba(74, 222, 128, 0); }}
-                        100% {{ box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }}
-                    }}
-                </style>
-                <div class="{uid}-board">
-                    <div class="{uid}-header">
-                        <div class="{uid}-pulse"></div>
-                        <div class="{uid}-title">Strategic Blueprint</div>
-                    </div>
-                """
-                
+                steps_html = ""
                 for i, task in enumerate(tasks, 1):
-                    plan_html += f"""
-                    <div class="{uid}-task">
-                        <span class="{uid}-num">0{i}</span>
-                        <span>{task}</span>
-                    </div>
-                    """
+                    # [CRITICAL PARSING FIX]
+                    # We split by "]" and take the second part to remove the metadata tag.
+                    # Example: "Step 1: [Project:...] Do the work" -> "Do the work"
+                    task_content = task
+                    if "]" in task:
+                        parts = task.split("]", 1)
+                        if len(parts) > 1:
+                            task_content = parts[1].strip()
+
+                    steps_html += (
+                        f'<div style="display:flex; gap:25px; position:relative; z-index:2; margin-bottom:20px;">'
+                        f'  <div style="width:12px; height:12px; background:#0f172a; border:2px solid #3b82f6; border-radius:50%; box-shadow:0 0 10px #3b82f6; flex-shrink:0; margin-top:6px; position:relative; z-index:2;"></div>'
+                        f'  <div style="flex:1; background:rgba(30,41,59,0.3); border:1px solid rgba(255,255,255,0.05); border-radius:8px; padding:18px;">'
+                        f'    <span style="color:#60a5fa; font-size:11px; font-weight:bold; letter-spacing:1px; margin-bottom:6px; display:block; font-family:monospace; opacity:0.8;">{i:02}</span>'
+                        f'    <div style="color:#cbd5e1; font-size:14px; line-height:1.5;">{task_content}</div>'
+                        f'  </div>'
+                        f'</div>'
+                    )
                 
-                plan_html += "</div>"
-                emit_log(project_id, "planner", plan_html)
-            # ------------------------------------
+                full_html = (
+                    f'  <div style="margin-bottom:30px; padding-bottom:15px; border-bottom:1px solid rgba(255,255,255,0.05);">'
+                    f'    <div style="color:#e2e8f0; font-size:18px; font-weight:400; letter-spacing:1px; text-transform:uppercase;">✦BluePrint</div>'
+                    f'  </div>'
+                    f'  <div style="position:relative; padding-left:5px;">'
+                    f'    <div style="position:absolute; left:6px; top:10px; bottom:10px; width:1px; background:linear-gradient(to bottom,#3b82f6,rgba(59,130,246,0.1)); z-index:1;"></div>'
+                    f'    {steps_html}'
+                    f'  </div>'
+                    f'</div>'
+                )
+                
+                emit_log(project_id, "planner", full_html)
 
             if not tasks:
                 emit_status(project_id, "Response Complete")
@@ -1693,7 +1626,6 @@ async def agent_start(
             total = len(tasks)
             
             for i, task in enumerate(tasks, 1):
-                # Token check mid-flight
                 try: enforce_token_limit_or_raise(user["id"])
                 except HTTPException:
                     emit_log(project_id, "system", "⚠️ Token limit reached. Stopping.")
@@ -1724,7 +1656,6 @@ async def agent_start(
                     content = op.get("content")
                     
                     if path and content is not None:
-                        # LINTING (Basic JS Check)
                         if path.startswith("static/") and path.endswith(".js"):
                             try:
                                 lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
@@ -1752,7 +1683,7 @@ async def agent_start(
             print(traceback.format_exc())
 
     asyncio.create_task(_run())
-    return {"started": True}# --- ADD THIS TO backend/app.py TO FIX THE EDITOR ---
+    return {"started": True}
 
 @app.get("/api/project/{project_id}/events")
 async def agent_events(request: Request, project_id: str):

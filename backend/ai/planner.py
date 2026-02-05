@@ -17,7 +17,7 @@ import httpx
 # -------------------------------------------------
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "z-ai/glm-4.7-flash") 
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "x-ai/grok-4-fast") 
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # OpenRouter specific headers for rankings/stats
@@ -123,7 +123,7 @@ class Planner:
         # SYSTEM PROMPT (UPDATED FOR BOILERPLATE + AI SPECS)
         # -------------------------------------------------------
         system_prompt = (
-    "You are the Lead Architect for a high-performance web application. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in **Node.js + React (TypeScript/Vite)**.\n"
+    "You are the Lead Architect for a high-performance web application. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in **React (TypeScript/Vite)**. Strictly give NO CODE AT ALL, in no form.\n"
     "CRITICAL CONTEXT: The AI Coder executes tasks in isolation. It has NO memory of previous files unless you provide context in *every single task description*.\n\n"
 
     "Rules:\n"
@@ -169,8 +169,9 @@ class Planner:
     "   - Image Gen: 'accounts/fireworks/models/playground-v2-5-1024px-aesthetic'\n"
     "   - BG Removal: Use `process.env.REM_BG_API_KEY`.\n"
     "3. **Volume:** \n"
-    "   - Simple Apps: 4-6 tasks (Focus on editing Index.tsx and connecting UI).\n"
+    "   - Simple Apps: 5-6 tasks (Focus on editing Index.tsx and connecting UI).\n"
     "   - Complex Apps: 10-15 tasks."
+    "   - Never exceed 350 tokens per step, as too much is abd for the coder."
         )
         
         chat_history = _get_history(project_id)
@@ -239,7 +240,7 @@ class Planner:
                 tasks = data.get("tasks", [])
                 assistant_message = data.get("assistant_message", "Plan updated.")
                 usage = data_api.get("usage", {})
-                total_tokens = int(usage.get("total_tokens", 0))*2.25
+                total_tokens = int(usage.get("total_tokens", 0))*0.75
 
                 base_plan = {
                     "capabilities": [],
@@ -255,7 +256,7 @@ class Planner:
                     "assistant_message": assistant_message,
                     "plan": base_plan,
                     "todo_md": self._to_todo_md(base_plan, assistant_message),
-                    "usage": {"total_tokens": int(total_tokens)*2.725}
+                    "usage": {"total_tokens": int(total_tokens)*0.75}
                 }
 
             except Exception as e:
