@@ -12,18 +12,15 @@ from dotenv import load_dotenv
 # --------------------------------------------------------------------------
 # E2B SDK COMPATIBILITY LAYER
 # --------------------------------------------------------------------------
-SDK_VERSION = "none"
 Sandbox = None
 
 # 1. Try New SDK (v1.0+)
 try:
     from e2b_code_interpreter import Sandbox
-    SDK_VERSION = "new"
 except ImportError:
     # 2. Try Legacy SDK
     try:
         from e2b import Sandbox
-        SDK_VERSION = "legacy"
     except ImportError:
         pass
 
@@ -51,7 +48,7 @@ class ProjectRunManager:
         if not info: return False, None
         
         try:
-            # Check liveness based on SDK version
+            # Check liveness based on SDK version capabilities
             if hasattr(info.sandbox, "is_running"):
                 # New SDK requires explicit method call
                 if not info.sandbox.is_running():
@@ -104,27 +101,27 @@ class ProjectRunManager:
             raise RuntimeError("E2B SDK not installed. Run: pip install e2b-code-interpreter")
 
         await self.stop(project_id)
-        print(f"--> [E2B] Creating sandbox for {project_id} (SDK: {SDK_VERSION})...")
+        print(f"--> [E2B] Creating sandbox for {project_id}...")
         
         sandbox = None
         
         # --- 1. ROBUST SANDBOX INITIALIZATION ---
         try:
-            if SDK_VERSION == "new":
-                # NEW SDK (v1.x): Synchronous Constructor
-                # CRITICAL FIX: We run the class constructor in a thread.
-                print(f"--> [E2B] Initializing new Sandbox()...")
-                sandbox = await asyncio.to_thread(Sandbox)
-            
-            elif SDK_VERSION == "legacy":
-                # LEGACY SDK: Async factory
-                if hasattr(Sandbox, "create"):
-                    print(f"--> [E2B] Initializing legacy Sandbox.create()...")
+            # CHECK: Does this SDK version require the Factory Pattern? (Legacy/Specific Versions)
+            if hasattr(Sandbox, "create"):
+                print(f"--> [E2B] Initializing via Sandbox.create() (Factory Pattern)...")
+                try:
+                    # Try with 'base' template first
                     sandbox = await Sandbox.create(template="base")
-                else:
-                    sandbox = Sandbox(template="base")
+                except TypeError:
+                    # Fallback if template arg is not supported
+                    sandbox = await Sandbox.create()
+            
+            # CHECK: Does this SDK version support Direct Instantiation? (New SDK)
             else:
-                raise RuntimeError("Unknown SDK version state")
+                print(f"--> [E2B] Initializing via Sandbox() (Constructor Pattern)...")
+                # Run synchronous constructor in a thread to prevent blocking
+                sandbox = await asyncio.to_thread(Sandbox)
 
         except Exception as e:
             err_str = str(e)
@@ -140,7 +137,7 @@ class ProjectRunManager:
             # Write Files
             print(f"--> [E2B] Writing {len(file_tree)} files...")
             
-            # Detect filesystem (New vs Old SDK)
+            # Detect filesystem attribute (New vs Old SDK)
             fs = getattr(sandbox, "files", getattr(sandbox, "filesystem", None))
             if not fs: raise RuntimeError("Could not find filesystem on Sandbox object")
 
@@ -154,6 +151,7 @@ class ProjectRunManager:
 
             # --- HELPER: Unified Command Runner ---
             async def run_cmd(c, background=False):
+                # Detect command interface (New vs Old SDK)
                 if hasattr(sandbox, "commands"): 
                     # NEW SDK (Sync methods) -> Wrap in thread
                     print(f"    [Exec] {c}")
@@ -188,19 +186,21 @@ class ProjectRunManager:
             start_cmd = self._determine_start_command(file_tree)
             print(f"--> [E2B] Starting server with: {start_cmd}")
             
-            # Capture Logs
-            full_cmd = f"export PORT=3000 && {start_cmd} > server.log 2> server_err.txt"
+            # --- INJECT ENV VARS ---
+            fw_api_key = os.getenv("FIREWORKS_API_KEY")
+            
+            # Capture Logs & Inject Key
+            # We explicitly export the key in the shell command to guarantee it reaches the process
+            full_cmd = f"export PORT=3000 && export FIREWORKS_API_KEY='{fw_api_key}' && {start_cmd} > server.log 2> server_err.txt"
             
             # Start in background
             await run_cmd(full_cmd, background=True)
 
-            # --- [FIXED] LENIENT HEALTH CHECK (NO -f FLAG) ---
+            # --- HEALTH CHECK ---
             print(f"--> [E2B] Waiting for port 3000...")
             port_open = False
             for _ in range(20):
-                # REMOVED "-f". We accept 404s as "Running".
-                # If curl connects, exit code is 0 (Success).
-                # If curl fails to connect (server down), exit code is non-zero.
+                # Check if port is listening
                 code, _ = await run_cmd("curl -s http://localhost:3000")
                 if code == 0:
                     port_open = True
