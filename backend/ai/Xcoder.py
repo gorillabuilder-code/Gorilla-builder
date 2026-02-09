@@ -18,7 +18,7 @@ import httpx
 # --- Configuration for OpenRouter ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 # Using OpenAI GPT-5.2 Codex via OpenRouter
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-5.2-codex")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "anthropic/claude-opus-4.6")
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # OpenRouter specific headers for rankings/stats
