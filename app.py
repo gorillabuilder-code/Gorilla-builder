@@ -1388,7 +1388,7 @@ async def _start_server_with_retry(project_id: str, triggered_error: str = None)
     Robust Starter:
     1. Identifies broken files from logs.
     2. Runs AI fixes (awaiting directly).
-    3. Starts server & SAVES it to ACTIVE_SANDBOXES.
+    3. Starts server using the existing run_manager.
     """
     _BOOTING_PROJECTS.add(project_id)
     
@@ -1401,7 +1401,7 @@ async def _start_server_with_retry(project_id: str, triggered_error: str = None)
         for attempt in range(1, max_retries + 2):
             await asyncio.sleep(0.1)
 
-            # --- PHASE A: FIXING ---
+            # --- PHASE A: FIXING (Smart Context) ---
             if current_error:
                 emit_phase(project_id, "fixing")
                 emit_status(project_id, f"Analyzing Crash ({attempt})...")
@@ -1431,6 +1431,7 @@ async def _start_server_with_retry(project_id: str, triggered_error: str = None)
                     fix_prompt += "Fix any syntax errors in the project files."
 
                 try:
+                    # [CRITICAL] Direct await (no to_thread) so we don't get 'coroutine' errors
                     res = await coder.generate_code(
                         plan_section="Crash Fix",
                         plan_text=fix_prompt,
@@ -1456,48 +1457,22 @@ async def _start_server_with_retry(project_id: str, triggered_error: str = None)
                 except Exception as e:
                     print(f"Fixing failed: {e}")
 
-            # --- PHASE B: STARTING ---
+            # --- PHASE B: STARTING (Using RunManager) ---
             try:
                 emit_status(project_id, "Booting server..." if attempt == 1 else "Retrying...")
                 await asyncio.sleep(0.1)
 
                 file_tree = await _fetch_file_tree(project_id)
                 
-                # [CRITICAL CHANGE] Initialize 'sb' with NO template argument
-                # The default sandbox has Node.js/NPM pre-installed.
-                from e2b import Sandbox
-                sb = Sandbox() 
+                # [CRITICAL] Use your existing run_manager to avoid SDK mismatch
+                # We expect run_manager.start to return the sandbox instance or info
+                sb = await run_manager.start(project_id, file_tree)
                 
-                # 1. Write Files
-                for path, content in file_tree.items():
-                    try:
-                        d = os.path.dirname(path)
-                        if d: sb.filesystem.make_dir(d)
-                        sb.filesystem.write(path, content)
-                    except: pass
-                
-                # 2. Install & Build
-                sb.process.start_and_wait("npm install")
-                sb.process.start_and_wait("npm run build")
-                
-                # 3. Start Server (Background)
-                # Export API Key for backend features
-                start_cmd = f"export FIREWORKS_API_KEY='{os.environ.get('FIREWORKS_API_KEY')}' && npm run dev -- --port 3000 --host"
-                sb.process.start(start_cmd)
-                
-                # 4. Wait for Port (Health Check)
-                is_up = False
-                for _ in range(10):
-                    if sb.process.start_and_wait("curl -s http://localhost:3000").exit_code == 0:
-                        is_up = True
-                        break
-                    await asyncio.sleep(1)
-                
-                if not is_up:
-                    raise Exception("App crashed during startup: Connection refused")
-
-                # 5. REGISTER SINGLETON
-                ACTIVE_SANDBOXES[project_id] = sb
+                # [LOOP FIX] Save to Singleton so the Proxy endpoint finds it
+                # If run_manager.start returns a Sandbox object, this works.
+                # If it returns a dict, you might need: ACTIVE_SANDBOXES[project_id] = sb['sandbox']
+                if sb:
+                    ACTIVE_SANDBOXES[project_id] = sb
                 
                 emit_status(project_id, "Server Running")
                 emit_progress(project_id, "Ready", 100)

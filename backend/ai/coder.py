@@ -197,9 +197,8 @@ class Coder:
             "1. **React + TypeScript (Vite/Esbuild)**: Use `.tsx` for components.\n"
             "2. **Tailwind CSS**: Use utility classes (e.g., `className='p-4 bg-blue-500'`).\n"
             "3. **Shadcn/UI**: The folder `src/components/ui/` is fully populated with components like Button, Card, Input, etc.\n"
-            "4. **Magic UI**: The folder `src/components/magicui/` contains visual effects (Marquee, Meteors).\n"
-            "5. **Framer Motion**: Installed for animations.\n"
-            "6. **Lucide React**: Use `import { Home } from 'lucide-react'` for icons.\n\n"
+            "4. **Framer Motion**: Installed for animations.\n"
+            "5. **Lucide React**: Use `import { Home } from 'lucide-react'` for icons.\n\n"
 
             "STRICT IMPORT RULES:\n"
             "- **Path Alias**: Use `@/` to refer to `src/`. Example: `import { Button } from '@/components/ui/button'`.\n"
