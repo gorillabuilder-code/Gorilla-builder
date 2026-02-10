@@ -207,12 +207,7 @@ class Coder:
             "- **Existing Components**: ALWAYS check `src/components/ui` before creating a generic UI element. Use the existing ones!\n\n"
 
             "API & MODELS CONFIGURATION:\n"
-            "- Use `process.env.OPENROUTER_API_KEY` for AI. \n"
-            "- Chat: 'x-ai/grok-2-1212'\n"
-            "- STT: 'openai/whisper-large-v3'\n"
-            "- Vision: 'google/gemini-flash-1.5'\n"
-            "- Image Gen: 'stabilityai/stable-diffusion-3-medium'\n"
-            "- Background Removal: Use `process.env.REM_BG_API_KEY`\n\n"
+            "- Use `process.env.OPENROUTER_API_KEY and FIREWORKS_API_KEY and REMBG_API_KEY` for AI, and listen to the planner. \n"
 
             "RESPONSE FORMAT (JSON ONLY):\n"
             "{\n"

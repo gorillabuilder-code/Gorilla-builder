@@ -180,7 +180,7 @@ class ProjectRunManager:
             print(f"--> [E2B] Starting server with: {start_cmd}")
             
             # --- INJECT ENV VARS ---
-            fw_api_key = os.getenv("FIREWORKS_API_KEY", "")
+            fw_api_key = os.getenv("FIREWORKS_API_KEY")
             
             # Capture Logs & Inject Key
             # We explicitly export the key in the shell command
