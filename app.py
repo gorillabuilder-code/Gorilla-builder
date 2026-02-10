@@ -897,11 +897,47 @@ async def create_project(
     prompt: Optional[str] = Form(None), 
     name: Optional[str] = Form(None), 
     description: str = Form(""),
-    xmode: Optional[str] = Form(None)  # [NEW] Capture xmode flag
+    xmode: Optional[str] = Form(None)  # Capture xmode flag
 ):
     user = get_current_user(request)
 
-    # Redirect back to form if prompt exists but user hasn't confirmed name
+    # --- 1. FREE TIER LIMIT CHECK (Max 3 Projects) ---
+    if user.get("plan") != "premium":
+        try:
+            # Count existing projects for this user
+            res = supabase.table("projects") \
+                .select("id", count="exact") \
+                .eq("owner_id", user["id"]) \
+                .execute()
+            
+            # Robust count retrieval (handles different Supabase client versions)
+            current_count = res.count if hasattr(res, 'count') and res.count is not None else len(res.data)
+
+            if current_count >= 3:
+                # Limit Reached: Fetch existing projects to re-render the dashboard
+                # We need this data because 'dashboard.html' expects a list of projects
+                p_res = supabase.table("projects") \
+                    .select("*") \
+                    .eq("owner_id", user["id"]) \
+                    .order("created_at", desc=True) \
+                    .execute()
+                
+                existing_projects = p_res.data if p_res.data else []
+
+                return templates.TemplateResponse("dashboard.html", {
+                    "request": request, 
+                    "user": user,
+                    "projects": existing_projects,
+                    "error": "Free Limit Reached (3/3). Upgrade to Pro to create unlimited projects."
+                })
+        except Exception as e:
+            print(f"⚠️ Project limit check failed: {e}")
+            # If check fails, we typically allow it to proceed or show a generic error.
+            # Here we proceed to avoid blocking users due to temporary DB glitches.
+            pass
+
+    # --- 2. PROMPT STASHING & CONFIRMATION ---
+    # Redirect back to name confirmation form if we have a prompt but no name
     if prompt and not name:
         target = f"/projects/createit?prompt={urllib.parse.quote(prompt)}"
         return RedirectResponse(target, status_code=303)
@@ -909,10 +945,9 @@ async def create_project(
     final_prompt = prompt or request.session.pop("stashed_prompt", None)
     project_name = name or "Untitled Project"
     
-    # Internal function to run heavy DB ops
+    # --- 3. HEAVY LIFTING (DB & Files) ---
     def _heavy_lift_create():
         # A. Create Project Record (Service Role bypasses RLS)
-        # Note: We manually set 'owner_id' to match the authenticated user
         res = supabase.table("projects").insert({
             "owner_id": user["id"], 
             "name": project_name, 
@@ -931,7 +966,6 @@ async def create_project(
         supabase.table("projects").update({"subdomain": final_subdomain}).eq("id", pid).execute()
         
         # C. Inject Boilerplate
-        # We look for the boilerplate directory in a few standard places
         bp_dir = globals().get("BOILERPLATE_DIR")
         if not bp_dir or not os.path.isdir(bp_dir):
             bp_dir = os.path.join(ROOT_DIR, "backend", "boilerplate")
@@ -975,8 +1009,9 @@ async def create_project(
         
         return pid
 
-    # Execute Async
+    # --- 4. EXECUTION ---
     try:
+        # Run DB operations in thread to prevent blocking
         pid = await asyncio.to_thread(_heavy_lift_create)
         
         # Redirect Logic
