@@ -17,7 +17,7 @@ import httpx
 # -------------------------------------------------
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "openai/gpt-5.1") 
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "google/gemini-3-flash-preview") 
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # OpenRouter specific headers for rankings/stats
@@ -240,7 +240,7 @@ class Planner:
                 tasks = data.get("tasks", [])
                 assistant_message = data.get("assistant_message", "Plan updated.")
                 usage = data_api.get("usage", {})
-                total_tokens = int(usage.get("total_tokens", 0))*0.75
+                total_tokens = int(usage.get("total_tokens", 0))*2.5
 
                 base_plan = {
                     "capabilities": [],
@@ -256,7 +256,7 @@ class Planner:
                     "assistant_message": assistant_message,
                     "plan": base_plan,
                     "todo_md": self._to_todo_md(base_plan, assistant_message),
-                    "usage": {"total_tokens": int(total_tokens)*0.75}
+                    "usage": {"total_tokens": int(total_tokens)*2.5}
                 }
 
             except Exception as e:

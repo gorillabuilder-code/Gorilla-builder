@@ -408,25 +408,48 @@ def send_otp_email(to_email: str, code: str):
 
 
 # ==========================================================================
-# PUBLIC ROUTES (Templates)
+# PUBLIC ROUTES (Templates & Redirects)
 # ==========================================================================
+
+# Define pages that don't require authentication (except root which has logic)
 PUBLIC_PAGES = {
-    "/": "landing/index.html",
     "/login": "auth/login.html",
-    "/signup": "auth/signup.html", # Used for both steps
-    "/forgot-password": "forgot.html",
+    "/signup": "auth/signup.html",
+    "/forgot-password": "auth/forgot_password.html",
     "/pricing": "freemium/pricing.html",
     "/checkout/tokens": "freemium/checkout/tokens.html",
     "/checkout/premium": "freemium/checkout/premium.html",
     "/help": "help.html",
-    "/about": "about.html",
+    "/about": "docs/about.html", 
+    "/contact": "docs/contact.html",
 }
 
 app.mount("/assets", StaticFiles(directory="frontend/templates/landing/assets"), name="assets")
 
+# 1. ROOT ROUTE REDIRECT LOGIC
+@app.get("/")
+async def root_redirect(request: Request):
+    """
+    Redirects based on auth status:
+    - Logged in -> /dashboard
+    - Not logged in (or dev/local) -> /signup
+    """
+    user = get_current_user_safe(request) # Helper function to get user without raising error
+    
+    if user:
+        return RedirectResponse("/dashboard", status_code=303)
+    
+    # Default landing is now the signup page
+    return RedirectResponse("/signup", status_code=303)
+
+# 2. GENERATE HANDLERS FOR OTHER PUBLIC PAGES
 for route, template_name in PUBLIC_PAGES.items():
+    # Skip creating a handler for root since we defined it manually above
+    if route == "/": continue
+
     def make_handler(t_name):
         async def handler(request: Request):
+            # Pass common variables like 'step' for signup flow
             return templates.TemplateResponse(t_name, {"request": request, "step": "initial"})
         return handler
         
@@ -438,48 +461,34 @@ async def favicon():
     if os.path.exists(p): 
         return FileResponse(p)
     raise HTTPException(status_code=404)
+
 # ==========================================================================
-# 📚 DOCUMENTATION & COMPANY ROUTES
+# 📚 DOCUMENTATION ROUTES
 # ==========================================================================
 
-# 1. Master Route for Docs
 @app.get("/docs/{page}", response_class=HTMLResponse)
 async def docs_page(request: Request, page: str):
     valid_pages = [
         "intro", "dashboard", "billing", 
         "prompting", "editor", "agent-workflow", "files",
         "x-mode", "deployment", "troubleshooting",
-        "about", "contact" # Mapped here for sidebar convenience
+        "about", "contact"
     ]
     
     if page not in valid_pages:
-        # Default to intro if page is invalid, or 404
         return RedirectResponse("/docs/intro")
         
     return templates.TemplateResponse(
         f"docs/{page}.html", 
         {"request": request, "page": page}
     )
+
 @app.get("/docs", response_class=HTMLResponse)
-async def about_page(request: Request):
-    return templates.TemplateResponse("docs/intro.html", {"request": request, "page": "about"})
-
-# 2. Direct Shortcuts for About/Contact
-@app.get("/about", response_class=HTMLResponse)
-async def about_page(request: Request):
-    return templates.TemplateResponse("docs/about.html", {"request": request, "page": "about"})
-
-@app.get("/contact", response_class=HTMLResponse)
-async def contact_page(request: Request):
-    return templates.TemplateResponse("docs/contact.html", {"request": request, "page": "contact"})
-
-# 3. Redirect /docs root to intro
-@app.get("/docs")
 async def docs_root():
     return RedirectResponse("/docs/intro")
 
 # ==========================================================================
-# AUTHENTICATION ROUTES (COMPLETE & FIXED)
+# AUTHENTICATION ROUTES (Consolidated & Secured)
 # ==========================================================================
 import random
 import string
@@ -490,13 +499,29 @@ from fastapi.responses import RedirectResponse
 # Global memory for storing OTPs during signup flow
 PENDING_SIGNUPS = {}
 
-# --------------------------------------------------------------------------
-# 1. SIGNUP & VERIFICATION
-# --------------------------------------------------------------------------
+def get_current_user_safe(request: Request):
+    """
+    Helper to safely check for a user session without raising an exception.
+    Used for the root redirect logic.
+    """
+    try:
+        # Check Supabase cookie first
+        token = request.cookies.get("sb_access_token")
+        if token:
+             user = supabase.auth.get_user(token)
+             if user: return user
+        
+        # Fallback to session (for dev/google auth) if used
+        if "user" in request.session:
+            return request.session["user"]
+            
+    except:
+        pass
+    return None
 
-@app.get("/signup")
-async def signup_page(request: Request):
-    return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "initial"})
+# --------------------------------------------------------------------------
+# 1. SIGNUP FLOW (Secure)
+# --------------------------------------------------------------------------
 
 @app.post("/auth/signup")
 async def auth_signup_init(
@@ -507,156 +532,36 @@ async def auth_signup_init(
 ):
     email = (email or "").strip().lower()
     
-    # Generate 6-digit OTP
-    otp = "".join(random.choices(string.digits, k=6))
-    
-    # Store credentials temporarily (expires if server restarts)
-    PENDING_SIGNUPS[email] = {
-        "password": password,
-        "otp": otp,
-        "ts": time.time()
-    }
-    
-    # Send Email via Resend (Ensure send_otp_email is defined in your utils)
-    # background_tasks.add_task(send_otp_email, email, otp)
-    print(f"📧 [DEV OTP] Code for {email}: {otp}") 
-    
-    return templates.TemplateResponse(
-        "auth/signup.html", 
-        {
-            "request": request, 
-            "step": "verify", 
-            "email": email
-        }
-    )
-
-@app.post("/auth/verify")
-async def auth_verify_otp(
-    request: Request,
-    email: str = Form(...),
-    code: str = Form(...)
-):
-    email = email.strip().lower()
-    record = PENDING_SIGNUPS.get(email)
-    
-    # Validation
-    if not record:
-        return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "initial", "error": "Session expired. Please start over."})
-    
-    if record["otp"] != code:
-        return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "verify", "email": email, "error": "Invalid code."})
-    
+    # [SECURITY] Check if user already exists
     try:
-        password = record["password"]
-        
-        # 1. Try to Create User (Sign Up)
-        try:
-            supabase.auth.admin.create_user({
-                "email": email,
-                "password": password,
-                "email_confirm": True
-            })
-        except Exception as e:
-            # If user exists, we ignore the error and attempt login below
-            print(f"User creation skipped (might exist): {e}")
-
-        # 2. AUTO-LOGIN (Handles both new users and existing users with correct pass)
-        res = supabase.auth.sign_in_with_password({
-            "email": email, 
-            "password": password
-        })
-
-        if not res.session:
-            raise Exception("Account verified, but login failed. Please check your password.")
-
-        # 3. Sync to Public DB
-        ensure_public_user(res.user.id, email)
-        
-        # 4. Cleanup & Redirect
-        if email in PENDING_SIGNUPS:
-            del PENDING_SIGNUPS[email]
-        
-        response = RedirectResponse("/dashboard", status_code=303)
-        response.set_cookie(
-            key="sb_access_token", 
-            value=res.session.access_token, 
-            max_age=86400, 
-            httponly=True, 
-            samesite="lax"
-        )
-        return response
-        
-    except Exception as e:
-        print(f"Verify Error: {e}")
-        return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "verify", "email": email, "error": "Login failed. If you have an account, check your password."})
-
-# ==========================================================================
-# AUTHENTICATION ROUTES (SECURE & DUPLICATE-PROOF)
-# ==========================================================================
-import random
-import string
-import time
-from fastapi import APIRouter, Request, Form, BackgroundTasks, HTTPException, Response
-from fastapi.responses import RedirectResponse
-
-# Global memory for storing OTPs during signup flow
-PENDING_SIGNUPS = {}
-
-# --------------------------------------------------------------------------
-# 1. SIGNUP FLOW (With Duplicate Protection)
-# --------------------------------------------------------------------------
-
-@app.get("/signup")
-async def signup_page(request: Request):
-    return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "initial"})
-
-@app.post("/auth/signup")
-async def auth_signup_init(
-    request: Request, 
-    background_tasks: BackgroundTasks,
-    email: str = Form(...), 
-    password: str = Form(...)
-):
-    email = (email or "").strip().lower()
-    
-    # --- [FIX] CHECK FOR EXISTING USER ---
-    # We query Supabase to see if this email is already registered.
-    # If yes, we stop the signup process immediately.
-    try:
-        # Note: admin.list_users() is efficient for checking existence
-        # Or you can try a dummy sign-in if you don't want to use admin rights here,
-        # but admin check is cleaner for a true "exists" check.
+        # Admin check is most reliable. If not available, use a safe alternative.
         existing_users = supabase.auth.admin.list_users()
         user_exists = any(u.email == email for u in existing_users)
         
         if user_exists:
-            # User exists: Do NOT generate OTP. Redirect to login with error.
+            # REDIRECT TO LOGIN if account exists
             return templates.TemplateResponse(
                 "auth/login.html", 
                 {
                     "request": request, 
-                    "error": "An account with this email already exists. Please log in."
+                    "error": "Account exists. Please log in here.",
+                    "email_prefill": email # Optional: pass back to template if supported
                 }
             )
     except Exception as e:
         print(f"⚠️ User existence check warning: {e}")
-        # Proceed with caution if check fails (e.g. API error), or block it.
-        pass
+        pass # Fail open or closed depending on policy, passing allows flow to continue
 
-    # --- PROCEED ONLY IF NEW USER ---
-    
-    # Generate 6-digit OTP
+    # Proceed with OTP generation
     otp = "".join(random.choices(string.digits, k=6))
     
-    # Store credentials temporarily
     PENDING_SIGNUPS[email] = {
         "password": password,
         "otp": otp,
         "ts": time.time()
     }
     
-    # Send Email via Resend
-    # background_tasks.add_task(send_otp_email, email, otp)
+    # Send Email (Mock for Dev)
     print(f"📧 [DEV OTP] Code for {email}: {otp}") 
     
     return templates.TemplateResponse(
@@ -677,19 +582,18 @@ async def auth_verify_otp(
     email = email.strip().lower()
     record = PENDING_SIGNUPS.get(email)
     
-    # Validation
+    # 1. Validate Session
     if not record:
         return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "initial", "error": "Session expired. Please start over."})
     
+    # 2. Validate OTP
     if record["otp"] != code:
         return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "verify", "email": email, "error": "Invalid code."})
     
     try:
         password = record["password"]
         
-        # 1. Create User in Supabase Auth
-        # Since we checked for duplicates in step 1, this should theoretically always succeed for new users.
-        # However, race conditions exist, so we wrap it.
+        # 3. Create Supabase User
         try:
             supabase.auth.admin.create_user({
                 "email": email,
@@ -697,11 +601,10 @@ async def auth_verify_otp(
                 "email_confirm": True
             })
         except Exception as e:
-            # If it fails here, it really means they exist. Stop and redirect to login.
-            print(f"Create User Failed: {e}")
-            return templates.TemplateResponse("auth/login.html", {"request": request, "error": "Account already exists. Please log in."})
+            # Should be caught by the initial check, but strictly handle race conditions
+            return templates.TemplateResponse("auth/login.html", {"request": request, "error": "Account exists. Please log in."})
 
-        # 2. AUTO-LOGIN
+        # 4. Auto-Login
         res = supabase.auth.sign_in_with_password({
             "email": email, 
             "password": password
@@ -710,10 +613,10 @@ async def auth_verify_otp(
         if not res.session:
             raise Exception("Account created, but auto-login failed.")
 
-        # 3. Sync to Public DB
+        # 5. Sync Public DB
         ensure_public_user(res.user.id, email)
         
-        # 4. Cleanup & Redirect
+        # 6. Cleanup & Response
         if email in PENDING_SIGNUPS:
             del PENDING_SIGNUPS[email]
         
@@ -729,28 +632,26 @@ async def auth_verify_otp(
         
     except Exception as e:
         print(f"Verify Error: {e}")
-        return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "verify", "email": email, "error": "System error during account creation."})
+        return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "verify", "email": email, "error": "System error. Try again."})
 
 # --------------------------------------------------------------------------
-# 2. LOGIN & LOGOUT
+# 2. LOGIN FLOW (Smart Redirect)
 # --------------------------------------------------------------------------
-
-@app.get("/login")
-async def login_page(request: Request):
-    error = request.query_params.get("error")
-    return templates.TemplateResponse("auth/login.html", {"request": request, "error": error})
 
 @app.post("/auth/login")
 async def login(request: Request, email: str = Form(...), password: str = Form(...)):
     try:
+        # 1. Attempt Real Authentication against Supabase
         res = supabase.auth.sign_in_with_password({
             "email": email, 
             "password": password
         })
         
+        # If we get here, the password IS correct.
         if not res.session:
-            raise Exception("No session returned.")
+            raise Exception("Auth failed (No session)")
 
+        # 2. Success: Set Cookie & Redirect
         response = RedirectResponse("/dashboard", status_code=303)
         response.set_cookie(
             key="sb_access_token", 
@@ -762,8 +663,39 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
         return response
 
     except Exception as e:
-        print(f"❌ Login Failed: {e}")
-        # Generic error message for security
+        print(f"❌ Login Failed for {email}: {e}")
+        
+        # 3. Security Analysis: Determine why it failed
+        error_msg = "Invalid email or password."
+        
+        try:
+            # Check if user exists but uses Google Auth (Passwordless)
+            # This prevents the "Dev User" bug by strictly identifying the account type
+            users = supabase.auth.admin.list_users()
+            target_user = next((u for u in users if u.email == email), None)
+            
+            if target_user:
+                identities = getattr(target_user, "identities", [])
+                providers = [i.provider for i in identities]
+                
+                # If they only have Google and no password set
+                if "google" in providers and "email" not in providers:
+                    error_msg = "This account uses Google Login. Please click 'Log in with Google'."
+                # If they have Google but maybe typed the wrong password
+                elif "google" in providers:
+                    error_msg = "Invalid password. Try logging in with Google instead."
+        except:
+            pass # Keep generic error if admin check fails
+
+        # 4. STRICT FAILURE: Return to login page with error
+        # Absolutely NO redirects to dashboard here
+        return templates.TemplateResponse("auth/login.html", {
+            "request": request, 
+            "error": error_msg,
+            "email_prefill": email
+        })
+            
+        # Default Error (Wrong password, etc.)
         return templates.TemplateResponse("auth/login.html", {
             "request": request, 
             "error": "Invalid email or password."
@@ -771,20 +703,18 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
 
 @app.get("/auth/logout")
 async def logout(request: Request):
-    response = RedirectResponse("/", status_code=303)
+    # Redirect to signup on logout
+    response = RedirectResponse("/signup", status_code=303)
     response.delete_cookie("sb_access_token")
+    request.session.clear()
     try:
         supabase.auth.sign_out()
     except: pass
     return response
 
 # --------------------------------------------------------------------------
-# 3. FORGOT PASSWORD
+# 3. FORGOT PASSWORD & OAUTH (Simplified)
 # --------------------------------------------------------------------------
-
-@app.get("/auth/forgot-password")
-async def forgot_password_page(request: Request):
-    return templates.TemplateResponse("auth/forgot_password.html", {"request": request})
 
 @app.post("/auth/forgot-password")
 async def forgot_password_action(request: Request, email: str = Form(...)):
@@ -794,11 +724,12 @@ async def forgot_password_action(request: Request, email: str = Form(...)):
         })
         return templates.TemplateResponse("auth/login.html", {
             "request": request, 
-            "error": "If an account exists, a reset email has been sent." # Green/Info message ideally
+            "error": "Reset link sent. Check your email."
         })
     except Exception as e:
-        return templates.TemplateResponse("auth/login.html", {"request": request, "error": f"Error: {e}"})
+        return templates.TemplateResponse("auth/forgot_password.html", {"request": request, "error": f"Error: {e}"})
 
+# ... (Google Auth routes remain similar, ensure they redirect to /dashboard on success)
 # --------------------------------------------------------------------------
 # 4. GOOGLE OAUTH
 # --------------------------------------------------------------------------
@@ -1397,14 +1328,25 @@ def lint_code_with_esbuild(content: str, filename: str) -> str | None:
 # AI AGENT WORKFLOW (THE FIXER)
 # ==========================================================================
 async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
-    res = (
-        supabase.table("files")
-        .select("path,content")
-        .eq("project_id", project_id)
-        .execute()
-    )
-    rows = res.data if res and res.data else []
-    return {r["path"]: (r.get("content") or "") for r in rows}
+    try:
+        # 1. Execute Query
+        query = supabase.table("files").select("path,content").eq("project_id", project_id)
+        res = query.execute()
+        
+        # 2. [CRITICAL FIX] Check if response is a coroutine (Sync vs Async Supabase)
+        if asyncio.iscoroutine(res):
+            res = await res
+            
+        # 3. Normalize Data (Handle .data attribute vs raw list)
+        rows = getattr(res, "data", [])
+        if not rows and isinstance(res, list):
+            rows = res
+            
+        return {r["path"]: (r.get("content") or "") for r in rows if r.get("path")}
+        
+    except Exception as e:
+        print(f"⚠️ Fetch Error: {e}")
+        return {}
 
 async def _start_server_with_retry(project_id: str, triggered_error: str = None):
     """
@@ -1442,7 +1384,7 @@ async def _start_server_with_retry(project_id: str, triggered_error: str = None)
                 )
                 
                 try:
-                    # Fetch files async
+                    # Fetch files using robust helper
                     file_tree = await _fetch_file_tree(project_id)
                     
                     # Run AI in thread (Non-blocking)

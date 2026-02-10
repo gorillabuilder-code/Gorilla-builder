@@ -10,17 +10,20 @@ import httpx
 from dotenv import load_dotenv
 
 # --------------------------------------------------------------------------
-# E2B SDK COMPATIBILITY LAYER
+# E2B SDK COMPATIBILITY LAYER (ROBUST)
 # --------------------------------------------------------------------------
 Sandbox = None
+SDK_MODE = "unknown"
 
-# 1. Try New SDK (v1.0+)
+# 1. Try New SDK (v1.0+) - Preferred
 try:
     from e2b_code_interpreter import Sandbox
+    SDK_MODE = "new"
 except ImportError:
-    # 2. Try Legacy SDK
+    # 2. Try Legacy SDK (v0.x)
     try:
         from e2b import Sandbox
+        SDK_MODE = "legacy"
     except ImportError:
         pass
 
@@ -50,7 +53,6 @@ class ProjectRunManager:
         try:
             # Check liveness based on SDK version capabilities
             if hasattr(info.sandbox, "is_running"):
-                # New SDK requires explicit method call
                 if not info.sandbox.is_running():
                     self._runs.pop(project_id, None)
                     return False, None
@@ -68,26 +70,19 @@ class ProjectRunManager:
                 if asyncio.iscoroutinefunction(info.sandbox.close):
                     await info.sandbox.close()
                 else:
-                    # Run sync close in thread to avoid blocking loop
                     await asyncio.to_thread(info.sandbox.close)
             except Exception as e:
                 print(f"Error closing sandbox: {e}")
             self._runs.pop(project_id, None)
 
     def _determine_start_command(self, file_tree: Dict[str, str]) -> str:
-        """
-        Smart detection for Vite/React/Node scripts.
-        """
         if "package.json" in file_tree:
             try:
                 pkg = json.loads(file_tree["package.json"])
                 scripts = pkg.get("scripts", {})
                 
-                # VITE / REACT SUPPORT
-                # We must force host binding and port 3000 so E2B exposes it
                 if "dev" in scripts: 
                     return "npm run dev -- --port 3000 --host"
-                
                 if "start" in scripts: return "npm start"
                 if pkg.get("main"): return f"node {pkg['main']}"
             except: pass
@@ -101,27 +96,28 @@ class ProjectRunManager:
             raise RuntimeError("E2B SDK not installed. Run: pip install e2b-code-interpreter")
 
         await self.stop(project_id)
-        print(f"--> [E2B] Creating sandbox for {project_id}...")
+        print(f"--> [E2B] Creating sandbox for {project_id} (Mode: {SDK_MODE})...")
         
         sandbox = None
         
         # --- 1. ROBUST SANDBOX INITIALIZATION ---
         try:
-            # CHECK: Does this SDK version require the Factory Pattern? (Legacy/Specific Versions)
-            if hasattr(Sandbox, "create"):
-                print(f"--> [E2B] Initializing via Sandbox.create() (Factory Pattern)...")
+            if SDK_MODE == "new":
+                # NEW SDK: Synchronous Constructor -> Thread
+                print(f"--> [E2B] Initializing via Sandbox() (New SDK)...")
+                sandbox = await asyncio.to_thread(Sandbox)
+            
+            elif SDK_MODE == "legacy":
+                # LEGACY SDK: Async Factory -> Await
+                print(f"--> [E2B] Initializing via Sandbox.create() (Legacy SDK)...")
+                # Try template="base", fallback if argument issues arise
                 try:
-                    # Try with 'base' template first
                     sandbox = await Sandbox.create(template="base")
                 except TypeError:
-                    # Fallback if template arg is not supported
                     sandbox = await Sandbox.create()
             
-            # CHECK: Does this SDK version support Direct Instantiation? (New SDK)
             else:
-                print(f"--> [E2B] Initializing via Sandbox() (Constructor Pattern)...")
-                # Run synchronous constructor in a thread to prevent blocking
-                sandbox = await asyncio.to_thread(Sandbox)
+                raise RuntimeError("Unknown SDK version")
 
         except Exception as e:
             err_str = str(e)
@@ -137,7 +133,6 @@ class ProjectRunManager:
             # Write Files
             print(f"--> [E2B] Writing {len(file_tree)} files...")
             
-            # Detect filesystem attribute (New vs Old SDK)
             fs = getattr(sandbox, "files", getattr(sandbox, "filesystem", None))
             if not fs: raise RuntimeError("Could not find filesystem on Sandbox object")
 
@@ -151,9 +146,8 @@ class ProjectRunManager:
 
             # --- HELPER: Unified Command Runner ---
             async def run_cmd(c, background=False):
-                # Detect command interface (New vs Old SDK)
+                # New SDK has .commands, Legacy uses .process
                 if hasattr(sandbox, "commands"): 
-                    # NEW SDK (Sync methods) -> Wrap in thread
                     print(f"    [Exec] {c}")
                     if background:
                          await asyncio.to_thread(sandbox.commands.run, c, background=True)
@@ -161,7 +155,6 @@ class ProjectRunManager:
                     res = await asyncio.to_thread(sandbox.commands.run, c, background=False)
                     return res.exit_code, (res.stderr or res.stdout)
                 else: 
-                    # LEGACY SDK (Async methods) -> Await directly
                     print(f"    [Exec Legacy] {c}")
                     if background:
                         await sandbox.process.start(c)
@@ -187,10 +180,10 @@ class ProjectRunManager:
             print(f"--> [E2B] Starting server with: {start_cmd}")
             
             # --- INJECT ENV VARS ---
-            fw_api_key = os.getenv("FIREWORKS_API_KEY")
+            fw_api_key = os.getenv("FIREWORKS_API_KEY", "")
             
             # Capture Logs & Inject Key
-            # We explicitly export the key in the shell command to guarantee it reaches the process
+            # We explicitly export the key in the shell command
             full_cmd = f"export PORT=3000 && export FIREWORKS_API_KEY='{fw_api_key}' && {start_cmd} > server.log 2> server_err.txt"
             
             # Start in background
@@ -200,7 +193,6 @@ class ProjectRunManager:
             print(f"--> [E2B] Waiting for port 3000...")
             port_open = False
             for _ in range(20):
-                # Check if port is listening
                 code, _ = await run_cmd("curl -s http://localhost:3000")
                 if code == 0:
                     port_open = True
@@ -213,8 +205,6 @@ class ProjectRunManager:
                 _, output_log = await run_cmd("cat server.log")
                 
                 full_log = (error_log or "") + "\n" + (output_log or "")
-                
-                # Raise the specific error so app.py can catch it
                 raise RuntimeError(f"App crashed during startup: {full_log.strip()[:1000]}")
 
             # Get URL
