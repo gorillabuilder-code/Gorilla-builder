@@ -1463,9 +1463,10 @@ async def _start_server_with_retry(project_id: str, triggered_error: str = None)
 
                 file_tree = await _fetch_file_tree(project_id)
                 
-                # [CRITICAL] Initialize 'sb' (sandbox) HERE
+                # [CRITICAL CHANGE] Initialize 'sb' with NO template argument
+                # The default sandbox has Node.js/NPM pre-installed.
                 from e2b import Sandbox
-                sb = Sandbox(template="nodejs") 
+                sb = Sandbox() 
                 
                 # 1. Write Files
                 for path, content in file_tree.items():
@@ -1480,14 +1481,13 @@ async def _start_server_with_retry(project_id: str, triggered_error: str = None)
                 sb.process.start_and_wait("npm run build")
                 
                 # 3. Start Server (Background)
-                # Ensure we export the API Key
+                # Export API Key for backend features
                 start_cmd = f"export FIREWORKS_API_KEY='{os.environ.get('FIREWORKS_API_KEY')}' && npm run dev -- --port 3000 --host"
                 sb.process.start(start_cmd)
                 
-                # 4. Wait for Port
+                # 4. Wait for Port (Health Check)
                 is_up = False
                 for _ in range(10):
-                    # We check if localhost:3000 is responding inside the sandbox
                     if sb.process.start_and_wait("curl -s http://localhost:3000").exit_code == 0:
                         is_up = True
                         break
@@ -1496,7 +1496,7 @@ async def _start_server_with_retry(project_id: str, triggered_error: str = None)
                 if not is_up:
                     raise Exception("App crashed during startup: Connection refused")
 
-                # 5. REGISTER SINGLETON (This is where 'sb' was missing before)
+                # 5. REGISTER SINGLETON
                 ACTIVE_SANDBOXES[project_id] = sb
                 
                 emit_status(project_id, "Server Running")
