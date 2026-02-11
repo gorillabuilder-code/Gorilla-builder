@@ -126,6 +126,8 @@ SHUTDOWN_TIMEOUT_SECONDS = 600 # 10 Minutes
 # ==========================================================================
 # APP INITIALIZATION & LIFECYCLE
 # ==========================================================================
+
+
 app = FastAPI(
     title="Gorilla Backend",
     docs_url="/api/docs",       # <--- MOVES the Swagger UI to /api/docs
@@ -142,6 +144,7 @@ if os.path.isdir(FRONTEND_STYLES_DIR):
     app.mount("/styles", StaticFiles(directory=FRONTEND_STYLES_DIR), name="styles")
 
 templates = Jinja2Templates(directory=FRONTEND_TEMPLATES_DIR)
+
 
 # --- BACKGROUND TASK: CLEANUP INACTIVE SANDBOXES ---
 @app.on_event("startup")
@@ -423,6 +426,18 @@ PUBLIC_PAGES = {
     "/about": "docs/about.html", 
     "/contact": "docs/contact.html",
 }
+# In app.py
+from fastapi.staticfiles import StaticFiles # Make sure this is imported
+
+app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    # 🔓 UNLOCKS WEBCONTAINERS
+    response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    return response
 
 app.mount("/assets", StaticFiles(directory="frontend/templates/landing/assets"), name="assets")
 
@@ -1248,7 +1263,7 @@ async def check_tokens(request: Request, project_id: str):
 
 
 # ==========================================================================
-# STATIC FILE SERVING
+# STATIC FILE SERVING & WEBCONTAINER SUPPORT
 # ==========================================================================
 def _guess_media_type(path: str) -> str:
     mt, _ = mimetypes.guess_type(path)
@@ -1256,7 +1271,41 @@ def _guess_media_type(path: str) -> str:
     if path.endswith(".js"): return "application/javascript"
     if path.endswith(".css"): return "text/css"
     if path.endswith(".html"): return "text/html"
+    if path.endswith(".json"): return "application/json"
     return "text/plain"
+
+# [CRITICAL] WebContainers require these headers to enable SharedArrayBuffer
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    # Essential for WebContainers to boot in the browser
+    response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    return response
+
+@app.get("/api/project/{project_id}/files")
+async def get_project_files(request: Request, project_id: str):
+    """
+    Returns the flat list of files. 
+    The frontend (webcontainer.js) will convert this to a tree.
+    """
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+    
+    res = (
+        supabase.table("files")
+        .select("path,content")
+        .eq("project_id", project_id)
+        .execute()
+    )
+    
+    # Handle Async/Sync Supabase client differences
+    if asyncio.iscoroutine(res): res = await res
+    
+    rows = getattr(res, "data", [])
+    if not rows and isinstance(res, list): rows = res
+        
+    return {"files": rows}
 
 @app.get("/app/{project_id}/{path:path}")
 async def serve_project_file(request: Request, project_id: str, path: str):
@@ -1274,6 +1323,9 @@ async def serve_project_file(request: Request, project_id: str, path: str):
         .maybe_single()
         .execute()
     )
+    # Handle Async/Sync Supabase client differences
+    if asyncio.iscoroutine(res): res = await res
+
     row = res.data if res else None
     
     if not row:
@@ -1283,7 +1335,6 @@ async def serve_project_file(request: Request, project_id: str, path: str):
         content=row.get("content", ""), 
         media_type=_guess_media_type(path)
     )
-
 
 # ==========================================================================
 # EVENT BUS & UTILS
@@ -1368,11 +1419,11 @@ async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
         query = supabase.table("files").select("path,content").eq("project_id", project_id)
         res = query.execute()
         
-        # 2. [CRITICAL FIX] Check if response is a coroutine (Sync vs Async Supabase)
+        # 2. Check if response is a coroutine
         if asyncio.iscoroutine(res):
             res = await res
             
-        # 3. Normalize Data (Handle .data attribute vs raw list)
+        # 3. Normalize Data
         rows = getattr(res, "data", [])
         if not rows and isinstance(res, list):
             rows = res
@@ -1382,142 +1433,6 @@ async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
     except Exception as e:
         print(f"⚠️ Fetch Error: {e}")
         return {}
-async def _start_server_with_retry(project_id: str, triggered_error: str = None):
-    """
-    HOT-FIX ORCHESTRATOR:
-    1. Gets/Creates Singleton Sandbox via RunManager.
-    2. Analyzes logs to find the SPECIFIC broken file.
-    3. AI applies fixes directly to the running sandbox (Hot Patch).
-    4. Restarts the node process (not the VM).
-    """
-    _BOOTING_PROJECTS.add(project_id)
-    
-    try:
-        max_retries = 3
-        current_error = triggered_error 
-        coder = Coder()
-        
-        # 1. INITIALIZE / GET SANDBOX
-        # We try to start it. If it fails, run_manager raises an error 
-        # BUT keeps the sandbox in memory so we can patch it.
-        emit_status(project_id, "Checking Environment...")
-        file_tree = await _fetch_file_tree(project_id)
-        
-        try:
-            await run_manager.start(project_id, file_tree)
-        except RuntimeError as e:
-            print(f"--> [AutoFix] Initial start failed, attempting hot patch. Error: {e}")
-            current_error = str(e)
-
-        # 2. FIX LOOP
-        for attempt in range(1, max_retries + 2):
-            await asyncio.sleep(0.5)
-
-            # --- PHASE A: FIXING ---
-            if current_error:
-                emit_phase(project_id, "fixing")
-                
-                # Identify Broken File
-                affected_file = None
-                known_files = sorted(file_tree.keys(), key=len, reverse=True)
-                for fpath in known_files:
-                    if fpath in current_error:
-                        affected_file = fpath
-                        break
-                
-                # Build Prompt
-                fix_prompt = f"The application failed to start.\nError Log:\n{current_error}\n"
-                if affected_file:
-                    fix_prompt += (
-                        f"\n[TARGET] The error is in '{affected_file}'.\n"
-                        f"Current Content:\n```typescript\n{file_tree[affected_file]}\n```\n"
-                        f"TASK: Fix the syntax error in '{affected_file}'. Return the corrected file."
-                    )
-                    emit_status(project_id, f"AI Fixing: {affected_file}...")
-                else:
-                    fix_prompt += "Fix the syntax error preventing startup."
-                    emit_status(project_id, "AI Fixing: Analyzing crash...")
-
-                try:
-                    # Run Coder
-                    res = await coder.generate_code(
-                        plan_section="Crash Fix",
-                        plan_text=fix_prompt,
-                        file_tree=file_tree,
-                        project_name=project_id,
-                        history=[]
-                    )
-                    
-                    # Show Message
-                    msg = res.get("message", "Fixes applied.")
-                    emit_status(project_id, f"AI: {msg[:60]}")
-                    
-                    ops = res.get("operations", [])
-                    packages_changed = False
-                    
-                    for op in ops:
-                        p = op.get("path"); c = op.get("content")
-                        if p and c:
-                            # A. Update Database
-                            db_upsert("files", {"project_id": project_id, "path": p, "content": c}, on_conflict="project_id,path")
-                            
-                            # B. Hot Patch Sandbox (Write to live VM)
-                            await run_manager.write_file(project_id, p, c)
-                            
-                            if "package.json" in p: packages_changed = True
-                    
-                    if packages_changed:
-                        emit_status(project_id, "Updating modules...")
-                        await run_manager.run_command(project_id, "npm install")
-
-                    current_error = None
-                    
-                except Exception as e:
-                    print(f"Fix failed: {e}")
-
-            # --- PHASE B: RESTART PROCESS (Hot Restart) ---
-            try:
-                emit_status(project_id, "Restarting server...")
-                
-                # 1. Kill the old process (Hot Restart)
-                await run_manager.run_command(project_id, "fuser -k 3000/tcp")
-                
-                # 2. Start Dev Server Command
-                fw_key = os.environ.get("FIREWORKS_API_KEY", "")
-                cmd = f"export PORT=3000 && export FIREWORKS_API_KEY='{fw_key}' && npm run dev -- --port 3000 --host"
-                
-                # 3. Execute in Background
-                await run_manager.run_command(project_id, cmd, background=True)
-                
-                # 4. Health Check
-                is_up = False
-                for _ in range(15):
-                    code, _ = await run_manager.run_command(project_id, "curl -s http://localhost:3000")
-                    if code == 0:
-                        is_up = True
-                        break
-                    await asyncio.sleep(1)
-                
-                if not is_up:
-                    _, logs = await run_manager.run_command(project_id, "cat server_err.txt")
-                    raise RuntimeError(f"App crashed during startup: {logs[:500]}")
-
-                emit_status(project_id, "Server Running")
-                emit_progress(project_id, "Ready", 100)
-                return # SUCCESS
-
-            except Exception as e:
-                err_str = str(e)
-                clean_error = err_str.replace("App crashed during startup:", "").strip()
-                emit_log(project_id, "system", f"Crash: {clean_error[:100]}...")
-                current_error = clean_error
-                # Loop continues -> Hot Patch again
-
-        emit_status(project_id, "❌ Auto-fix failed.")
-        
-    finally:
-        _BOOTING_PROJECTS.discard(project_id)
-
 
 @app.post("/api/project/{project_id}/agent/start")
 async def agent_start(
@@ -1557,19 +1472,6 @@ async def agent_start(
             await asyncio.sleep(0.5)
             file_tree = await _fetch_file_tree(project_id)
             
-            # [SELF-HEALING]
-            try:
-                projects_dir = os.path.join(ROOT_DIR, "projects")
-                error_log_path = os.path.join(projects_dir, project_id, "server_errors.txt")
-                if os.path.exists(error_log_path):
-                    with open(error_log_path, 'r', encoding="utf-8") as f:
-                        errors = f.read().strip()
-                        if errors:
-                            prompt += f"\n\n[CRITICAL RUNTIME ERRORS DETECTED]\n{errors}\n"
-                            emit_log(project_id, "system", "🩺 Auto-Healing: Found crash logs.")
-                    with open(error_log_path, 'w', encoding="utf-8") as f: f.write("")
-            except: pass
-
             planner = Planner()
             coder = XCoder() if (xmode and 'XCoder' in globals()) else Coder()
             
@@ -1586,7 +1488,7 @@ async def agent_start(
             tk = plan_res.get("usage", {}).get("total_tokens", 0)
             if tk: add_monthly_tokens(user["id"], tk)
             
-            # --- DISPLAY PLAN (CLEAN VERSION) ---
+            # --- DISPLAY PLAN ---
             raw_plan = plan_res.get("plan", {})
             real_assistant_msg = plan_res.get("assistant_message")
             
@@ -1596,9 +1498,6 @@ async def agent_start(
             if tasks:
                 steps_html = ""
                 for i, task in enumerate(tasks, 1):
-                    # [CRITICAL PARSING FIX]
-                    # We split by "]" and take the second part to remove the metadata tag.
-                    # Example: "Step 1: [Project:...] Do the work" -> "Do the work"
                     task_content = task
                     if "]" in task:
                         parts = task.split("]", 1)
@@ -1668,6 +1567,7 @@ async def agent_start(
                     content = op.get("content")
                     
                     if path and content is not None:
+                        # Linting
                         if path.startswith("static/") and path.endswith(".js"):
                             try:
                                 lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
@@ -1685,9 +1585,9 @@ async def agent_start(
                 file_tree = await _fetch_file_tree(project_id)
             
             # --- FINISH ---
-            emit_status(project_id, "Coding Complete. Starting Server...")
-            emit_progress(project_id, "Booting...", 100)
-            await _start_server_with_retry(project_id)
+            # NOTE: We no longer start the server here. The frontend WebContainer handles that.
+            emit_status(project_id, "Coding Complete.")
+            emit_progress(project_id, "Ready", 100)
             
         except Exception as e:
             emit_status(project_id, "Error")
@@ -1725,146 +1625,6 @@ async def agent_events(request: Request, project_id: str):
             "X-Accel-Buffering": "no"
         }
     )
-# ==========================================================================
-# MIDDLEWARE: ASSET RESCUE (CRITICAL FOR REACT/VITE)
-# ==========================================================================
-@app.middleware("http")
-async def asset_rescue_middleware(request: Request, call_next):
-    """
-    catches 404s for assets like '/src/main.tsx' or '/vite.svg'
-    and redirects them to the correct project preview URL.
-    """
-    response = await call_next(request)
-    
-    if response.status_code == 404:
-        path = request.url.path
-        
-        # If it looks like a file extension (js, css, png, svg, json, tsx)
-        if "." in path.split("/")[-1]: 
-            referer = request.headers.get("referer")
-            
-            if referer:
-                # Case 1: Request from DEV PREVIEW (/run/{id})
-                match_run = re.search(r"/run/([a-zA-Z0-9-]+)", referer)
-                if match_run:
-                    project_id = match_run.group(1)
-                    # Redirect /src/main.tsx -> /run/{id}/src/main.tsx
-                    new_url = f"/run/{project_id}{path}"
-                    return RedirectResponse(new_url)
-
-                # Case 2: Request from PUBLIC APP (/app/{slug})
-                match_app = re.search(r"/app/([a-zA-Z0-9-]+)", referer)
-                if match_app:
-                    slug = match_app.group(1)
-                    new_url = f"/app/{slug}{path}"
-                    return RedirectResponse(new_url)
-                    
-    return response
-
-
-# ==========================================================================
-# SERVER PREVIEW RUNNER & PROXY
-# ==========================================================================
-run_manager = ProjectRunManager()
-deployer = Deployer(run_manager, supabase) 
-
-@app.post("/api/project/{project_id}/run/start")
-async def run_start(request: Request, project_id: str):
-    user = get_current_user(request)
-    _require_project_owner(user, project_id)
-    
-    if not DEV_MODE: 
-        raise HTTPException(403, "Server preview is DEV_MODE only.")
-        
-    # Check if already booting to prevent double-clicks
-    if project_id in _BOOTING_PROJECTS:
-        return {"ok": True, "status": "already_booting"}
-
-    # Trigger the robust starter in background
-    asyncio.create_task(_start_server_with_retry(project_id))
-    
-    # Touch access time
-    _LAST_ACCESS[project_id] = time.time()
-    
-    return {"ok": True, "status": "starting"}
-
-@app.post("/api/project/{project_id}/run/stop")
-async def run_stop(request: Request, project_id: str):
-    user = get_current_user(request)
-    _require_project_owner(user, project_id)
-    
-    await run_manager.stop(project_id)
-    emit_log(project_id, "system", "Server stopped.")
-    return {"ok": True}
-
-@app.get("/api/project/{project_id}/run/status")
-async def run_status(request: Request, project_id: str):
-    user = get_current_user(request)
-    _require_project_owner(user, project_id)
-    
-    running, port = run_manager.is_running(project_id)
-    booting = project_id in _BOOTING_PROJECTS
-    return {"running": running, "port": port, "booting": booting}
-
-# Ensure this global dict is at the top of app.py
-# ACTIVE_SANDBOXES = {}
-
-@app.api_route("/run/{project_id}/{path:path}", methods=["GET","POST","PUT","DELETE","OPTIONS","PATCH"])
-async def run_proxy(request: Request, project_id: str, path: str):
-    
-    _LAST_ACCESS[project_id] = time.time()
-    
-    # 1. GATEKEEPER: Stop spam if fixing/booting
-    if project_id in _BOOTING_PROJECTS:
-        # Determine if fixing or booting based on last status
-        loading_path = os.path.join(FRONTEND_TEMPLATES_DIR, "agentloading.html")
-        loading_html = "<h2>🚧 Booting...</h2>"
-        if os.path.exists(loading_path):
-            with open(loading_path, "r", encoding="utf-8") as f: loading_html = f.read()
-            
-        loading_html = loading_html.replace("<head>", '<head><meta http-equiv="refresh" content="2">', 1)
-        return HTMLResponse(loading_html, status_code=200)
-
-    # 2. CHECK RUN MANAGER
-    info = run_manager.get_run_info(project_id)
-    
-    if not info:
-        # SERVER STOPPED - Show Stopped Page
-        # Do NOT auto-start here. Auto-start creates the loop.
-        # The user must click "Run" on the dashboard/editor, or the first load triggers it manually.
-        return templates.TemplateResponse(
-            "projects/serverstopped.html", 
-            {"request": request, "project_id": project_id}
-        )
-
-    # 3. PROXY TRAFFIC
-    try:
-        # We use curl inside the sandbox to fetch content
-        # This bypasses the need for a public URL for simple file serving
-        cmd = f"curl -s -L -D - -o - -X {request.method} http://localhost:3000/{path}"
-        
-        # We need the raw sandbox for this specific low-level command
-        # Use run_manager helper if possible, but for proxying large data, direct access is better.
-        # For MVP, we use the helper logic:
-        code, output = await run_manager.run_command(project_id, cmd)
-
-        if code != 0 or not output:
-             # CRASH DETECTED
-             print(f"🔥 Proxy found dead server for {project_id}")
-             # Trigger Fix
-             asyncio.create_task(_start_server_with_retry(project_id, triggered_error="Server Unresponsive"))
-             return RedirectResponse(request.url, status_code=302)
-
-        # Basic MIME types
-        mime = "text/html"
-        if path.endswith(".js") or path.endswith(".ts") or path.endswith(".tsx"): mime = "application/javascript"
-        elif path.endswith(".css"): mime = "text/css"
-        
-        return Response(content=output, media_type=mime)
-
-    except Exception as e:
-        return Response("Proxy Error", status_code=502)
-
 
 @app.get("/projects/{project_id}/game", response_class=HTMLResponse)
 async def project_game(request: Request, project_id: str):
@@ -1876,62 +1636,6 @@ async def project_game(request: Request, project_id: str):
 async def agent_ping(request: Request, project_id: str):
     emit_log(project_id, "system", "🔥 Pong from backend")
     return {"ok": True}
-
-
-# ==========================================================================
-# 🚀 PUBLIC APP HOSTING (Consolidated Route)
-# ==========================================================================
-@app.api_route("/app/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"])
-async def public_app_catchall(request: Request, full_path: str):
-    """
-    Catches ALL traffic to /app/..., parses the slug, and routes it.
-    """
-    clean_path = full_path.strip("/")
-    parts = clean_path.split("/", 1)
-    
-    if not clean_path:
-        return HTMLResponse("<h1>404 - Not Found</h1>", status_code=404)
-        
-    project_slug = parts[0]
-    remainder = parts[1] if len(parts) > 1 else ""
-
-    # Redirect root to trailing slash for relative paths
-    if len(parts) == 1 and not str(request.url.path).endswith("/"):
-         return RedirectResponse(url=f"/app/{project_slug}/")
-
-    try:
-        # Access Tracking (Lazy)
-        try:
-             r = supabase.table("projects").select("id").eq("subdomain", project_slug).single().execute()
-             if r.data:
-                 _LAST_ACCESS[r.data['id']] = time.time()
-        except: pass
-            
-        return await deployer.handle_request(request, project_slug, remainder)
-        
-    except RuntimeError as e:
-        err_msg = str(e)
-        if "CRASH_DETECTED" in err_msg:
-            clean_error = err_msg.replace("CRASH_DETECTED:", "").strip()
-
-            # --- LAZY LOADING ---
-            try:
-                res = supabase.table("projects").select("id").eq("subdomain", project_slug).single().execute()
-                if res.data:
-                    project_id = res.data['id']
-                    
-                    _LAST_ACCESS[project_id] = time.time()
-                    
-                    if project_id not in _BOOTING_PROJECTS:
-                        print(f"🌍 Public Boot: {project_id}")
-                        _BOOTING_PROJECTS.add(project_id)
-                        task = asyncio.create_task(_start_server_with_retry(project_id, triggered_error=clean_error))
-                        task.add_done_callback(lambda _: _BOOTING_PROJECTS.discard(project_id))
-                    
-                    return HTMLResponse("<html><head><meta http-equiv='refresh' content='3'></head><body><h2>Waking up app...</h2></body></html>")
-            except Exception: pass
-                
-        raise HTTPException(502, "Service Unavailable")
 
 @app.get("/health")
 async def health():

@@ -598,7 +598,9 @@ body.xmode {
 
 </div>
 
-<script>
+<script type="module">
+import { webRunner } from '/static/webcontainer.js';
+
 const PROJECT_ID = "{{ project_id }}";
 const INITIAL_PROMPT = "{{ initial_prompt or '' }}"; 
 const CHAT_KEY = `gorilla_chat_${PROJECT_ID}`;
@@ -609,6 +611,7 @@ let currentContent = "";
 let dirty = false;
 let es = null;
 let saveTimer = null;
+let isWebContainerBooted = false;
 
 const $ = (id) => document.getElementById(id);
 const chat = $("chat");
@@ -751,7 +754,7 @@ function renderTree(container, nodeObj, depth){
     ico.className = "ico";
     ico.textContent = isFile ? "📄" : "📁";
     
-    // Better icons if possible
+    // Icons
     if(isFile) {
         if (name.endsWith('.js')) {
     ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="20" height="20" viewBox="0 0 48 48"> <path fill="#ffd600" d="M6,42V6h36v36H6z"></path><path fill="none" stroke="#000001" stroke-miterlimit="10" stroke-width="3.3" d="M23.783,22.352v9.819 c0,3.764-4.38,4.022-6.283,0.802"></path><path fill="none" stroke="#000001" stroke-miterlimit="10" stroke-width="3.3" d="M34.69,25.343 c-1.739-2.727-5.674-2.345-5.84,0.558c-0.214,3.757,6.768,2.938,6.247,7.107c-0.365,2.92-4.874,3.858-7.193-0.065"></path> </svg>`;
@@ -763,7 +766,7 @@ function renderTree(container, nodeObj, depth){
     ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="20" height="20" viewBox="0 0 48 48"><path fill="#0277BD" d="M41,5H7l3,34l14,4l14-4L41,5L41,5z"></path><path fill="#039BE5" d="M24 8L24 39.9 35.2 36.7 37.7 8z"></path><path fill="#FFF" d="M33.1 13L24 13 24 17 28.9 17 28.6 21 24 21 24 25 28.4 25 28.1 29.5 24 30.9 24 35.1 31.9 32.5 32.6 21 32.6 21z"></path><path fill="#EEE" d="M24,13v4h-8.9l-0.3-4H24z M19.4,21l0.2,4H24v-4H19.4z M19.8,27h-4l0.3,5.5l7.9,2.6v-4.2l-4.1-1.4L19.8,27z"></path></svg>`;
         }
         if (name.endsWith('.tsx')) {
-    ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="15" height="15" viewBox="0 0 48 48"><path fill="#80deea" d="M24,34C11.1,34,1,29.6,1,24c0-5.6,10.1-10,23-10c12.9,0,23,4.4,23,10C47,29.6,36.9,34,24,34z M24,16  c-12.6,0-21,4.1-21,8c0,3.9,8.4,8,21,8s21-4.1,21-8C45,20.1,36.6,16,24,16z"></path><path fill="#80deea" d="M15.1,44.6c-1,0-1.8-0.2-2.6-0.7C7.6,41.1,8.9,30.2,15.3,19l0,0c3-5.2,6.7-9.6,10.3-12.4c3.9-3,7.4-3.9,9.8-2.5  c2.5,1.4,3.4,4.9,2.8,9.8c-0.6,4.6-2.6,10-5.6,15.2c-3,5.2-6.7,9.6-10.3,12.4C19.7,43.5,17.2,44.6,15.1,44.6z M32.9,5.4 c-1.6,0-3.7,0.9-6,2.7c-3.4,2.7-6.9,6.9-9.8,11.9l0,0c-6.3,10.9-6.9,20.3-3.6,22.2c1.7,1,4.5,0.1,7.6-2.3c3.4-2.7,6.9-6.9,9.8-11.9  c2.9-5,4.8-10.1,5.4-14.4c0.5-4-0.1-6.8-1.8-7.8C34,5.6,33.5,5.4,32.9,5.4z"></path><path fill="#80deea" d="M33,44.6c-5,0-12.2-6.1-17.6-15.6C8.9,17.8,7.6,6.9,12.5,4.1l0,0C17.4,1.3,26.2,7.8,32.7,19 c3,5.2,5,10.6,5.6,15.2c0.7,4.9-0.3,8.3-2.8,9.8C34.7,44.4,33.9,44.6,33,44.6z M13.5,5.8c-3.3,1.9-2.7,11.3,3.6,22.2  c6.3,10.9,14.1,16.1,17.4,14.2c1.7-1,2.3-3.8,1.8-7.8c-0.6-4.3-2.5-9.4-5.4-14.4C24.6,9.1,16.8,3.9,13.5,5.8L13.5,5.8z"></path><circle cx="24" cy="24" r="4" fill="#80deea"></circle></svg>`;
+    ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="15" height="15" viewBox="0 0 48 48"><path fill="#80deea" d="M24,34C11.1,34,1,29.6,1,24c0-5.6,10.1-10,23-10c12.9,0,23,4.4,23,10C47,29.6,36.9,34,24,34z M24,16  c-12.6,0-21,4.1-21,8c0,3.9,8.4,8,21,8s21-4.1,21-8C45,20.1,36.6,16,24,16z"></path><path fill="#80deea" d="M15.1,44.6c-1,0-1.8-0.2-2.6-0.7C7.6,41.1,8.9,30.2,15.3,19l0,0c3-5.2,6.7-9.6,10.3-12.4c3.9-3,7.4-3.9,9.8-2.5  c2.5,1.4,3.4,4.9,2.8,9.8c-0.6,4.6-2.6,10-5.6,15.2c-3,5.2-6.7,9.6-10.3,12.4C19.7,43.5,17.2,44.6,15.1,44.6z M32.9,5.4 c-1.6,0-3.7,0.9-6,2.7c-3.4,2.7-6.9,6.9-9.8,11.9l0,0c-6.3,10.9-6.9,20.3-3.6,22.2c1.7,1,4.5,0.1,7.6-2.3c3.4-2.7,6.9-6.9,9.8-11.9  c2.9-5,4.8-10.1,5.4-14.4c0.5-4-0.1-6.8-1.8-7.8C34,5.6,33.5,5.4,32.9,5.4z"></path><path fill="#80deea" d="M33,44.6c-5,0-12.2-6.1-17.6-15.6C8.9,17.8,7.6,6.9,12.5,4.1l0,0C17.4,1.3,26.2,7.8,32.7,19 c3,5.2,5,10.6,5.6,15.2c0.7,4.9-0.3,8.3-2.8,9.8C34.7,44.4,33.9,44.6,33,44.6z M13.5,5.8c-3.3,1.9-2.7,11.3,3.6,22.2  c6.3,10.9,14.1,16.1,17.4,14.2c1.7-1,2.3-3.8,1.8-7.8c-0.6-4.3-2.5-9.4-5.4-14.4C24.6,9.1,16.8,3.9,13.5,5.8L13.5,5.8z"></path><circle cx="24" cy="24" r="4" fill="#80deea"></circle></svg>`;
         }
         if (name.endsWith('.ts')) {
     ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="20" height="20" viewBox="0 0 48 48"> <rect width="36" height="36" x="6" y="6" fill="#1976d2"></rect><polygon fill="#fff" points="27.49,22 14.227,22 14.227,25.264 18.984,25.264 18.984,40 22.753,40 22.753,25.264 27.49,25.264"></polygon><path fill="#fff" d="M39.194,26.084c0,0-1.787-1.192-3.807-1.192s-2.747,0.96-2.747,1.986 c0,2.648,7.381,2.383,7.381,7.712c0,8.209-11.254,4.568-11.254,4.568V35.22c0,0,2.152,1.622,4.733,1.622s2.483-1.688,2.483-1.92 c0-2.449-7.315-2.449-7.315-7.878c0-7.381,10.658-4.469,10.658-4.469L39.194,26.084z"></path> </svg>`;
@@ -837,24 +840,25 @@ function buildEditor(content, fileName){
   }, fileName);
 }
 
-// --- [FIX] ROBUST FILE LOADING ---
 async function loadFile(path){
   currentFile = path;
   const data = await fetchJSON(`/api/project/${PROJECT_ID}/file?path=${encodeURIComponent(path)}`);
   
-  // Checks if backend sent JSON object OR raw text and handles both
+  // Handle both JSON and Raw
   const content = (data.content !== undefined) ? data.content : (data.raw || "");
   
   buildEditor(content, path);
   await refreshFiles(); 
 }
 
+// --- UPDATED SAVE (WITH HMR) ---
 async function saveCurrentFile(){
   if(!dirty) return;
   const form = new URLSearchParams();
   form.set("file", currentFile);
   form.set("content", currentContent);
 
+  // 1. Save to Database
   const r = await fetch(`/api/project/${PROJECT_ID}/save`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -865,6 +869,12 @@ async function saveCurrentFile(){
     dirty = false;
     setSaveStatus();
     await refreshFiles();
+    
+    // 2. Hot Update WebContainer
+    if (isWebContainerBooted) {
+        // We write the file into the running VM so Vite picks it up instantly
+        await webRunner.writeFile(currentFile, currentContent);
+    }
   }
 }
 
@@ -905,7 +915,11 @@ function switchTab(tab){
     $("editor").style.display = "none";
     $("preview").style.display = "block";
     $("previewModeWrap").style.display = "flex";
-    refreshPreview();
+    
+    // Auto-refresh if url exists
+    if(webRunner.url) refreshPreview();
+    else if(!isWebContainerBooted) $("btnRunServer").click();
+    
   } else {
     $("tabCode").classList.add("active");
     $("tabPreview").classList.remove("active");
@@ -917,34 +931,70 @@ function switchTab(tab){
 $("tabCode").onclick = () => switchTab("code");
 $("tabPreview").onclick = () => switchTab("preview");
 
+// --- WEBCONTAINER PREVIEW LOGIC ---
 function refreshPreview(){
-  const mode = $("previewMode").value;
-  const ts = Date.now();
-  $("preview").src = (mode === "server") ? `/run/${PROJECT_ID}/?ts=${ts}` : `/app/${PROJECT_ID}/index.html?ts=${ts}`;
+    if (webRunner.url) {
+        $("preview").src = webRunner.url;
+    }
 }
 $("previewMode").onchange = refreshPreview;
 
-async function serverStatus(){
-  const s = await fetchJSON(`/api/project/${PROJECT_ID}/run/status`);
-  const el = $("serverStatus");
-  if(s && s.running){
-    el.textContent = `Running :${s.port}`;
-    el.style.color = "var(--ok)";
-  } else {
-    el.textContent = "Stopped";
-    el.style.color = "var(--text-muted)";
-  }
-}
+// NEW RUN BUTTON LOGIC
 $("btnRunServer").onclick = async () => {
-  addMessage("system", "Starting server...");
-  await fetch(`/api/project/${PROJECT_ID}/run/start`, { method: "POST" });
-  await serverStatus();
-  if($("previewMode").value === "server") refreshPreview();
+    const btn = $("btnRunServer");
+    const status = $("serverStatus");
+    const iframe = $("preview");
+
+    try {
+        btn.disabled = true;
+        btn.textContent = "Booting...";
+        status.textContent = "Booting VM...";
+        status.style.color = "var(--warn)";
+        addMessage("system", "⚡ Booting Browser-Based Container...");
+
+        // A. Fetch all files
+        const response = await fetchJSON(`/api/project/${PROJECT_ID}/files`);
+        const files = response.files || [];
+
+        // B. Mount
+        await webRunner.mount(files);
+        
+        // C. Install
+        await webRunner.install((role, text) => addMessage(role, text));
+
+        // D. Start
+        await webRunner.start((url) => {
+            status.textContent = "Live";
+            status.style.color = "var(--ok)";
+            btn.textContent = "Refresh";
+            btn.disabled = false;
+            
+            iframe.src = url;
+            iframe.style.display = "block";
+            
+            if(!$("tabPreview").classList.contains("active")){
+               switchTab("preview");
+            }
+            
+            addMessage("system", "🟢 Preview is live!");
+        }, (role, text) => addMessage(role, text));
+
+        isWebContainerBooted = true;
+
+    } catch (e) {
+        console.error(e);
+        status.textContent = "Error";
+        status.style.color = "var(--danger)";
+        addMessage("system", `❌ Boot failed: ${e.message}`);
+        btn.disabled = false;
+        btn.textContent = "▶ Run";
+    }
 };
-$("btnStopServer").onclick = async () => {
-  addMessage("system", "Stopping server...");
-  await fetch(`/api/project/${PROJECT_ID}/run/stop`, { method: "POST" });
-  await serverStatus();
+
+$("btnStopServer").onclick = () => {
+    $("preview").src = "about:blank";
+    $("serverStatus").textContent = "Paused";
+    addMessage("system", "Preview paused.");
 };
 
 function startStream(){
@@ -960,11 +1010,6 @@ function startStream(){
     if(m.type === "status") {
       addMessage("system", m.text);
       setProgress(m.text);
-      if (m.text === "Server Running" || m.text === "Server Fixed & Running") {
-          if ($("tabPreview").classList.contains("active")) {
-              refreshPreview();
-          }
-      }
     }
     
     if(m.type === "phase") setPhase(m.value);
@@ -978,7 +1023,18 @@ function startStream(){
     if(m.type === "file_changed") {
       setPhase("files");
       refreshFiles();
+      // If we are live, we might want to reload the specific file in editor
       if(m.path === currentFile) loadFile(currentFile);
+      
+      // Also update VM if booted
+      if (isWebContainerBooted) {
+          // We fetch the content because the event doesn't carry it
+          fetchJSON(`/api/project/${PROJECT_ID}/file?path=${encodeURIComponent(m.path)}`)
+            .then(d => {
+                const c = (d.content !== undefined) ? d.content : (d.raw || "");
+                webRunner.writeFile(m.path, c);
+            });
+      }
     }
     
     if(m.type === "token_usage") {
@@ -1021,11 +1077,10 @@ $("prompt").addEventListener("keydown", (e) => {
   try {
       await loadFile(currentFile);
   } catch(e) {
-      console.log("Initial file load failed, waiting for content.");
+      console.log("Initial file load failed.");
   }
   
   startStream();
-  await serverStatus();
   setProgress("Ready", 0);
   
   if (INITIAL_PROMPT && INITIAL_PROMPT.length > 0) {
