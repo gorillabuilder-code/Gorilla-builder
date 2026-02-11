@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node server.js",
-    "start": "node server.js",
+    "dev": "npm run build && python3 -m http.server 3000",
+    "start": "npm run build && python3 -m http.server 3000",
     "build": "esbuild src/main.tsx --bundle --outfile=static/bundle.js --minify --loader:.tsx=tsx --loader:.ts=ts --sourcemap --target=es2020 --format=esm",
     "lint": "eslint ."
   },
@@ -64,7 +64,6 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^20.12.12",
     "@types/react": "^18.3.2",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.19",

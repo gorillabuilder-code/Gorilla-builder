@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import os
 import json
 import asyncio
@@ -10,17 +9,15 @@ import httpx
 from dotenv import load_dotenv
 
 # --------------------------------------------------------------------------
-# E2B SDK COMPATIBILITY LAYER (ROBUST)
+# E2B SDK COMPATIBILITY LAYER
 # --------------------------------------------------------------------------
 Sandbox = None
 SDK_MODE = "unknown"
 
-# 1. Try New SDK (v1.0+) - Preferred
 try:
     from e2b_code_interpreter import Sandbox
     SDK_MODE = "new"
 except ImportError:
-    # 2. Try Legacy SDK (v0.x)
     try:
         from e2b import Sandbox
         SDK_MODE = "legacy"
@@ -37,211 +34,192 @@ class RunInfo:
 
 class ProjectRunManager:
     """
-    E2B Cloud Runner (Universal Compatibility + Vite Support)
+    Singleton Manager for E2B Sandboxes.
+    Keeps sandboxes ALIVE even if the app crashes, allowing hot-patching.
     """
 
     def __init__(self):
         self._runs: Dict[str, RunInfo] = {}
         self.api_key = os.getenv("E2B_API_KEY")
-        if not self.api_key:
-            print("⚠️ WARNING: E2B_API_KEY not found. Previews will fail.")
 
+    def get_run_info(self, project_id: str) -> Optional[RunInfo]:
+        return self._runs.get(project_id)
+        
     def is_running(self, project_id: str) -> Tuple[bool, Optional[int]]:
+        """
+        Checks if a project has an active sandbox.
+        Returns (True, 3000) if active, (False, None) if not.
+        """
+        if project_id in self._runs:
+            return True, 3000
+        return False, None
+
+    async def run_command(self, project_id: str, cmd: str, background: bool = False) -> Tuple[int, str]:
         info = self._runs.get(project_id)
-        if not info: return False, None
+        if not info:
+            raise RuntimeError(f"Sandbox not active for {project_id}")
+        
+        sb = info.sandbox
+        print(f"    [Exec] {cmd}")
         
         try:
-            # Check liveness based on SDK version capabilities
-            if hasattr(info.sandbox, "is_running"):
-                if not info.sandbox.is_running():
-                    self._runs.pop(project_id, None)
-                    return False, None
-            return True, 3000
-        except Exception:
-            self._runs.pop(project_id, None)
-            return False, None
+            if hasattr(sb, "commands"): # New SDK
+                if background:
+                    await asyncio.to_thread(sb.commands.run, cmd, background=True)
+                    return 0, ""
+                res = await asyncio.to_thread(sb.commands.run, cmd)
+                return res.exit_code, (res.stderr or res.stdout)
+            else: # Legacy SDK
+                if background:
+                    await sb.process.start(cmd)
+                    return 0, ""
+                proc = await sb.process.start_and_wait(cmd)
+                return proc.exit_code, (proc.stderr or proc.stdout)
+        except Exception as e:
+            return 1, str(e)
+
+    async def write_file(self, project_id: str, path: str, content: str):
+        """Hot-patches a file into the running sandbox."""
+        info = self._runs.get(project_id)
+        if not info: 
+            print(f"⚠️ Cannot hot-patch {project_id}: Sandbox dead.")
+            return
+
+        sb = info.sandbox
+        fs = getattr(sb, "files", getattr(sb, "filesystem", None))
+        
+        if fs:
+            try:
+                d = os.path.dirname(path)
+                if d and d not in [".", ""]:
+                    try: fs.make_dir(d)
+                    except: pass
+                fs.write(path, content)
+                print(f"✅ Hot-patched: {path}")
+            except Exception as e:
+                print(f"⚠️ Write failed for {path}: {e}")
 
     async def stop(self, project_id: str) -> None:
-        info = self._runs.get(project_id)
+        info = self._runs.pop(project_id, None)
         if info:
-            print(f"🛑 Stopping sandbox {project_id}...")
             try:
-                # Handle both Async and Sync close methods safely
                 if asyncio.iscoroutinefunction(info.sandbox.close):
                     await info.sandbox.close()
                 else:
                     await asyncio.to_thread(info.sandbox.close)
-            except Exception as e:
-                print(f"Error closing sandbox: {e}")
-            self._runs.pop(project_id, None)
+            except: pass
 
     def _determine_start_command(self, file_tree: Dict[str, str]) -> str:
         if "package.json" in file_tree:
             try:
                 pkg = json.loads(file_tree["package.json"])
                 scripts = pkg.get("scripts", {})
-                
-                if "dev" in scripts: 
-                    return "npm run dev -- --port 3000 --host"
+                if "dev" in scripts: return "npm run dev -- --port 3000 --host"
                 if "start" in scripts: return "npm start"
                 if pkg.get("main"): return f"node {pkg['main']}"
             except: pass
-            
         if "server.js" in file_tree: return "node server.js"
-        if "index.js" in file_tree: return "node index.js"
         return "npm start"
 
     async def start(self, project_id: str, file_tree: Dict[str, str]) -> RunInfo:
-        if not Sandbox:
-            raise RuntimeError("E2B SDK not installed. Run: pip install e2b-code-interpreter")
+        # 1. REUSE EXISTING
+        if project_id in self._runs:
+            return self._runs[project_id]
 
-        await self.stop(project_id)
-        print(f"--> [E2B] Creating sandbox for {project_id} (Mode: {SDK_MODE})...")
-        
+        if not Sandbox: raise RuntimeError("E2B SDK missing")
+
+        print(f"--> [RunManager] Booting NEW sandbox for {project_id}...")
         sandbox = None
-        
-        # --- 1. ROBUST SANDBOX INITIALIZATION ---
+
         try:
+            # 2. CREATE VM
             if SDK_MODE == "new":
-                # NEW SDK: Synchronous Constructor -> Thread
-                print(f"--> [E2B] Initializing via Sandbox() (New SDK)...")
                 sandbox = await asyncio.to_thread(Sandbox)
-            
-            elif SDK_MODE == "legacy":
-                # LEGACY SDK: Async Factory -> Await
-                print(f"--> [E2B] Initializing via Sandbox.create() (Legacy SDK)...")
-                # Try template="base", fallback if argument issues arise
-                try:
-                    sandbox = await Sandbox.create(template="base")
-                except TypeError:
-                    sandbox = await Sandbox.create()
-            
             else:
-                raise RuntimeError("Unknown SDK version")
+                try: sandbox = await Sandbox.create(template="base")
+                except: sandbox = await Sandbox.create()
 
-        except Exception as e:
-            err_str = str(e)
-            if "401" in err_str:
-                raise RuntimeError("E2B API Key is invalid or missing.")
-            raise RuntimeError(f"Failed to create E2B Sandbox: {err_str}")
-
-        if not sandbox:
-            raise RuntimeError("Sandbox creation returned None.")
-
-        # --- 2. UPLOAD & RUN ---
-        try:
-            # Write Files
-            print(f"--> [E2B] Writing {len(file_tree)} files...")
-            
+            # 3. SYNC FILES
             fs = getattr(sandbox, "files", getattr(sandbox, "filesystem", None))
-            if not fs: raise RuntimeError("Could not find filesystem on Sandbox object")
-
             for path, content in file_tree.items():
                 if not path or path.endswith("/"): continue
-                dir_path = os.path.dirname(path)
-                if dir_path and dir_path not in [".", ""]:
-                    try: fs.make_dir(dir_path)
+                d = os.path.dirname(path)
+                if d: 
+                    try: fs.make_dir(d)
                     except: pass
                 fs.write(path, content)
 
-            # --- HELPER: Unified Command Runner ---
-            async def run_cmd(c, background=False):
-                # New SDK has .commands, Legacy uses .process
-                if hasattr(sandbox, "commands"): 
-                    print(f"    [Exec] {c}")
-                    if background:
-                         await asyncio.to_thread(sandbox.commands.run, c, background=True)
-                         return 0, ""
-                    res = await asyncio.to_thread(sandbox.commands.run, c, background=False)
-                    return res.exit_code, (res.stderr or res.stdout)
-                else: 
-                    print(f"    [Exec Legacy] {c}")
-                    if background:
-                        await sandbox.process.start(c)
-                        return 0, ""
-                    proc = await sandbox.process.start_and_wait(c)
-                    return proc.exit_code, (proc.stderr or proc.stdout)
-
-            # Install Dependencies
+            # 4. NPM INSTALL
             if "package.json" in file_tree:
-                print(f"--> [E2B] Running npm install...")
-                code, err = await run_cmd("npm install")
-                if code != 0:
-                    print(f"⚠️ npm install warning: {err[:200]}")
+                print(f"--> [RunManager] npm install...")
+                try:
+                    if hasattr(sandbox, "commands"):
+                        await asyncio.to_thread(sandbox.commands.run, "npm install")
+                    else:
+                        await sandbox.process.start_and_wait("npm install")
+                except Exception as e:
+                    print(f"⚠️ npm install warning: {e}")
 
-                # Build (Best Effort)
-                pkg = json.loads(file_tree["package.json"])
-                if "build" in pkg.get("scripts", {}):
-                    print(f"--> [E2B] Running npm run build...")
-                    await run_cmd("npm run build")
-
-            # Start Server
+            # 5. START SERVER
             start_cmd = self._determine_start_command(file_tree)
-            print(f"--> [E2B] Starting server with: {start_cmd}")
+            fw_key = os.getenv("FIREWORKS_API_KEY", "")
+            full_cmd = f"export PORT=3000 && export FIREWORKS_API_KEY='{fw_key}' && {start_cmd} > server.log 2> server_err.txt"
             
-            # --- INJECT ENV VARS ---
-            fw_api_key = os.getenv("FIREWORKS_API_KEY")
+            print(f"--> [RunManager] Starting process: {start_cmd}")
             
-            # Capture Logs & Inject Key
-            # We explicitly export the key in the shell command
-            full_cmd = f"export PORT=3000 && export FIREWORKS_API_KEY='{fw_api_key}' && {start_cmd} > server.log 2> server_err.txt"
-            
-            # Start in background
-            await run_cmd(full_cmd, background=True)
-
-            # --- HEALTH CHECK ---
-            print(f"--> [E2B] Waiting for port 3000...")
-            port_open = False
-            for _ in range(20):
-                code, _ = await run_cmd("curl -s http://localhost:3000")
-                if code == 0:
-                    port_open = True
-                    break
-                await asyncio.sleep(1)
-            
-            if not port_open:
-                print("--> [E2B] Server failed to start. Reading logs...")
-                _, error_log = await run_cmd("cat server_err.txt")
-                _, output_log = await run_cmd("cat server.log")
-                
-                full_log = (error_log or "") + "\n" + (output_log or "")
-                raise RuntimeError(f"App crashed during startup: {full_log.strip()[:1000]}")
-
-            # Get URL
-            public_url = ""
-            if hasattr(sandbox, "get_host"): 
-                public_url = f"https://{sandbox.get_host(3000)}"
-            elif hasattr(sandbox, "get_hostname"):
-                public_url = f"https://{sandbox.get_hostname(3000)}"
+            if hasattr(sandbox, "commands"):
+                await asyncio.to_thread(sandbox.commands.run, full_cmd, background=True)
             else:
-                public_url = "https://placeholder-url-error.com"
+                await sandbox.process.start(full_cmd)
 
-            print(f"--> [E2B] Live at {public_url}")
-            
-            info = RunInfo(project_id=project_id, sandbox=sandbox, url=public_url)
+            # 6. REGISTER NOW (Crucial for Hot Patching)
+            # We register BEFORE health check. If health check fails, the sandbox is still "active" 
+            # so we can fix it.
+            info = RunInfo(project_id=project_id, sandbox=sandbox, url="http://localhost:3000")
             self._runs[project_id] = info
+
+            # 7. HEALTH CHECK
+            print(f"--> [RunManager] Waiting for port 3000...")
+            is_up = False
+            for _ in range(30):
+                try:
+                    # Robust check that doesn't crash on connection refused
+                    if hasattr(sandbox, "commands"):
+                        res = await asyncio.to_thread(sandbox.commands.run, "curl -s http://localhost:3000")
+                        if res.exit_code == 0: is_up = True; break
+                    else:
+                        proc = await sandbox.process.start_and_wait("curl -s http://localhost:3000")
+                        if proc.exit_code == 0: is_up = True; break
+                except:
+                    pass
+                await asyncio.sleep(1)
+
+            if not is_up:
+                # Retrieve logs
+                try:
+                    log_cmd = "cat server_err.txt"
+                    if hasattr(sandbox, "commands"):
+                        res = await asyncio.to_thread(sandbox.commands.run, log_cmd)
+                        logs = res.stderr or res.stdout
+                    else:
+                        proc = await sandbox.process.start_and_wait(log_cmd)
+                        logs = proc.stderr or proc.stdout
+                except: logs = "No logs available."
+                
+                # RAISE ERROR, BUT KEEP SANDBOX ALIVE (It's already registered)
+                raise RuntimeError(f"App crashed during startup: {str(logs)[:1000]}")
+
+            print(f"--> [RunManager] Sandbox READY for {project_id}")
             return info
 
         except Exception as e:
-            # Cleanup on fail
-            try:
-                if asyncio.iscoroutinefunction(sandbox.close): await sandbox.close()
-                else: await asyncio.to_thread(sandbox.close)
-            except: pass
+            # Only kill if we failed to even CREATE the sandbox or register it
+            # If we registered it, we keep it alive for debugging/patching
+            if project_id not in self._runs and sandbox:
+                try: 
+                    if asyncio.iscoroutinefunction(sandbox.close): await sandbox.close()
+                    else: await asyncio.to_thread(sandbox.close)
+                except: pass
             raise e
 
-    async def proxy(self, project_id: str, path: str, method: str, headers: dict, body: bytes, query: str) -> httpx.Response:
-        info = self._runs.get(project_id)
-        if not info:
-            raise RuntimeError("CRASH_DETECTED: Server not running.")
-
-        target_url = f"{info.url}/{path.lstrip('/')}"
-        if query: target_url += f"?{query}"
-
-        fwd_headers = {k: v for k, v in headers.items() if k.lower() not in ("host", "content-length", "connection")}
-
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                return await client.request(method, target_url, headers=fwd_headers, content=body)
-            except httpx.RequestError as e:
-                raise RuntimeError(f"CRASH_DETECTED: Connection failed: {e}")
+run_manager = ProjectRunManager()

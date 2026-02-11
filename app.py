@@ -1382,34 +1382,42 @@ async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
     except Exception as e:
         print(f"⚠️ Fetch Error: {e}")
         return {}
-
 async def _start_server_with_retry(project_id: str, triggered_error: str = None):
     """
-    Robust Starter:
-    1. Identifies broken files from logs.
-    2. Runs AI fixes (awaiting directly).
-    3. Starts server using the existing run_manager.
+    HOT-FIX ORCHESTRATOR:
+    1. Gets/Creates Singleton Sandbox via RunManager.
+    2. Analyzes logs to find the SPECIFIC broken file.
+    3. AI applies fixes directly to the running sandbox (Hot Patch).
+    4. Restarts the node process (not the VM).
     """
     _BOOTING_PROJECTS.add(project_id)
     
     try:
         max_retries = 3
         current_error = triggered_error 
-        history = []
         coder = Coder()
+        
+        # 1. INITIALIZE / GET SANDBOX
+        # We try to start it. If it fails, run_manager raises an error 
+        # BUT keeps the sandbox in memory so we can patch it.
+        emit_status(project_id, "Checking Environment...")
+        file_tree = await _fetch_file_tree(project_id)
+        
+        try:
+            await run_manager.start(project_id, file_tree)
+        except RuntimeError as e:
+            print(f"--> [AutoFix] Initial start failed, attempting hot patch. Error: {e}")
+            current_error = str(e)
 
+        # 2. FIX LOOP
         for attempt in range(1, max_retries + 2):
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.5)
 
-            # --- PHASE A: FIXING (Smart Context) ---
+            # --- PHASE A: FIXING ---
             if current_error:
                 emit_phase(project_id, "fixing")
-                emit_status(project_id, f"Analyzing Crash ({attempt})...")
                 
-                # 1. Fetch files to find the culprit
-                file_tree = await _fetch_file_tree(project_id)
-                
-                # 2. Find file mentioned in error
+                # Identify Broken File
                 affected_file = None
                 known_files = sorted(file_tree.keys(), key=len, reverse=True)
                 for fpath in known_files:
@@ -1417,82 +1425,99 @@ async def _start_server_with_retry(project_id: str, triggered_error: str = None)
                         affected_file = fpath
                         break
                 
-                # 3. Construct Prompt
-                fix_prompt = (
-                    f"The build failed with this error:\n{current_error}\n"
-                )
+                # Build Prompt
+                fix_prompt = f"The application failed to start.\nError Log:\n{current_error}\n"
                 if affected_file:
                     fix_prompt += (
-                        f"\n[TARGET] Error in '{affected_file}'.\n"
+                        f"\n[TARGET] The error is in '{affected_file}'.\n"
                         f"Current Content:\n```typescript\n{file_tree[affected_file]}\n```\n"
-                        f"TASK: Fix the syntax error in '{affected_file}'."
+                        f"TASK: Fix the syntax error in '{affected_file}'. Return the corrected file."
                     )
+                    emit_status(project_id, f"AI Fixing: {affected_file}...")
                 else:
-                    fix_prompt += "Fix any syntax errors in the project files."
+                    fix_prompt += "Fix the syntax error preventing startup."
+                    emit_status(project_id, "AI Fixing: Analyzing crash...")
 
                 try:
-                    # [CRITICAL] Direct await (no to_thread) so we don't get 'coroutine' errors
+                    # Run Coder
                     res = await coder.generate_code(
                         plan_section="Crash Fix",
                         plan_text=fix_prompt,
                         file_tree=file_tree,
                         project_name=project_id,
-                        history=history
+                        history=[]
                     )
                     
-                    if res.get("message"):
-                        history.append({"role": "assistant", "content": res.get("message")})
-
+                    # Show Message
+                    msg = res.get("message", "Fixes applied.")
+                    emit_status(project_id, f"AI: {msg[:60]}")
+                    
                     ops = res.get("operations", [])
+                    packages_changed = False
+                    
                     for op in ops:
                         p = op.get("path"); c = op.get("content")
                         if p and c:
+                            # A. Update Database
                             db_upsert("files", {"project_id": project_id, "path": p, "content": c}, on_conflict="project_id,path")
-                            emit_file_changed(project_id, p)
+                            
+                            # B. Hot Patch Sandbox (Write to live VM)
+                            await run_manager.write_file(project_id, p, c)
+                            
+                            if "package.json" in p: packages_changed = True
                     
-                    emit_log(project_id, "coder", "Fix applied. Rebooting...")
+                    if packages_changed:
+                        emit_status(project_id, "Updating modules...")
+                        await run_manager.run_command(project_id, "npm install")
+
                     current_error = None
-                    await asyncio.sleep(0.5)
                     
                 except Exception as e:
-                    print(f"Fixing failed: {e}")
+                    print(f"Fix failed: {e}")
 
-            # --- PHASE B: STARTING (Using RunManager) ---
+            # --- PHASE B: RESTART PROCESS (Hot Restart) ---
             try:
-                emit_status(project_id, "Booting server..." if attempt == 1 else "Retrying...")
-                await asyncio.sleep(0.1)
+                emit_status(project_id, "Restarting server...")
+                
+                # 1. Kill the old process (Hot Restart)
+                await run_manager.run_command(project_id, "fuser -k 3000/tcp")
+                
+                # 2. Start Dev Server Command
+                fw_key = os.environ.get("FIREWORKS_API_KEY", "")
+                cmd = f"export PORT=3000 && export FIREWORKS_API_KEY='{fw_key}' && npm run dev -- --port 3000 --host"
+                
+                # 3. Execute in Background
+                await run_manager.run_command(project_id, cmd, background=True)
+                
+                # 4. Health Check
+                is_up = False
+                for _ in range(15):
+                    code, _ = await run_manager.run_command(project_id, "curl -s http://localhost:3000")
+                    if code == 0:
+                        is_up = True
+                        break
+                    await asyncio.sleep(1)
+                
+                if not is_up:
+                    _, logs = await run_manager.run_command(project_id, "cat server_err.txt")
+                    raise RuntimeError(f"App crashed during startup: {logs[:500]}")
 
-                file_tree = await _fetch_file_tree(project_id)
-                
-                # [CRITICAL] Use your existing run_manager to avoid SDK mismatch
-                # We expect run_manager.start to return the sandbox instance or info
-                sb = await run_manager.start(project_id, file_tree)
-                
-                # [LOOP FIX] Save to Singleton so the Proxy endpoint finds it
-                # If run_manager.start returns a Sandbox object, this works.
-                # If it returns a dict, you might need: ACTIVE_SANDBOXES[project_id] = sb['sandbox']
-                if sb:
-                    ACTIVE_SANDBOXES[project_id] = sb
-                
                 emit_status(project_id, "Server Running")
                 emit_progress(project_id, "Ready", 100)
-                return
+                return # SUCCESS
 
             except Exception as e:
                 err_str = str(e)
-                if "E2B" in err_str:
-                    emit_status(project_id, "System Error")
-                    return
-
                 clean_error = err_str.replace("App crashed during startup:", "").strip()
-                emit_log(project_id, "system", f"Crash detected: {clean_error[:100]}...")
+                emit_log(project_id, "system", f"Crash: {clean_error[:100]}...")
                 current_error = clean_error
-                await asyncio.sleep(1) 
+                # Loop continues -> Hot Patch again
 
         emit_status(project_id, "❌ Auto-fix failed.")
         
     finally:
         _BOOTING_PROJECTS.discard(project_id)
+
 
 @app.post("/api/project/{project_id}/agent/start")
 async def agent_start(
@@ -1781,88 +1806,65 @@ async def run_status(request: Request, project_id: str):
     booting = project_id in _BOOTING_PROJECTS
     return {"running": running, "port": port, "booting": booting}
 
+# Ensure this global dict is at the top of app.py
+# ACTIVE_SANDBOXES = {}
+
 @app.api_route("/run/{project_id}/{path:path}", methods=["GET","POST","PUT","DELETE","OPTIONS","PATCH"])
 async def run_proxy(request: Request, project_id: str, path: str):
-    """
-    STRICT PROXY:
-    1. Checks if project is BOOTING -> Shows loading screen.
-    2. Checks if sandbox exists in ACTIVE_SANDBOXES -> Proxies request.
-    3. If neither -> Shows 'Server Offline' (Stops the infinite loop).
-    """
-    # [Security Checks]
-    # user = get_current_user(request) # Uncomment if you need auth on public preview
-    # _require_project_owner(user, project_id) # Uncomment if private
     
     _LAST_ACCESS[project_id] = time.time()
     
-    # --- SCENARIO 1: CURRENTLY BOOTING ---
+    # 1. GATEKEEPER: Stop spam if fixing/booting
     if project_id in _BOOTING_PROJECTS:
+        # Determine if fixing or booting based on last status
         loading_path = os.path.join(FRONTEND_TEMPLATES_DIR, "agentloading.html")
-        loading_html = "<h2>🚧 Booting...</h2><p>Server is starting up...</p>"
+        loading_html = "<h2>🚧 Booting...</h2>"
         if os.path.exists(loading_path):
-            with open(loading_path, "r", encoding="utf-8") as f:
-                loading_html = f.read()
-        # Auto-refresh to check progress
+            with open(loading_path, "r", encoding="utf-8") as f: loading_html = f.read()
+            
         loading_html = loading_html.replace("<head>", '<head><meta http-equiv="refresh" content="2">', 1)
         return HTMLResponse(loading_html, status_code=200)
 
-    # --- SCENARIO 2: RUNNING (Singleton Check) ---
-    sandbox = ACTIVE_SANDBOXES.get(project_id)
+    # 2. CHECK RUN MANAGER
+    info = run_manager.get_run_info(project_id)
     
-    if sandbox:
-        try:
-            # Construct the internal URL (localhost:3000 inside sandbox)
-            # We use 'curl' inside the sandbox to fetch the response
-            cmd = f"curl -s -L -D - -o - -X {request.method} http://localhost:3000/{path}"
-            
-            # Forward headers (optional, stripped for simplicity/stability)
-            # You can inject headers into the curl command if needed
-            
-            proc = sandbox.process.start_and_wait(cmd)
-            
-            if proc.exit_code != 0:
-                # If curl fails, the internal server might have crashed
-                raise RuntimeError(f"CRASH_DETECTED: {proc.stderr}")
+    if not info:
+        # SERVER STOPPED - Show Stopped Page
+        # Do NOT auto-start here. Auto-start creates the loop.
+        # The user must click "Run" on the dashboard/editor, or the first load triggers it manually.
+        return templates.TemplateResponse(
+            "projects/serverstopped.html", 
+            {"request": request, "project_id": project_id}
+        )
 
-            # Parse Raw HTTP Response from Curl (Simplified for MVP)
-            # In a real prod env, we'd parse headers properly. 
-            # Here we just dump stdout.
-            
-            # Detect Content-Type based on extension for basic rendering
-            mime_type = "text/html"
-            if path.endswith(".js"): mime_type = "application/javascript"
-            elif path.endswith(".css"): mime_type = "text/css"
-            elif path.endswith(".json"): mime_type = "application/json"
-            
-            return Response(content=proc.stdout, media_type=mime_type)
+    # 3. PROXY TRAFFIC
+    try:
+        # We use curl inside the sandbox to fetch content
+        # This bypasses the need for a public URL for simple file serving
+        cmd = f"curl -s -L -D - -o - -X {request.method} http://localhost:3000/{path}"
+        
+        # We need the raw sandbox for this specific low-level command
+        # Use run_manager helper if possible, but for proxying large data, direct access is better.
+        # For MVP, we use the helper logic:
+        code, output = await run_manager.run_command(project_id, cmd)
 
-        except Exception as e:
-            err_msg = str(e)
-            
-            # --- SCENARIO 3: CRASH DETECTION ---
-            if "CRASH_DETECTED" in err_msg or "Connection refused" in err_msg:
-                print(f"🔥 Proxy caught crash for {project_id}")
-                
-                # Trigger Auto-Fix
-                if project_id not in _BOOTING_PROJECTS:
-                    asyncio.create_task(_start_server_with_retry(project_id, triggered_error=err_msg))
-                
-                # Show Fixing Screen
-                loading_path = os.path.join(FRONTEND_TEMPLATES_DIR, "agentloading.html")
-                loading_html = "<h2>💥 Fixing...</h2><p>AI is resolving the crash...</p>"
-                if os.path.exists(loading_path):
-                    with open(loading_path, "r", encoding="utf-8") as f: loading_html = f.read()
-                loading_html = loading_html.replace("<head>", '<head><meta http-equiv="refresh" content="3">', 1)
-                return HTMLResponse(loading_html, status_code=200)
-            
-            return Response("Proxy Error", status_code=502)
+        if code != 0 or not output:
+             # CRASH DETECTED
+             print(f"🔥 Proxy found dead server for {project_id}")
+             # Trigger Fix
+             asyncio.create_task(_start_server_with_retry(project_id, triggered_error="Server Unresponsive"))
+             return RedirectResponse(request.url, status_code=302)
 
-    # --- SCENARIO 4: STOPPED (Default) ---
-    # If we get here, the server is NOT in memory and NOT booting.
-    return templates.TemplateResponse(
-        "projects/serverstopped.html", 
-        {"request": request, "project_id": project_id}
-    )
+        # Basic MIME types
+        mime = "text/html"
+        if path.endswith(".js") or path.endswith(".ts") or path.endswith(".tsx"): mime = "application/javascript"
+        elif path.endswith(".css"): mime = "text/css"
+        
+        return Response(content=output, media_type=mime)
+
+    except Exception as e:
+        return Response("Proxy Error", status_code=502)
+
 
 @app.get("/projects/{project_id}/game", response_class=HTMLResponse)
 async def project_game(request: Request, project_id: str):

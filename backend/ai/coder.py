@@ -221,7 +221,7 @@ class Coder:
             "}\n\n"
 
             "GLOBAL RULES:\n"
-            "1. Output valid JSON only. No markdown blocks.\n"
+            "1. Output valid JSON only. No markdown blocks. And ALL NEEDE API KEYS ARE IN THE ENVIRONMENT, NEVER ASK THE USER FOR ONE!\n"
             "2. NEVER generate .env or Dockerfile.\n"
             "3. NEVER use literal '\\n'. Use physical newlines.\n\n"
 
