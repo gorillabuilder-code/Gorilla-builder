@@ -110,16 +110,36 @@ class ProjectRunManager:
             except: pass
 
     def _determine_start_command(self, file_tree: Dict[str, str]) -> str:
+        # 1. Python Detection (Prioritized)
+        if "app.py" in file_tree: return "python3 app.py"
+        if "main.py" in file_tree: return "python3 main.py"
+        if "requirements.txt" in file_tree and "package.json" not in file_tree: 
+            return "python3 -m http.server 3000"
+
+        # 2. Node Detection (Strict)
         if "package.json" in file_tree:
             try:
                 pkg = json.loads(file_tree["package.json"])
                 scripts = pkg.get("scripts", {})
+                
+                # CRITICAL FIX: If the dev script uses Python, DO NOT append Vite/Next.js flags
+                dev_script = scripts.get("dev", "")
+                if "python" in dev_script or "http.server" in dev_script:
+                    return "npm run dev"
+
+                # Otherwise, assume it's a standard JS framework that needs port binding
                 if "dev" in scripts: return "npm run dev -- --port 3000 --host"
                 if "start" in scripts: return "npm start"
                 if pkg.get("main"): return f"node {pkg['main']}"
             except: pass
-        if "server.js" in file_tree: return "node server.js"
-        return "npm start"
+            return "npm start"
+
+        # 3. Static Site / Fallback
+        if "index.html" in file_tree:
+            return "python3 -m http.server 3000"
+
+        # 4. Last Resort
+        return "python3 -m http.server 3000"
 
     async def start(self, project_id: str, file_tree: Dict[str, str]) -> RunInfo:
         # 1. REUSE EXISTING

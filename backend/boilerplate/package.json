@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "npm run build && python3 -m http.server 3000",
-    "start": "npm run build && python3 -m http.server 3000",
-    "build": "esbuild src/main.tsx --bundle --outfile=static/bundle.js --minify --loader:.tsx=tsx --loader:.ts=ts --sourcemap --target=es2020 --format=esm",
-    "lint": "eslint ."
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

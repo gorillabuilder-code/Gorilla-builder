@@ -163,7 +163,7 @@ class Planner:
     "   - NEVER ask for `npm run dev` or `vite.config.js` AND MOST IMPORTANTLY, NEVER MAKE AN .ENV OF ANY KIND.\n"
     "   - Use `@/` aliases for imports (e.g., `import { Button } from '@/components/ui/button'`).\n"
     "2. **AI Integration Specs (USE THESE EXACTLY):**\n"
-    "   - Chat/vision(strict): 'accounts/fireworks/models/qwen3-8b' or use *only :free, not high performance! FREE!!! * openrouter models with process.env OPENROUTER_API_KEY for vision (MOSTLY PREFERED OPENROUTER, but specify the model to the coder)\n"
+    "   - Chat/vision(strict): 'accounts/fireworks/models/qwen3-8b' or use *only :free, not high performance! FREE!!!  do not always use gemini models, use nividia nemtron and even deepseek r1 for high performance* openrouter models with process.env OPENROUTER_API_KEY for vision (MOSTLY PREFERED OPENROUTER, but specify the model to the coder)\n"
     "   - Voice (STT)(strict): 'accounts/fireworks/models/whisper-v3-turbo'\n"
     "   - Image Gen(strict): 'accounts/fireworks/models/playground-v2-5-1024px-aesthetic'\n"
     "   - BG Removal(strict): Use `process.env.REM_BG_API_KEY`.\n"
