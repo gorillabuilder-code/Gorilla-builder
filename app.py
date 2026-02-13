@@ -431,12 +431,18 @@ from fastapi.staticfiles import StaticFiles # Make sure this is imported
 
 app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
 
+# In app.py
+
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
-    # 🔓 UNLOCKS WEBCONTAINERS
-    response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+    
+    # Force the "Flexible" headers
+    response.headers["Cross-Origin-Embedder-Policy"] = "credentialless"
     response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+    
+    # 🖨️ PRINT THE VALUE TO TERMINAL
     return response
 
 app.mount("/assets", StaticFiles(directory="frontend/templates/landing/assets"), name="assets")
@@ -1199,43 +1205,74 @@ async def project_export(request: Request, project_id: str):
 # ==========================================================================
 # FILE API ROUTES
 # ==========================================================================
+@app.post("/api/project/{project_id}/log")
+async def log_browser_event(project_id: str, request: Request):
+    """
+    Receives logs from the browser (WebContainer).
+    If the log contains 'failed' or 'error', it alerts the Agent/Coder.
+    """
+    try:
+        form = await request.form()
+        level = form.get("level", "INFO")
+        message = form.get("message", "")
+        
+        # 1. Print to Python Terminal
+        print(f"[{level}] Browser: {message}")
+        
+        # 2. Stream critical errors to the Chat UI (Coder)
+        if "error" in message.lower() or "failed" in message.lower():
+            emit_log(project_id, "system", f"⚠️ Browser Error: {message}")
+            
+    except:
+        pass
+    return JSONResponse({"status": "ok"})
+
+
 @app.get("/api/project/{project_id}/files")
-async def list_files(request: Request, project_id: str):
+async def get_project_files(request: Request, project_id: str):
+    """
+    Returns the flat list of files for the WebContainer.
+    """
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
+    # Fetch from Supabase
     res = (
         supabase.table("files")
-        .select("path,updated_at")
+        .select("path,content")
         .eq("project_id", project_id)
-        .order("updated_at", desc=True)
         .execute()
     )
-    return {"files": res.data if res and res.data else []}
+    
+    # Handle Async/Sync Supabase client differences
+    if asyncio.iscoroutine(res): res = await res
+    
+    rows = getattr(res, "data", [])
+    if not rows and isinstance(res, list): rows = res
+        
+    return {"files": rows}
 
-from fastapi import Response # Ensure this is imported
 
 @app.get("/api/project/{project_id}/file")
 async def get_file_content(request: Request, project_id: str, path: str):
-    print(f"📂 [BACKEND] Fetching file: {path} for project: {project_id}") # DEBUG PRINT
+    print(f"📂 [BACKEND] Fetching file: {path} for project: {project_id}")
     
     try:
-        # 1. Fetch from Database
         res = supabase.table("files").select("content").eq("project_id", project_id).eq("path", path).execute()
+        if asyncio.iscoroutine(res): res = await res
         
-        # 2. Extract content safely
         content = ""
         if res.data and len(res.data) > 0:
             content = res.data[0].get("content", "")
         else:
             print(f"⚠️ [BACKEND] File not found in DB: {path}")
 
-        # 3. Return JSON (Standard Standard)
         return JSONResponse({"content": content})
         
     except Exception as e:
         print(f"❌ [BACKEND] Error: {e}")
         return JSONResponse({"content": f"// Error loading file: {e}"})
+
 
 @app.post("/api/project/{project_id}/save")
 async def save_file(
@@ -1254,6 +1291,7 @@ async def save_file(
     )
     supabase.table("projects").update({"updated_at": "now()"}).eq("id", project_id).execute()
     return {"success": True}
+
 
 @app.get("/api/project/{project_id}/tokens")
 async def check_tokens(request: Request, project_id: str):
@@ -1274,38 +1312,6 @@ def _guess_media_type(path: str) -> str:
     if path.endswith(".json"): return "application/json"
     return "text/plain"
 
-# [CRITICAL] WebContainers require these headers to enable SharedArrayBuffer
-@app.middleware("http")
-async def add_security_headers(request: Request, call_next):
-    response = await call_next(request)
-    # Essential for WebContainers to boot in the browser
-    response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
-    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
-    return response
-
-@app.get("/api/project/{project_id}/files")
-async def get_project_files(request: Request, project_id: str):
-    """
-    Returns the flat list of files. 
-    The frontend (webcontainer.js) will convert this to a tree.
-    """
-    user = get_current_user(request)
-    _require_project_owner(user, project_id)
-    
-    res = (
-        supabase.table("files")
-        .select("path,content")
-        .eq("project_id", project_id)
-        .execute()
-    )
-    
-    # Handle Async/Sync Supabase client differences
-    if asyncio.iscoroutine(res): res = await res
-    
-    rows = getattr(res, "data", [])
-    if not rows and isinstance(res, list): rows = res
-        
-    return {"files": rows}
 
 @app.get("/app/{project_id}/{path:path}")
 async def serve_project_file(request: Request, project_id: str, path: str):
@@ -1323,7 +1329,6 @@ async def serve_project_file(request: Request, project_id: str, path: str):
         .maybe_single()
         .execute()
     )
-    # Handle Async/Sync Supabase client differences
     if asyncio.iscoroutine(res): res = await res
 
     row = res.data if res else None
@@ -1335,6 +1340,7 @@ async def serve_project_file(request: Request, project_id: str, path: str):
         content=row.get("content", ""), 
         media_type=_guess_media_type(path)
     )
+
 
 # ==========================================================================
 # EVENT BUS & UTILS
@@ -1584,8 +1590,6 @@ async def agent_start(
                 
                 file_tree = await _fetch_file_tree(project_id)
             
-            # --- FINISH ---
-            # NOTE: We no longer start the server here. The frontend WebContainer handles that.
             emit_status(project_id, "Coding Complete.")
             emit_progress(project_id, "Ready", 100)
             
@@ -1612,7 +1616,7 @@ async def agent_events(request: Request, project_id: str):
                     ev = await asyncio.wait_for(q.get(), timeout=15)
                     yield f"data: {json.dumps(ev)}\n\n"
                 except asyncio.TimeoutError:
-                    yield ": keep-alive\n\n"
+                    yield f": keep-alive\n\n"
         finally:
             progress_bus.unsubscribe(project_id, q)
 
@@ -1640,3 +1644,16 @@ async def agent_ping(request: Request, project_id: str):
 @app.get("/health")
 async def health():
     return {"ok": True, "ts": int(time.time()), "dev_mode": DEV_MODE}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    from pyngrok import ngrok
+    import sys
+
+    # Open a tunnel to port 8000
+    # This URL bypasses GitHub's Proxy completely
+    public_url = ngrok.connect(8000).public_url
+    print(f"\n🚀 \033[92mYOUR BYPASS URL: {public_url}\033[0m 🚀\n")
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)

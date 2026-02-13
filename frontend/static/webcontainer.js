@@ -1,4 +1,4 @@
-import { WebContainer } from 'https://esm.sh/@webcontainer/api';
+import { WebContainer } from 'https://esm.sh/@webcontainer/api@1.1.8';
 
 /**
  * WebContainer Orchestrator
@@ -17,8 +17,14 @@ export class WebRunner {
     async boot() {
         if (this.instance) return this.instance;
         
-        console.log("🥾 Booting WebContainer...");
-        this.instance = await WebContainer.boot();
+        console.log("🥾 Booting WebContainer (Credentialless Mode)...");
+        
+        // 🚨 THIS IS THE CRITICAL FIX 🚨
+        // We must tell WebContainer that our server uses 'credentialless' headers.
+        this.instance = await WebContainer.boot({
+            coep: 'credentialless' 
+        });
+
         return this.instance;
     }
 
@@ -29,7 +35,6 @@ export class WebRunner {
         const tree = {};
         
         files.forEach(f => {
-            // Remove leading slashes
             const cleanPath = f.path.replace(/^\/+/, '');
             const parts = cleanPath.split('/'); 
             let current = tree;
@@ -67,20 +72,19 @@ export class WebRunner {
     async install(logger) {
         if (!this.instance) throw new Error("Container not booted");
         
-        logger("system", "📦 Installing dependencies (in browser)...");
+        logger("system", "📦 Installing dependencies...");
         
+        // Use 'npm install'
         const process = await this.instance.spawn('npm', ['install']);
         
         process.output.pipeTo(new WritableStream({
             write(data) {
-                // Filter out npm noise, keep important logs
                 if(data.includes('ERR') || data.includes('warn')) console.warn(data);
             }
         }));
 
         const exitCode = await process.exit;
         if (exitCode !== 0) {
-            // We log but don't crash, sometimes npm warns count as errors
             logger("system", `⚠️ npm install finished with code ${exitCode}`);
         } else {
             logger("system", "✅ Dependencies installed.");
@@ -93,15 +97,9 @@ export class WebRunner {
     async start(onReady, logger) {
         if (!this.instance) throw new Error("Container not booted");
 
-        // Kill existing process if any
-        if (this.shell) {
-            // We can't really "kill" the shell object in the API easily, 
-            // but spawning a new one usually takes precedence on the port.
-        }
-
         logger("system", "🚀 Starting Dev Server...");
 
-        // Try 'npm run dev'
+        // Run 'npm run dev'
         this.shell = await this.instance.spawn('npm', ['run', 'dev']);
 
         this.shell.output.pipeTo(new WritableStream({
