@@ -1038,7 +1038,11 @@ function startStream(){
     
     if(m.type === "log") {
       const role = m.role || "agent";
-      addMessage(role, m.text);
+      
+      // 🛑 FIX: Ignore 'user' logs from server (we already added them locally)
+      if (role !== "user") {
+          addMessage(role, m.text);
+      }
     }
     
     if(m.type === "file_changed") {

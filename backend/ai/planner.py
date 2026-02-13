@@ -169,7 +169,7 @@ class Planner:
     "3. **Volume:** \n"
     "   - Simple Apps: 6-8 tasks (Mix of Backend setup and Frontend UI).\n"
     "   - Complex Apps: 12-18 tasks.\n"
-    "   - Never exceed 350 tokens per step."
+    "   - Never exceed 350 tokens per step, And always, the last thing you do is to update the server.js and App.tsx or Index.tsx files to wire up the new components/routes that are created."
     )
         
         chat_history = _get_history(project_id)
