@@ -72,7 +72,7 @@ export class WebRunner {
     async install(logger) {
         if (!this.instance) throw new Error("Container not booted");
         
-        logger("system", "📦 Installing dependencies...");
+        logger("system", "Installing dependencies...");
         
         // Use 'npm install'
         const process = await this.instance.spawn('npm', ['install']);

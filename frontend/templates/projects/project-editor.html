@@ -977,7 +977,7 @@ $("btnRunServer").onclick = async () => {
         btn.textContent = "Booting...";
         status.textContent = "Booting VM...";
         status.style.color = "var(--warn)";
-        addMessage("system", "⚡ Booting Browser-Based Container...");
+        addMessage("system", "Booting...");
 
         const response = await fetchJSON(`/api/project/${PROJECT_ID}/files`);
         const files = response.files || [];
@@ -996,7 +996,7 @@ $("btnRunServer").onclick = async () => {
             if(!$("tabPreview").classList.contains("active")){
                switchTab("preview");
             }
-            addMessage("system", "🟢 Preview is live!");
+            addMessage("system", "Preview is live!");
         }, (role, text) => addMessage(role, text));
 
         isWebContainerBooted = true;
