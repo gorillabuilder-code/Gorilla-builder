@@ -298,7 +298,6 @@ def decrease_tokens_used(user_id: str, amount: int):
         on_conflict="id"
     )
 
-
 # ==========================================================================
 # AUTHENTICATION & USER HELPERS
 # ==========================================================================
@@ -402,9 +401,6 @@ def send_otp_email(to_email: str, code: str):
             </html>
             """,
         }
-        resend.Emails.send(params)
-        print(f"✅ OTP sent to {to_email}")
-
         # 2. Create/Update Resend Contact (Fixed: No Audience ID needed)
         try:
             contact_params = {
@@ -413,6 +409,8 @@ def send_otp_email(to_email: str, code: str):
             }
             resend.Contacts.create(contact_params)
             print(f"✅ Added contact {to_email} to Resend")
+            resend.Emails.send(params)
+            print(f"✅ OTP sent to {to_email}")
         except Exception as contact_error:
             # We catch this separately so auth doesn't fail if contact creation fails
             print(f"⚠️ Resend Contact Error: {contact_error}")
@@ -539,8 +537,8 @@ def get_current_user_safe(request: Request):
         # Check Supabase cookie first
         token = request.cookies.get("sb_access_token")
         if token:
-             user = supabase.auth.get_user(token)
-             if user: return user
+              user = supabase.auth.get_user(token)
+              if user: return user
         
         # Fallback to session (for dev/google auth) if used
         if "user" in request.session:
@@ -592,8 +590,8 @@ async def auth_signup_init(
         "ts": time.time()
     }
     
-    # Send Email (Mock for Dev)
-    print(f"📧 [DEV OTP] Code for {email}: {otp}") 
+    # --- FIX: SEND ACTUAL EMAIL VIA BACKGROUND TASK ---
+    background_tasks.add_task(send_otp_email, email, otp)
     
     return templates.TemplateResponse(
         "auth/signup.html", 
