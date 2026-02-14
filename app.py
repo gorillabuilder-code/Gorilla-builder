@@ -651,6 +651,9 @@ async def auth_verify_otp(
         if email in PENDING_SIGNUPS:
             del PENDING_SIGNUPS[email]
         
+        # FIX: Force session set to avoid dev@local fallback
+        request.session["user"] = {"id": res.user.id, "email": email}
+
         response = RedirectResponse("/dashboard", status_code=303)
         response.set_cookie(
             key="sb_access_token", 
@@ -681,6 +684,11 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
         # If we get here, the password IS correct.
         if not res.session:
             raise Exception("Auth failed (No session)")
+
+        # FIX: Force session set to avoid dev@local fallback
+        request.session["user"] = {"id": res.user.id, "email": email}
+        # FIX: Ensure user is synced
+        ensure_public_user(res.user.id, email)
 
         # 2. Success: Set Cookie & Redirect
         response = RedirectResponse("/dashboard", status_code=303)
