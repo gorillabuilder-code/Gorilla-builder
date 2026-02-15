@@ -1221,26 +1221,67 @@ async def project_export(request: Request, project_id: str):
 # ==========================================================================
 # FILE API ROUTES
 # ==========================================================================
+# ==========================================================================
+# AUTO-FIXING LOG ENDPOINT
+# ==========================================================================
+
 @app.post("/api/project/{project_id}/log")
-async def log_browser_event(project_id: str, request: Request):
+async def log_browser_event(project_id: str, request: Request, background_tasks: BackgroundTasks):
     """
-    Receives logs from the browser (WebContainer).
-    If the log contains 'failed' or 'error', it alerts the Agent/Coder.
+    Receives logs from the browser.
+    If it's a critical error, it fetches chat history and TRIGGERS the Coder to fix it.
     """
     try:
+        # 1. Parse Data
         form = await request.form()
         level = form.get("level", "INFO")
         message = form.get("message", "")
         
-        # 1. Print to Python Terminal
         print(f"[{level}] Browser: {message}")
-        
-        # 2. Stream critical errors to the Chat UI (Coder)
-        if "error" in message.lower() or "failed" in message.lower():
-            emit_log(project_id, "system", f"⚠️ Browser Error: {message}")
+
+        # 2. Check if it's a CRASH (Error/Failed)
+        if "error" in message.lower() or "failed" in message.lower() or "exception" in message.lower():
             
-    except:
-        pass
+            # A. Notify User in UI
+            emit_log(project_id, "system", f"⚠️ Browser Error Detected: {message}")
+            emit_log(project_id, "system", "🔧 Auto-Fixing...")
+
+            # B. Get Chat History (Context)
+            # We need the previous context so the AI knows what file it just wrote
+            chat_history = []
+            try:
+                # Assuming you have a function to get history, otherwise use DB directly
+                # If using your db_select helper:
+                rows = db_select("messages", {"project_id": project_id})
+                # Sort by created_at usually, assuming rows are dicts
+                rows.sort(key=lambda x: x['created_at'])
+                for r in rows:
+                    chat_history.append({"role": r["role"], "content": r["content"]})
+            except:
+                pass # If history fails, we proceed with just the error
+
+            # C. Construct the "Fix It" Prompt
+            error_prompt = f"""
+            CRITICAL RUNTIME ERROR REPORTED BY BROWSER:
+            {message}
+
+            analyze the previous code and this error message.
+            Fix the specific file causing this crash immediately.
+            """
+
+            # D. Trigger the Agent (Run in Background to not block the log request)
+            # We reuse the same 'run_agent_loop' logic you use in the /agent/start endpoint
+            background_tasks.add_task(
+                run_agent_loop, 
+                project_id=project_id, 
+                prompt=error_prompt, 
+                history=chat_history,
+                is_xmode=True # Force X-Mode for bug fixes usually helps
+            )
+            
+    except Exception as e:
+        print(f"Log Error: {e}")
+        
     return JSONResponse({"status": "ok"})
 
 
