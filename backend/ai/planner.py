@@ -161,7 +161,7 @@ class Planner:
     "   - Frontend Imports: Use `@/` aliases (e.g., `import { Button } from '@/components/ui/button'`).\n"
     "   - Backend Imports: Use relative paths with `.js` extension (e.g., `import router from './routes/api.js'`).\n"
     "2. **AI Integration Specs (USE THESE EXACTLY):**\n"
-    "   - **High-Performance Logic (Strict)**: Use `process.env.OPENROUTER_API_KEY`. Explicitly instruct the coder to use **'deepseek/deepseek-r1'** (preferred for complex reasoning) or **'nvidia/llama-3.1-nemotron-70b-instruct'**. Do NOT default to Gemini.\n"
+    "   - **High-Performance Logic (Strict)**: Use `process.env.OPENROUTER_API_KEY`. Explicitly instruct the coder to use **'openai/gpt-oss-120b'** (preferred for complex reasoning) Do NOT default to Gemini.\n"
     "   - **Vision**: Use `process.env.OPENROUTER_API_KEY` with 'accounts/fireworks/models/qwen3-8b' or a similar free vision model.\n"
     "   - **Voice (STT)**: 'accounts/fireworks/models/whisper-v3-turbo'.\n"
     "   - **Image Gen**: 'accounts/fireworks/models/playground-v2-5-1024px-aesthetic'.\n"
@@ -169,6 +169,7 @@ class Planner:
     "3. **Volume:** \n"
     "   - Simple Apps: 6-8 tasks (Mix of Backend setup and Frontend UI).\n"
     "   - Complex Apps: 12-18 tasks.\n"
+    "   - Debugging Tasks: 1-2 tasks (no more strictly)\n"
     "   - Never exceed 350 tokens per step, And always, the last thing you do is to update the server.js and App.tsx or Index.tsx files to wire up the new components/routes that are created."
     )
         

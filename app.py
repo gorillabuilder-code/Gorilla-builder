@@ -913,7 +913,15 @@ import urllib.parse
 import re
 import os
 import asyncio
-from fastapi.responses import StreamingResponse
+import traceback
+import json
+import time
+import mimetypes
+import tempfile
+import subprocess
+from typing import Dict, Any, List, Optional
+from fastapi import Request, Form, BackgroundTasks, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, Response, JSONResponse
 
 # 1. CREATE PAGE (Stash prompt in session)
 @app.get("/projects/createit", response_class=HTMLResponse)
@@ -952,7 +960,6 @@ async def create_project(
 
             if current_count >= 3:
                 # Limit Reached: Fetch existing projects to re-render the dashboard
-                # We need this data because 'dashboard.html' expects a list of projects
                 p_res = supabase.table("projects") \
                     .select("*") \
                     .eq("owner_id", user["id"]) \
@@ -969,12 +976,9 @@ async def create_project(
                 })
         except Exception as e:
             print(f"⚠️ Project limit check failed: {e}")
-            # If check fails, we typically allow it to proceed or show a generic error.
-            # Here we proceed to avoid blocking users due to temporary DB glitches.
             pass
 
     # --- 2. PROMPT STASHING & CONFIRMATION ---
-    # Redirect back to name confirmation form if we have a prompt but no name
     if prompt and not name:
         target = f"/projects/createit?prompt={urllib.parse.quote(prompt)}"
         return RedirectResponse(target, status_code=303)
@@ -984,7 +988,7 @@ async def create_project(
     
     # --- 3. HEAVY LIFTING (DB & Files) ---
     def _heavy_lift_create():
-        # A. Create Project Record (Service Role bypasses RLS)
+        # A. Create Project Record
         res = supabase.table("projects").insert({
             "owner_id": user["id"], 
             "name": project_name, 
@@ -1013,7 +1017,6 @@ async def create_project(
             files_to_insert = []
             
             for root, dirs, files in os.walk(bp_dir):
-                # Skip massive/hidden folders
                 dirs[:] = [d for d in dirs if d not in ["node_modules", ".git", "dist", "build"]]
                 
                 for file in files:
@@ -1035,7 +1038,6 @@ async def create_project(
 
             if files_to_insert:
                 try:
-                    # Batch insert for speed
                     supabase.table("files").insert(files_to_insert).execute()
                 except Exception as e:
                     print(f"Batch insert failed ({e}), falling back to single upserts...")
@@ -1048,10 +1050,8 @@ async def create_project(
 
     # --- 4. EXECUTION ---
     try:
-        # Run DB operations in thread to prevent blocking
         pid = await asyncio.to_thread(_heavy_lift_create)
         
-        # Redirect Logic
         if xmode == "true":
             target_url = f"/projects/{pid}/xmode"
         else:
@@ -1159,7 +1159,6 @@ async def project_settings_save(
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
-    # Update using Service Role or ensure RLS allows updates by owner
     supabase.table("projects").update(
         {"name": name, "description": description}
     ).eq("id", project_id).execute()
@@ -1172,18 +1171,12 @@ async def project_export(request: Request, project_id: str):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
 
-    # Check Plan (Optional)
     try:
         user_record = db_select_one("users", {"id": user["id"]}, "plan")
         current_plan = user_record.get("plan") if user_record else "free"
-        
-        # Uncomment to enforce premium requirement
-        # if current_plan != "premium":
-        #     raise HTTPException(status_code=403, detail="Exporting is a Premium feature.")
     except:
         current_plan = "free"
 
-    # Fetch Files
     res = (
         supabase.table("files")
         .select("path,content")
@@ -1195,7 +1188,6 @@ async def project_export(request: Request, project_id: str):
     if not files:
         raise HTTPException(status_code=404, detail="No files found in this project.")
 
-    # Create Zip
     zip_buffer = io.BytesIO()
     try:
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -1219,8 +1211,143 @@ async def project_export(request: Request, project_id: str):
     )
 
 # ==========================================================================
-# FILE API ROUTES
+# REUSABLE AGENT LOOP (Used by UI and Auto-Fix)
 # ==========================================================================
+async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: bool = False, history: List[Dict] = None):
+    """
+    The core logic for the AI Agent. Can be called from the endpoint or the log-fixer.
+    """
+    try:
+        await asyncio.sleep(0.5)
+        file_tree = await _fetch_file_tree(project_id)
+        
+        planner = Planner()
+        coder = XCoder() if (is_xmode and 'XCoder' in globals()) else Coder()
+        
+        # --- PHASE 1: PLANNER ---
+        emit_phase(project_id, "planner")
+        emit_progress(project_id, "Architecting solution...", 10)
+        
+        # Pass history to planner if available
+        plan_context = {"project_id": project_id, "files": list(file_tree.keys())}
+        if history:
+            plan_context["history"] = history
+
+        plan_res = await asyncio.to_thread(
+            planner.generate_plan,
+            user_request=prompt, 
+            project_context=plan_context
+        )
+        
+        tk = plan_res.get("usage", {}).get("total_tokens", 0)
+        if tk and user_id: add_monthly_tokens(user_id, tk)
+        
+        # --- DISPLAY PLAN ---
+        raw_plan = plan_res.get("plan", {})
+        real_assistant_msg = plan_res.get("assistant_message")
+        
+        emit_log(project_id, "assistant", real_assistant_msg or "I have created a plan for your application.")
+
+        tasks = raw_plan.get("todo", [])
+        if tasks:
+            steps_html = ""
+            for i, task in enumerate(tasks, 1):
+                task_content = task
+                if "]" in task:
+                    parts = task.split("]", 1)
+                    if len(parts) > 1:
+                        task_content = parts[1].strip()
+
+                steps_html += (
+                    f'<div style="display:flex; gap:25px; position:relative; z-index:2; margin-bottom:20px;">'
+                    f'  <div style="width:12px; height:12px; background:#0f172a; border:2px solid #3b82f6; border-radius:50%; box-shadow:0 0 10px #3b82f6; flex-shrink:0; margin-top:6px; position:relative; z-index:2;"></div>'
+                    f'  <div style="flex:1; background:rgba(30,41,59,0.3); border:1px solid rgba(255,255,255,0.05); border-radius:8px; padding:18px;">'
+                    f'    <span style="color:#60a5fa; font-size:11px; font-weight:bold; letter-spacing:1px; margin-bottom:6px; display:block; font-family:monospace; opacity:0.8;">{i:02}</span>'
+                    f'    <div style="color:#cbd5e1; font-size:14px; line-height:1.5;">{task_content}</div>'
+                    f'  </div>'
+                    f'</div>'
+                )
+            
+            full_html = (
+                f'  <div style="margin-bottom:30px; padding-bottom:15px; border-bottom:1px solid rgba(255,255,255,0.05);">'
+                f'    <div style="color:#e2e8f0; font-size:18px; font-weight:400; letter-spacing:1px; text-transform:uppercase;">✦ BluePrint</div>'
+                f'  </div>'
+                f'  <div style="position:relative; padding-left:5px;">'
+                f'    <div style="position:absolute; left:6px; top:10px; bottom:10px; width:1px; background:linear-gradient(to bottom,#3b82f6,rgba(59,130,246,0.1)); z-index:1;"></div>'
+                f'    {steps_html}'
+                f'  </div>'
+                f'</div>'
+            )
+            
+            emit_log(project_id, "planner", full_html)
+
+        if not tasks:
+            emit_status(project_id, "Response Complete")
+            emit_progress(project_id, "Done", 100)
+            return
+
+        # --- PHASE 2: CODER ---
+        emit_phase(project_id, "coder")
+        total = len(tasks)
+        
+        for i, task in enumerate(tasks, 1):
+            # Check limits inside the loop just in case
+            if user_id:
+                try: enforce_token_limit_or_raise(user_id)
+                except HTTPException:
+                    emit_log(project_id, "system", "⚠️ Token limit reached. Stopping.")
+                    return
+
+            pct = 10 + (90 * (i / total))
+            emit_progress(project_id, f"Building step {i}/{total}...", pct)
+            emit_status(project_id, f"Implementing task {i}/{total}...")
+            
+            code_res = await coder.generate_code(
+                plan_section="Implementation",
+                plan_text=task,
+                file_tree=file_tree,
+                project_name=project_id
+            )
+            
+            tk = code_res.get("usage", {}).get("total_tokens", 0)
+            if tk and user_id: add_monthly_tokens(user_id, tk)
+
+            if code_res.get("message"):
+                emit_log(project_id, "coder", code_res.get("message"))
+
+            ops = code_res.get("operations", [])
+            emit_phase(project_id, "files")
+            
+            for op in ops:
+                path = op.get("path")
+                content = op.get("content")
+                
+                if path and content is not None:
+                    # Linting
+                    if path.startswith("static/") and path.endswith(".js"):
+                        try:
+                            lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
+                            if lint_err:
+                                emit_log(project_id, "system", f"❌ Syntax Error in {path}:\n{lint_err}")
+                        except: pass
+
+                    db_upsert(
+                        "files", 
+                        {"project_id": project_id, "path": path, "content": content}, 
+                        on_conflict="project_id,path"
+                    )
+                    emit_file_changed(project_id, path)
+            
+            file_tree = await _fetch_file_tree(project_id)
+        
+        emit_status(project_id, "Coding Complete.")
+        emit_progress(project_id, "Ready", 100)
+        
+    except Exception as e:
+        emit_status(project_id, "Error")
+        emit_log(project_id, "system", f"Workflow failed: {e}")
+        print(traceback.format_exc())
+
 # ==========================================================================
 # AUTO-FIXING LOG ENDPOINT
 # ==========================================================================
@@ -1247,20 +1374,27 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
             emit_log(project_id, "system", "🔧 Auto-Fixing...")
 
             # B. Get Chat History (Context)
-            # We need the previous context so the AI knows what file it just wrote
             chat_history = []
             try:
-                # Assuming you have a function to get history, otherwise use DB directly
-                # If using your db_select helper:
                 rows = db_select("messages", {"project_id": project_id})
-                # Sort by created_at usually, assuming rows are dicts
                 rows.sort(key=lambda x: x['created_at'])
                 for r in rows:
                     chat_history.append({"role": r["role"], "content": r["content"]})
             except:
-                pass # If history fails, we proceed with just the error
+                pass 
 
-            # C. Construct the "Fix It" Prompt
+            # C. Fetch Owner for Token Billing
+            owner_id = None
+            try:
+                proj = db_select_one("projects", {"id": project_id}, "owner_id")
+                if proj: owner_id = proj["owner_id"]
+            except: pass
+
+            if not owner_id:
+                print(f"⚠️ Could not find owner for project {project_id}, skipping auto-fix.")
+                return JSONResponse({"status": "error", "detail": "Owner not found"})
+
+            # D. Construct the "Fix It" Prompt
             error_prompt = f"""
             CRITICAL RUNTIME ERROR REPORTED BY BROWSER:
             {message}
@@ -1269,12 +1403,12 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
             Fix the specific file causing this crash immediately.
             """
 
-            # D. Trigger the Agent (Run in Background to not block the log request)
-            # We reuse the same 'run_agent_loop' logic you use in the /agent/start endpoint
+            # E. Trigger the Agent (Using the shared loop)
             background_tasks.add_task(
                 run_agent_loop, 
                 project_id=project_id, 
                 prompt=error_prompt, 
+                user_id=owner_id,
                 history=chat_history,
                 is_xmode=True # Force X-Mode for bug fixes usually helps
             )
@@ -1284,6 +1418,10 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
         
     return JSONResponse({"status": "ok"})
 
+
+# ==========================================================================
+# FILE API ROUTES
+# ==========================================================================
 
 @app.get("/api/project/{project_id}/files")
 async def get_project_files(request: Request, project_id: str):
@@ -1301,7 +1439,6 @@ async def get_project_files(request: Request, project_id: str):
         .execute()
     )
     
-    # Handle Async/Sync Supabase client differences
     if asyncio.iscoroutine(res): res = await res
     
     rows = getattr(res, "data", [])
@@ -1453,16 +1590,16 @@ def lint_code_with_esbuild(content: str, filename: str) -> str | None:
     try:
         with tempfile.NamedTemporaryFile(suffix=".js", delete=False, mode='w', encoding='utf-8') as tmp:
             tmp.write(content)
-            tmp_path = tmp.name
+            tmp.write_path = tmp.name
 
         result = subprocess.run(
-            ["npx", "esbuild", tmp_path, "--loader=jsx", "--format=esm", "--log-level=error"],
+            ["npx", "esbuild", tmp.name, "--loader=jsx", "--format=esm", "--log-level=error"],
             capture_output=True,
             text=True,
             timeout=10
         )
         
-        os.remove(tmp_path)
+        os.remove(tmp.name)
 
         if result.returncode != 0:
             return result.stderr.strip()
@@ -1474,7 +1611,7 @@ def lint_code_with_esbuild(content: str, filename: str) -> str | None:
 
 
 # ==========================================================================
-# AI AGENT WORKFLOW (THE FIXER)
+# AI AGENT WORKFLOW (TRIGGER)
 # ==========================================================================
 async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
     try:
@@ -1529,133 +1666,10 @@ async def agent_start(
     emit_status(project_id, "Agent received prompt")
     emit_log(project_id, "user", prompt)
 
-    async def _run():
-        nonlocal prompt
-        try:
-            await asyncio.sleep(0.5)
-            file_tree = await _fetch_file_tree(project_id)
-            
-            planner = Planner()
-            coder = XCoder() if (xmode and 'XCoder' in globals()) else Coder()
-            
-            # --- PHASE 1: PLANNER ---
-            emit_phase(project_id, "planner")
-            emit_progress(project_id, "Architecting solution...", 10)
-            
-            plan_res = await asyncio.to_thread(
-                planner.generate_plan,
-                user_request=prompt, 
-                project_context={"project_id": project_id, "files": list(file_tree.keys())}
-            )
-            
-            tk = plan_res.get("usage", {}).get("total_tokens", 0)
-            if tk: add_monthly_tokens(user["id"], tk)
-            
-            # --- DISPLAY PLAN ---
-            raw_plan = plan_res.get("plan", {})
-            real_assistant_msg = plan_res.get("assistant_message")
-            
-            emit_log(project_id, "assistant", real_assistant_msg or "I have created a plan for your application.")
-
-            tasks = raw_plan.get("todo", [])
-            if tasks:
-                steps_html = ""
-                for i, task in enumerate(tasks, 1):
-                    task_content = task
-                    if "]" in task:
-                        parts = task.split("]", 1)
-                        if len(parts) > 1:
-                            task_content = parts[1].strip()
-
-                    steps_html += (
-                        f'<div style="display:flex; gap:25px; position:relative; z-index:2; margin-bottom:20px;">'
-                        f'  <div style="width:12px; height:12px; background:#0f172a; border:2px solid #3b82f6; border-radius:50%; box-shadow:0 0 10px #3b82f6; flex-shrink:0; margin-top:6px; position:relative; z-index:2;"></div>'
-                        f'  <div style="flex:1; background:rgba(30,41,59,0.3); border:1px solid rgba(255,255,255,0.05); border-radius:8px; padding:18px;">'
-                        f'    <span style="color:#60a5fa; font-size:11px; font-weight:bold; letter-spacing:1px; margin-bottom:6px; display:block; font-family:monospace; opacity:0.8;">{i:02}</span>'
-                        f'    <div style="color:#cbd5e1; font-size:14px; line-height:1.5;">{task_content}</div>'
-                        f'  </div>'
-                        f'</div>'
-                    )
-                
-                full_html = (
-                    f'  <div style="margin-bottom:30px; padding-bottom:15px; border-bottom:1px solid rgba(255,255,255,0.05);">'
-                    f'    <div style="color:#e2e8f0; font-size:18px; font-weight:400; letter-spacing:1px; text-transform:uppercase;">✦ BluePrint</div>'
-                    f'  </div>'
-                    f'  <div style="position:relative; padding-left:5px;">'
-                    f'    <div style="position:absolute; left:6px; top:10px; bottom:10px; width:1px; background:linear-gradient(to bottom,#3b82f6,rgba(59,130,246,0.1)); z-index:1;"></div>'
-                    f'    {steps_html}'
-                    f'  </div>'
-                    f'</div>'
-                )
-                
-                emit_log(project_id, "planner", full_html)
-
-            if not tasks:
-                emit_status(project_id, "Response Complete")
-                emit_progress(project_id, "Done", 100)
-                return
-
-            # --- PHASE 2: CODER ---
-            emit_phase(project_id, "coder")
-            total = len(tasks)
-            
-            for i, task in enumerate(tasks, 1):
-                try: enforce_token_limit_or_raise(user["id"])
-                except HTTPException:
-                    emit_log(project_id, "system", "⚠️ Token limit reached. Stopping.")
-                    return
-
-                pct = 10 + (90 * (i / total))
-                emit_progress(project_id, f"Building step {i}/{total}...", pct)
-                emit_status(project_id, f"Implementing task {i}/{total}...")
-                
-                code_res = await coder.generate_code(
-                    plan_section="Implementation",
-                    plan_text=task,
-                    file_tree=file_tree,
-                    project_name=project_id
-                )
-                
-                tk = code_res.get("usage", {}).get("total_tokens", 0)
-                if tk: add_monthly_tokens(user["id"], tk)
-
-                if code_res.get("message"):
-                    emit_log(project_id, "coder", code_res.get("message"))
-
-                ops = code_res.get("operations", [])
-                emit_phase(project_id, "files")
-                
-                for op in ops:
-                    path = op.get("path")
-                    content = op.get("content")
-                    
-                    if path and content is not None:
-                        # Linting
-                        if path.startswith("static/") and path.endswith(".js"):
-                            try:
-                                lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
-                                if lint_err:
-                                    emit_log(project_id, "system", f"❌ Syntax Error in {path}:\n{lint_err}")
-                            except: pass
-
-                        db_upsert(
-                            "files", 
-                            {"project_id": project_id, "path": path, "content": content}, 
-                            on_conflict="project_id,path"
-                        )
-                        emit_file_changed(project_id, path)
-                
-                file_tree = await _fetch_file_tree(project_id)
-            
-            emit_status(project_id, "Coding Complete.")
-            emit_progress(project_id, "Ready", 100)
-            
-        except Exception as e:
-            emit_status(project_id, "Error")
-            emit_log(project_id, "system", f"Workflow failed: {e}")
-            print(traceback.format_exc())
-
-    asyncio.create_task(_run())
+    # Dispatch shared loop
+    asyncio.create_task(
+        run_agent_loop(project_id, prompt, user["id"], xmode)
+    )
     return {"started": True}
 
 @app.get("/api/project/{project_id}/events")

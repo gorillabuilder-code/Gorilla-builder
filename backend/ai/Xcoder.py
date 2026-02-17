@@ -18,7 +18,7 @@ import httpx
 # --- Configuration for OpenRouter ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 # Using OpenAI GPT-5.2 Codex via OpenRouter
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "anthropic/claude-opus-4.6")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "minimax/minimax-m2.5")
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # OpenRouter specific headers for rankings/stats
@@ -104,7 +104,7 @@ class XCoder:
             
             content = data["choices"][0]["message"]["content"]
             usage = data.get("usage", {})
-            total_tokens = int(usage.get("total_tokens", 0))*5
+            total_tokens = int(usage.get("total_tokens", 0))*0.9
             
             return content, total_tokens
 
@@ -205,7 +205,7 @@ class XCoder:
 
             "API & MODELS CONFIGURATION:\n"
             "- Use `process.env.OPENROUTER_API_KEY` for AI. \n"
-            "- Chat: 'openai/gpt-5.2-codex'\n"
+            "- Chat: 'openai/gpt-2.1'\n"
             "- STT: 'openai/whisper-large-v3'\n"
             "- Vision: 'google/gemini-flash-1.5'\n"
             "- Image Gen: 'stabilityai/stable-diffusion-3-medium'\n"
@@ -280,7 +280,7 @@ class XCoder:
                     "role": "assistant", 
                     "content": raw
                 })
-
+                print("xcoder: Successfully generated code on attempt")
                 return canonical
 
             except Exception as e:
