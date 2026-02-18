@@ -89,7 +89,7 @@ DEFAULT_TOKEN_LIMIT = int(os.getenv("MONTHLY_TOKEN_LIMIT", "250000"))
 # 4. Google Auth Keys
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://opulent-space-succotash-q7rp9qpq4v6924wqr-8000.app.github.dev/auth/google/callback")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://walter-yarest-theodore.ngrok-free.dev/auth/google/callback")
 
 # ==========================================================================
 # CONFIGURATION: RESEND & SUPABASE (CRITICAL FIX)
@@ -126,6 +126,8 @@ SHUTDOWN_TIMEOUT_SECONDS = 600 # 10 Minutes
 # ==========================================================================
 # APP INITIALIZATION & LIFECYCLE
 # ==========================================================================
+
+
 app = FastAPI(
     title="Gorilla Backend",
     docs_url="/api/docs",       # <--- MOVES the Swagger UI to /api/docs
@@ -142,6 +144,7 @@ if os.path.isdir(FRONTEND_STYLES_DIR):
     app.mount("/styles", StaticFiles(directory=FRONTEND_STYLES_DIR), name="styles")
 
 templates = Jinja2Templates(directory=FRONTEND_TEMPLATES_DIR)
+
 
 # --- BACKGROUND TASK: CLEANUP INACTIVE SANDBOXES ---
 @app.on_event("startup")
@@ -295,7 +298,6 @@ def decrease_tokens_used(user_id: str, amount: int):
         on_conflict="id"
     )
 
-
 # ==========================================================================
 # AUTHENTICATION & USER HELPERS
 # ==========================================================================
@@ -360,73 +362,123 @@ def _require_project_owner(user: Dict[str, Any], project_id: str) -> None:
         raise HTTPException(status_code=404, detail="Project not found or access denied")
 
 # --- RESEND EMAIL LOGIC ---
+
 def send_otp_email(to_email: str, code: str):
     if not RESEND_API_KEY:
         print(f"⚠️ Resend Key missing. Code for {to_email}: {code}")
         return
     try:
+        # 1. Send the Verification Email
         params = {
-            "from": "Gor://a Auth Verification <auth@gorillabuilder.dev>", # Use your verified domain in production
+            "from": "Gor://a Auth Verification <auth@gorillabuilder.dev>", # Use your verified domain
             "to": [to_email],
             "subject": "Your Verification Code for Gor://a Builder",
             "html": f"""
             <!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verification Email</title>
-
-</head>
-<body style="margin: 0; padding: 0; background-color: #0b1020; font-family: Tahoma, Geneva, Verdana, sans-serif;">
-    <div style="width: 100%; padding: 40px 0; background-color: #0b1020;">
-        <div style="max-width: 420px; margin: 0 auto; background-color: #0f1530; padding: 40px; border-radius: 18px; color: #ffffff;">
-            
-            <h1 style="margin: 0 0 10px; font-size: 24px; font-weight: 400; letter-spacing: -0.3px;">Welcome to Gor://a</h1>
-            <p style="margin: 0 0 30px; opacity: 0.7; font-size: 14px; line-height: 1.5;">
-                Start building AI apps faster. Use the code below to verify your account.
-            </p>
-
-            <div style="background-color: #141a3a; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 30px;">
-                <span style="display: block; font-size: 12px; opacity: 0.5; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;">Verification Code</span>
-                <strong style="font-size: 32px; color: #3b6cff; letter-spacing: 5px;">{code}</strong>
-            </div>
-
-            <p style="font-size: 12px; opacity: 0.4; text-align: center; margin-top: 40px;">
-                If you didn't request this, you can safely ignore this email.
-            </p>
-        </div>
-    </div>
-</body>
-</html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Verification Email</title>
+            </head>
+            <body style="margin: 0; padding: 0; background-color: #0b1020; font-family: Tahoma, Geneva, Verdana, sans-serif;">
+                <div style="width: 100%; padding: 40px 0; background-color: #0b1020;">
+                    <div style="max-width: 420px; margin: 0 auto; background-color: #0f1530; padding: 40px; border-radius: 18px; color: #ffffff;">
+                        <h1 style="margin: 0 0 10px; font-size: 24px; font-weight: 400; letter-spacing: -0.3px;">Welcome to Gor://a</h1>
+                        <p style="margin: 0 0 30px; opacity: 0.7; font-size: 14px; line-height: 1.5;">
+                            Start building AI apps faster. Use the code below to verify your account.
+                        </p>
+                        <div style="background-color: #141a3a; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 30px;">
+                            <span style="display: block; font-size: 12px; opacity: 0.5; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;">Verification Code</span>
+                            <strong style="font-size: 32px; color: #3b6cff; letter-spacing: 5px;">{code}</strong>
+                        </div>
+                        <p style="font-size: 12px; opacity: 0.4; text-align: center; margin-top: 40px;">
+                            If you didn't request this, you can safely ignore this email.
+                        </p>
+                    </div>
+                </div>
+            </body>
+            </html>
             """,
         }
-        resend.Emails.send(params)
-        print(f"✅ OTP sent to {to_email}")
+        # 2. Create/Update Resend Contact (Fixed: No Audience ID needed)
+        try:
+            contact_params = {
+                "email": to_email,
+                "unsubscribed": False
+            }
+            resend.Contacts.create(contact_params)
+            print(f"✅ Added contact {to_email} to Resend")
+            resend.Emails.send(params)
+            print(f"✅ OTP sent to {to_email}")
+        except Exception as contact_error:
+            # We catch this separately so auth doesn't fail if contact creation fails
+            print(f"⚠️ Resend Contact Error: {contact_error}")
+
     except Exception as e:
         print(f"❌ Resend Error: {e}")
 
+# ==========================================================================
+# PUBLIC ROUTES (Templates & Redirects)
+# ==========================================================================
 
-# ==========================================================================
-# PUBLIC ROUTES (Templates)
-# ==========================================================================
+# Define pages that don't require authentication (except root which has logic)
 PUBLIC_PAGES = {
-    "/": "landing/index.html",
     "/login": "auth/login.html",
-    "/signup": "auth/signup.html", # Used for both steps
-    "/forgot-password": "forgot.html",
+    "/signup": "auth/signup.html",
+    "/forgot-password": "auth/forgot_password.html",
     "/pricing": "freemium/pricing.html",
     "/checkout/tokens": "freemium/checkout/tokens.html",
     "/checkout/premium": "freemium/checkout/premium.html",
     "/help": "help.html",
-    "/about": "about.html",
+    "/about": "docs/about.html", 
+    "/contact": "docs/contact.html",
 }
+# In app.py
+from fastapi.staticfiles import StaticFiles # Make sure this is imported
+
+app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
+
+# In app.py
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    
+    # Force the "Flexible" headers
+    response.headers["Cross-Origin-Embedder-Policy"] = "credentialless"
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+    
+    # 🖨️ PRINT THE VALUE TO TERMINAL
+    return response
 
 app.mount("/assets", StaticFiles(directory="frontend/templates/landing/assets"), name="assets")
 
+# 1. ROOT ROUTE REDIRECT LOGIC
+@app.get("/")
+async def root_redirect(request: Request):
+    """
+    Redirects based on auth status:
+    - Logged in -> /dashboard
+    - Not logged in (or dev/local) -> /signup
+    """
+    user = get_current_user_safe(request) # Helper function to get user without raising error
+    
+    if user:
+        return RedirectResponse("/dashboard", status_code=303)
+    
+    # Default landing is now the signup page
+    return RedirectResponse("/signup", status_code=303)
+
+# 2. GENERATE HANDLERS FOR OTHER PUBLIC PAGES
 for route, template_name in PUBLIC_PAGES.items():
+    # Skip creating a handler for root since we defined it manually above
+    if route == "/": continue
+
     def make_handler(t_name):
         async def handler(request: Request):
+            # Pass common variables like 'step' for signup flow
             return templates.TemplateResponse(t_name, {"request": request, "step": "initial"})
         return handler
         
@@ -438,48 +490,34 @@ async def favicon():
     if os.path.exists(p): 
         return FileResponse(p)
     raise HTTPException(status_code=404)
+
 # ==========================================================================
-# 📚 DOCUMENTATION & COMPANY ROUTES
+# 📚 DOCUMENTATION ROUTES
 # ==========================================================================
 
-# 1. Master Route for Docs
 @app.get("/docs/{page}", response_class=HTMLResponse)
 async def docs_page(request: Request, page: str):
     valid_pages = [
         "intro", "dashboard", "billing", 
         "prompting", "editor", "agent-workflow", "files",
         "x-mode", "deployment", "troubleshooting",
-        "about", "contact" # Mapped here for sidebar convenience
+        "about", "contact"
     ]
     
     if page not in valid_pages:
-        # Default to intro if page is invalid, or 404
         return RedirectResponse("/docs/intro")
         
     return templates.TemplateResponse(
         f"docs/{page}.html", 
         {"request": request, "page": page}
     )
+
 @app.get("/docs", response_class=HTMLResponse)
-async def about_page(request: Request):
-    return templates.TemplateResponse("docs/intro.html", {"request": request, "page": "about"})
-
-# 2. Direct Shortcuts for About/Contact
-@app.get("/about", response_class=HTMLResponse)
-async def about_page(request: Request):
-    return templates.TemplateResponse("docs/about.html", {"request": request, "page": "about"})
-
-@app.get("/contact", response_class=HTMLResponse)
-async def contact_page(request: Request):
-    return templates.TemplateResponse("docs/contact.html", {"request": request, "page": "contact"})
-
-# 3. Redirect /docs root to intro
-@app.get("/docs")
 async def docs_root():
     return RedirectResponse("/docs/intro")
 
 # ==========================================================================
-# AUTHENTICATION ROUTES (COMPLETE & FIXED)
+# AUTHENTICATION ROUTES (Consolidated & Secured)
 # ==========================================================================
 import random
 import string
@@ -490,13 +528,29 @@ from fastapi.responses import RedirectResponse
 # Global memory for storing OTPs during signup flow
 PENDING_SIGNUPS = {}
 
-# --------------------------------------------------------------------------
-# 1. SIGNUP & VERIFICATION
-# --------------------------------------------------------------------------
+def get_current_user_safe(request: Request):
+    """
+    Helper to safely check for a user session without raising an exception.
+    Used for the root redirect logic.
+    """
+    try:
+        # Check Supabase cookie first
+        token = request.cookies.get("sb_access_token")
+        if token:
+              user = supabase.auth.get_user(token)
+              if user: return user
+        
+        # Fallback to session (for dev/google auth) if used
+        if "user" in request.session:
+            return request.session["user"]
+            
+    except:
+        pass
+    return None
 
-@app.get("/signup")
-async def signup_page(request: Request):
-    return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "initial"})
+# --------------------------------------------------------------------------
+# 1. SIGNUP FLOW (Secure)
+# --------------------------------------------------------------------------
 
 @app.post("/auth/signup")
 async def auth_signup_init(
@@ -507,157 +561,37 @@ async def auth_signup_init(
 ):
     email = (email or "").strip().lower()
     
-    # Generate 6-digit OTP
-    otp = "".join(random.choices(string.digits, k=6))
-    
-    # Store credentials temporarily (expires if server restarts)
-    PENDING_SIGNUPS[email] = {
-        "password": password,
-        "otp": otp,
-        "ts": time.time()
-    }
-    
-    # Send Email via Resend (Ensure send_otp_email is defined in your utils)
-    # background_tasks.add_task(send_otp_email, email, otp)
-    print(f"📧 [DEV OTP] Code for {email}: {otp}") 
-    
-    return templates.TemplateResponse(
-        "auth/signup.html", 
-        {
-            "request": request, 
-            "step": "verify", 
-            "email": email
-        }
-    )
-
-@app.post("/auth/verify")
-async def auth_verify_otp(
-    request: Request,
-    email: str = Form(...),
-    code: str = Form(...)
-):
-    email = email.strip().lower()
-    record = PENDING_SIGNUPS.get(email)
-    
-    # Validation
-    if not record:
-        return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "initial", "error": "Session expired. Please start over."})
-    
-    if record["otp"] != code:
-        return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "verify", "email": email, "error": "Invalid code."})
-    
+    # [SECURITY] Check if user already exists
     try:
-        password = record["password"]
-        
-        # 1. Try to Create User (Sign Up)
-        try:
-            supabase.auth.admin.create_user({
-                "email": email,
-                "password": password,
-                "email_confirm": True
-            })
-        except Exception as e:
-            # If user exists, we ignore the error and attempt login below
-            print(f"User creation skipped (might exist): {e}")
-
-        # 2. AUTO-LOGIN (Handles both new users and existing users with correct pass)
-        res = supabase.auth.sign_in_with_password({
-            "email": email, 
-            "password": password
-        })
-
-        if not res.session:
-            raise Exception("Account verified, but login failed. Please check your password.")
-
-        # 3. Sync to Public DB
-        ensure_public_user(res.user.id, email)
-        
-        # 4. Cleanup & Redirect
-        if email in PENDING_SIGNUPS:
-            del PENDING_SIGNUPS[email]
-        
-        response = RedirectResponse("/dashboard", status_code=303)
-        response.set_cookie(
-            key="sb_access_token", 
-            value=res.session.access_token, 
-            max_age=86400, 
-            httponly=True, 
-            samesite="lax"
-        )
-        return response
-        
-    except Exception as e:
-        print(f"Verify Error: {e}")
-        return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "verify", "email": email, "error": "Login failed. If you have an account, check your password."})
-
-# ==========================================================================
-# AUTHENTICATION ROUTES (SECURE & DUPLICATE-PROOF)
-# ==========================================================================
-import random
-import string
-import time
-from fastapi import APIRouter, Request, Form, BackgroundTasks, HTTPException, Response
-from fastapi.responses import RedirectResponse
-
-# Global memory for storing OTPs during signup flow
-PENDING_SIGNUPS = {}
-
-# --------------------------------------------------------------------------
-# 1. SIGNUP FLOW (With Duplicate Protection)
-# --------------------------------------------------------------------------
-
-@app.get("/signup")
-async def signup_page(request: Request):
-    return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "initial"})
-
-@app.post("/auth/signup")
-async def auth_signup_init(
-    request: Request, 
-    background_tasks: BackgroundTasks,
-    email: str = Form(...), 
-    password: str = Form(...)
-):
-    email = (email or "").strip().lower()
-    
-    # --- [FIX] CHECK FOR EXISTING USER ---
-    # We query Supabase to see if this email is already registered.
-    # If yes, we stop the signup process immediately.
-    try:
-        # Note: admin.list_users() is efficient for checking existence
-        # Or you can try a dummy sign-in if you don't want to use admin rights here,
-        # but admin check is cleaner for a true "exists" check.
+        # Admin check is most reliable. If not available, use a safe alternative.
         existing_users = supabase.auth.admin.list_users()
         user_exists = any(u.email == email for u in existing_users)
         
         if user_exists:
-            # User exists: Do NOT generate OTP. Redirect to login with error.
+            # REDIRECT TO LOGIN if account exists
             return templates.TemplateResponse(
                 "auth/login.html", 
                 {
                     "request": request, 
-                    "error": "An account with this email already exists. Please log in."
+                    "error": "Account exists. Please log in here.",
+                    "email_prefill": email # Optional: pass back to template if supported
                 }
             )
     except Exception as e:
         print(f"⚠️ User existence check warning: {e}")
-        # Proceed with caution if check fails (e.g. API error), or block it.
-        pass
+        pass # Fail open or closed depending on policy, passing allows flow to continue
 
-    # --- PROCEED ONLY IF NEW USER ---
-    
-    # Generate 6-digit OTP
+    # Proceed with OTP generation
     otp = "".join(random.choices(string.digits, k=6))
     
-    # Store credentials temporarily
     PENDING_SIGNUPS[email] = {
         "password": password,
         "otp": otp,
         "ts": time.time()
     }
     
-    # Send Email via Resend
-    # background_tasks.add_task(send_otp_email, email, otp)
-    print(f"📧 [DEV OTP] Code for {email}: {otp}") 
+    # --- FIX: SEND ACTUAL EMAIL VIA BACKGROUND TASK ---
+    background_tasks.add_task(send_otp_email, email, otp)
     
     return templates.TemplateResponse(
         "auth/signup.html", 
@@ -677,19 +611,18 @@ async def auth_verify_otp(
     email = email.strip().lower()
     record = PENDING_SIGNUPS.get(email)
     
-    # Validation
+    # 1. Validate Session
     if not record:
         return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "initial", "error": "Session expired. Please start over."})
     
+    # 2. Validate OTP
     if record["otp"] != code:
         return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "verify", "email": email, "error": "Invalid code."})
     
     try:
         password = record["password"]
         
-        # 1. Create User in Supabase Auth
-        # Since we checked for duplicates in step 1, this should theoretically always succeed for new users.
-        # However, race conditions exist, so we wrap it.
+        # 3. Create Supabase User
         try:
             supabase.auth.admin.create_user({
                 "email": email,
@@ -697,11 +630,10 @@ async def auth_verify_otp(
                 "email_confirm": True
             })
         except Exception as e:
-            # If it fails here, it really means they exist. Stop and redirect to login.
-            print(f"Create User Failed: {e}")
-            return templates.TemplateResponse("auth/login.html", {"request": request, "error": "Account already exists. Please log in."})
+            # Should be caught by the initial check, but strictly handle race conditions
+            return templates.TemplateResponse("auth/login.html", {"request": request, "error": "Account exists. Please log in."})
 
-        # 2. AUTO-LOGIN
+        # 4. Auto-Login
         res = supabase.auth.sign_in_with_password({
             "email": email, 
             "password": password
@@ -710,13 +642,16 @@ async def auth_verify_otp(
         if not res.session:
             raise Exception("Account created, but auto-login failed.")
 
-        # 3. Sync to Public DB
+        # 5. Sync Public DB
         ensure_public_user(res.user.id, email)
         
-        # 4. Cleanup & Redirect
+        # 6. Cleanup & Response
         if email in PENDING_SIGNUPS:
             del PENDING_SIGNUPS[email]
         
+        # FIX: Force session set to avoid dev@local fallback
+        request.session["user"] = {"id": res.user.id, "email": email}
+
         response = RedirectResponse("/dashboard", status_code=303)
         response.set_cookie(
             key="sb_access_token", 
@@ -729,28 +664,31 @@ async def auth_verify_otp(
         
     except Exception as e:
         print(f"Verify Error: {e}")
-        return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "verify", "email": email, "error": "System error during account creation."})
+        return templates.TemplateResponse("auth/signup.html", {"request": request, "step": "verify", "email": email, "error": "System error. Try again."})
 
 # --------------------------------------------------------------------------
-# 2. LOGIN & LOGOUT
+# 2. LOGIN FLOW (Smart Redirect)
 # --------------------------------------------------------------------------
-
-@app.get("/login")
-async def login_page(request: Request):
-    error = request.query_params.get("error")
-    return templates.TemplateResponse("auth/login.html", {"request": request, "error": error})
 
 @app.post("/auth/login")
 async def login(request: Request, email: str = Form(...), password: str = Form(...)):
     try:
+        # 1. Attempt Real Authentication against Supabase
         res = supabase.auth.sign_in_with_password({
             "email": email, 
             "password": password
         })
         
+        # If we get here, the password IS correct.
         if not res.session:
-            raise Exception("No session returned.")
+            raise Exception("Auth failed (No session)")
 
+        # FIX: Force session set to avoid dev@local fallback
+        request.session["user"] = {"id": res.user.id, "email": email}
+        # FIX: Ensure user is synced
+        ensure_public_user(res.user.id, email)
+
+        # 2. Success: Set Cookie & Redirect
         response = RedirectResponse("/dashboard", status_code=303)
         response.set_cookie(
             key="sb_access_token", 
@@ -762,8 +700,39 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
         return response
 
     except Exception as e:
-        print(f"❌ Login Failed: {e}")
-        # Generic error message for security
+        print(f"❌ Login Failed for {email}: {e}")
+        
+        # 3. Security Analysis: Determine why it failed
+        error_msg = "Invalid email or password."
+        
+        try:
+            # Check if user exists but uses Google Auth (Passwordless)
+            # This prevents the "Dev User" bug by strictly identifying the account type
+            users = supabase.auth.admin.list_users()
+            target_user = next((u for u in users if u.email == email), None)
+            
+            if target_user:
+                identities = getattr(target_user, "identities", [])
+                providers = [i.provider for i in identities]
+                
+                # If they only have Google and no password set
+                if "google" in providers and "email" not in providers:
+                    error_msg = "This account uses Google Login. Please click 'Log in with Google'."
+                # If they have Google but maybe typed the wrong password
+                elif "google" in providers:
+                    error_msg = "Invalid password. Try logging in with Google instead."
+        except:
+            pass # Keep generic error if admin check fails
+
+        # 4. STRICT FAILURE: Return to login page with error
+        # Absolutely NO redirects to dashboard here
+        return templates.TemplateResponse("auth/login.html", {
+            "request": request, 
+            "error": error_msg,
+            "email_prefill": email
+        })
+            
+        # Default Error (Wrong password, etc.)
         return templates.TemplateResponse("auth/login.html", {
             "request": request, 
             "error": "Invalid email or password."
@@ -771,20 +740,18 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
 
 @app.get("/auth/logout")
 async def logout(request: Request):
-    response = RedirectResponse("/", status_code=303)
+    # Redirect to signup on logout
+    response = RedirectResponse("/signup", status_code=303)
     response.delete_cookie("sb_access_token")
+    request.session.clear()
     try:
         supabase.auth.sign_out()
     except: pass
     return response
 
 # --------------------------------------------------------------------------
-# 3. FORGOT PASSWORD
+# 3. FORGOT PASSWORD & OAUTH (Simplified)
 # --------------------------------------------------------------------------
-
-@app.get("/auth/forgot-password")
-async def forgot_password_page(request: Request):
-    return templates.TemplateResponse("auth/forgot_password.html", {"request": request})
 
 @app.post("/auth/forgot-password")
 async def forgot_password_action(request: Request, email: str = Form(...)):
@@ -794,11 +761,12 @@ async def forgot_password_action(request: Request, email: str = Form(...)):
         })
         return templates.TemplateResponse("auth/login.html", {
             "request": request, 
-            "error": "If an account exists, a reset email has been sent." # Green/Info message ideally
+            "error": "Reset link sent. Check your email."
         })
     except Exception as e:
-        return templates.TemplateResponse("auth/login.html", {"request": request, "error": f"Error: {e}"})
+        return templates.TemplateResponse("auth/forgot_password.html", {"request": request, "error": f"Error: {e}"})
 
+# ... (Google Auth routes remain similar, ensure they redirect to /dashboard on success)
 # --------------------------------------------------------------------------
 # 4. GOOGLE OAUTH
 # --------------------------------------------------------------------------
@@ -945,7 +913,15 @@ import urllib.parse
 import re
 import os
 import asyncio
-from fastapi.responses import StreamingResponse
+import traceback
+import json
+import time
+import mimetypes
+import tempfile
+import subprocess
+from typing import Dict, Any, List, Optional
+from fastapi import Request, Form, BackgroundTasks, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, Response, JSONResponse
 
 # 1. CREATE PAGE (Stash prompt in session)
 @app.get("/projects/createit", response_class=HTMLResponse)
@@ -966,11 +942,43 @@ async def create_project(
     prompt: Optional[str] = Form(None), 
     name: Optional[str] = Form(None), 
     description: str = Form(""),
-    xmode: Optional[str] = Form(None)  # [NEW] Capture xmode flag
+    xmode: Optional[str] = Form(None)  # Capture xmode flag
 ):
     user = get_current_user(request)
 
-    # Redirect back to form if prompt exists but user hasn't confirmed name
+    # --- 1. FREE TIER LIMIT CHECK (Max 3 Projects) ---
+    if user.get("plan") != "premium":
+        try:
+            # Count existing projects for this user
+            res = supabase.table("projects") \
+                .select("id", count="exact") \
+                .eq("owner_id", user["id"]) \
+                .execute()
+            
+            # Robust count retrieval (handles different Supabase client versions)
+            current_count = res.count if hasattr(res, 'count') and res.count is not None else len(res.data)
+
+            if current_count >= 3:
+                # Limit Reached: Fetch existing projects to re-render the dashboard
+                p_res = supabase.table("projects") \
+                    .select("*") \
+                    .eq("owner_id", user["id"]) \
+                    .order("created_at", desc=True) \
+                    .execute()
+                
+                existing_projects = p_res.data if p_res.data else []
+
+                return templates.TemplateResponse("dashboard.html", {
+                    "request": request, 
+                    "user": user,
+                    "projects": existing_projects,
+                    "error": "Free Limit Reached (3/3). Upgrade to Pro to create unlimited projects."
+                })
+        except Exception as e:
+            print(f"⚠️ Project limit check failed: {e}")
+            pass
+
+    # --- 2. PROMPT STASHING & CONFIRMATION ---
     if prompt and not name:
         target = f"/projects/createit?prompt={urllib.parse.quote(prompt)}"
         return RedirectResponse(target, status_code=303)
@@ -978,10 +986,9 @@ async def create_project(
     final_prompt = prompt or request.session.pop("stashed_prompt", None)
     project_name = name or "Untitled Project"
     
-    # Internal function to run heavy DB ops
+    # --- 3. HEAVY LIFTING (DB & Files) ---
     def _heavy_lift_create():
-        # A. Create Project Record (Service Role bypasses RLS)
-        # Note: We manually set 'owner_id' to match the authenticated user
+        # A. Create Project Record
         res = supabase.table("projects").insert({
             "owner_id": user["id"], 
             "name": project_name, 
@@ -1000,7 +1007,6 @@ async def create_project(
         supabase.table("projects").update({"subdomain": final_subdomain}).eq("id", pid).execute()
         
         # C. Inject Boilerplate
-        # We look for the boilerplate directory in a few standard places
         bp_dir = globals().get("BOILERPLATE_DIR")
         if not bp_dir or not os.path.isdir(bp_dir):
             bp_dir = os.path.join(ROOT_DIR, "backend", "boilerplate")
@@ -1011,7 +1017,6 @@ async def create_project(
             files_to_insert = []
             
             for root, dirs, files in os.walk(bp_dir):
-                # Skip massive/hidden folders
                 dirs[:] = [d for d in dirs if d not in ["node_modules", ".git", "dist", "build"]]
                 
                 for file in files:
@@ -1033,7 +1038,6 @@ async def create_project(
 
             if files_to_insert:
                 try:
-                    # Batch insert for speed
                     supabase.table("files").insert(files_to_insert).execute()
                 except Exception as e:
                     print(f"Batch insert failed ({e}), falling back to single upserts...")
@@ -1044,11 +1048,10 @@ async def create_project(
         
         return pid
 
-    # Execute Async
+    # --- 4. EXECUTION ---
     try:
         pid = await asyncio.to_thread(_heavy_lift_create)
         
-        # Redirect Logic
         if xmode == "true":
             target_url = f"/projects/{pid}/xmode"
         else:
@@ -1156,7 +1159,6 @@ async def project_settings_save(
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
-    # Update using Service Role or ensure RLS allows updates by owner
     supabase.table("projects").update(
         {"name": name, "description": description}
     ).eq("id", project_id).execute()
@@ -1169,18 +1171,12 @@ async def project_export(request: Request, project_id: str):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
 
-    # Check Plan (Optional)
     try:
         user_record = db_select_one("users", {"id": user["id"]}, "plan")
         current_plan = user_record.get("plan") if user_record else "free"
-        
-        # Uncomment to enforce premium requirement
-        # if current_plan != "premium":
-        #     raise HTTPException(status_code=403, detail="Exporting is a Premium feature.")
     except:
         current_plan = "free"
 
-    # Fetch Files
     res = (
         supabase.table("files")
         .select("path,content")
@@ -1192,7 +1188,6 @@ async def project_export(request: Request, project_id: str):
     if not files:
         raise HTTPException(status_code=404, detail="No files found in this project.")
 
-    # Create Zip
     zip_buffer = io.BytesIO()
     try:
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -1216,45 +1211,262 @@ async def project_export(request: Request, project_id: str):
     )
 
 # ==========================================================================
+# REUSABLE AGENT LOOP (Used by UI and Auto-Fix)
+# ==========================================================================
+async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: bool = False, history: List[Dict] = None):
+    """
+    The core logic for the AI Agent. Can be called from the endpoint or the log-fixer.
+    """
+    try:
+        await asyncio.sleep(0.5)
+        file_tree = await _fetch_file_tree(project_id)
+        
+        planner = Planner()
+        coder = XCoder() if (is_xmode and 'XCoder' in globals()) else Coder()
+        
+        # --- PHASE 1: PLANNER ---
+        emit_phase(project_id, "planner")
+        emit_progress(project_id, "Architecting solution...", 10)
+        
+        # Pass history to planner if available
+        plan_context = {"project_id": project_id, "files": list(file_tree.keys())}
+        if history:
+            plan_context["history"] = history
+
+        plan_res = await asyncio.to_thread(
+            planner.generate_plan,
+            user_request=prompt, 
+            project_context=plan_context
+        )
+        
+        tk = plan_res.get("usage", {}).get("total_tokens", 0)
+        if tk and user_id: add_monthly_tokens(user_id, tk)
+        
+        # --- DISPLAY PLAN ---
+        raw_plan = plan_res.get("plan", {})
+        real_assistant_msg = plan_res.get("assistant_message")
+        
+        emit_log(project_id, "assistant", real_assistant_msg or "I have created a plan for your application.")
+
+        tasks = raw_plan.get("todo", [])
+        if tasks:
+            steps_html = ""
+            for i, task in enumerate(tasks, 1):
+                task_content = task
+                if "]" in task:
+                    parts = task.split("]", 1)
+                    if len(parts) > 1:
+                        task_content = parts[1].strip()
+
+                steps_html += (
+                    f'<div style="display:flex; gap:25px; position:relative; z-index:2; margin-bottom:20px;">'
+                    f'  <div style="width:12px; height:12px; background:#0f172a; border:2px solid #3b82f6; border-radius:50%; box-shadow:0 0 10px #3b82f6; flex-shrink:0; margin-top:6px; position:relative; z-index:2;"></div>'
+                    f'  <div style="flex:1; background:rgba(30,41,59,0.3); border:1px solid rgba(255,255,255,0.05); border-radius:8px; padding:18px;">'
+                    f'    <span style="color:#60a5fa; font-size:11px; font-weight:bold; letter-spacing:1px; margin-bottom:6px; display:block; font-family:monospace; opacity:0.8;">{i:02}</span>'
+                    f'    <div style="color:#cbd5e1; font-size:14px; line-height:1.5;">{task_content}</div>'
+                    f'  </div>'
+                    f'</div>'
+                )
+            
+            full_html = (
+                f'  <div style="margin-bottom:30px; padding-bottom:15px; border-bottom:1px solid rgba(255,255,255,0.05);">'
+                f'    <div style="color:#e2e8f0; font-size:18px; font-weight:400; letter-spacing:1px; text-transform:uppercase;">✦ BluePrint</div>'
+                f'  </div>'
+                f'  <div style="position:relative; padding-left:5px;">'
+                f'    <div style="position:absolute; left:6px; top:10px; bottom:10px; width:1px; background:linear-gradient(to bottom,#3b82f6,rgba(59,130,246,0.1)); z-index:1;"></div>'
+                f'    {steps_html}'
+                f'  </div>'
+                f'</div>'
+            )
+            
+            emit_log(project_id, "planner", full_html)
+
+        if not tasks:
+            emit_status(project_id, "Response Complete")
+            emit_progress(project_id, "Done", 100)
+            return
+
+        # --- PHASE 2: CODER ---
+        emit_phase(project_id, "coder")
+        total = len(tasks)
+        
+        for i, task in enumerate(tasks, 1):
+            # Check limits inside the loop just in case
+            if user_id:
+                try: enforce_token_limit_or_raise(user_id)
+                except HTTPException:
+                    emit_log(project_id, "system", "⚠️ Token limit reached. Stopping.")
+                    return
+
+            pct = 10 + (90 * (i / total))
+            emit_progress(project_id, f"Building step {i}/{total}...", pct)
+            emit_status(project_id, f"Implementing task {i}/{total}...")
+            
+            code_res = await coder.generate_code(
+                plan_section="Implementation",
+                plan_text=task,
+                file_tree=file_tree,
+                project_name=project_id
+            )
+            
+            tk = code_res.get("usage", {}).get("total_tokens", 0)
+            if tk and user_id: add_monthly_tokens(user_id, tk)
+
+            if code_res.get("message"):
+                emit_log(project_id, "coder", code_res.get("message"))
+
+            ops = code_res.get("operations", [])
+            emit_phase(project_id, "files")
+            
+            for op in ops:
+                path = op.get("path")
+                content = op.get("content")
+                
+                if path and content is not None:
+                    # Linting
+                    if path.startswith("static/") and path.endswith(".js"):
+                        try:
+                            lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
+                            if lint_err:
+                                emit_log(project_id, "system", f"❌ Syntax Error in {path}:\n{lint_err}")
+                        except: pass
+
+                    db_upsert(
+                        "files", 
+                        {"project_id": project_id, "path": path, "content": content}, 
+                        on_conflict="project_id,path"
+                    )
+                    emit_file_changed(project_id, path)
+            
+            file_tree = await _fetch_file_tree(project_id)
+        
+        emit_status(project_id, "Coding Complete.")
+        emit_progress(project_id, "Ready", 100)
+        
+    except Exception as e:
+        emit_status(project_id, "Error")
+        emit_log(project_id, "system", f"Workflow failed: {e}")
+        print(traceback.format_exc())
+
+# ==========================================================================
+# AUTO-FIXING LOG ENDPOINT
+# ==========================================================================
+
+@app.post("/api/project/{project_id}/log")
+async def log_browser_event(project_id: str, request: Request, background_tasks: BackgroundTasks):
+    """
+    Receives logs from the browser.
+    If it's a critical error, it fetches chat history and TRIGGERS the Coder to fix it.
+    """
+    try:
+        # 1. Parse Data
+        form = await request.form()
+        level = form.get("level", "INFO")
+        message = form.get("message", "")
+        
+        print(f"[{level}] Browser: {message}")
+
+        # 2. Check if it's a CRASH (Error/Failed)
+        if "error" in message.lower() or "failed" in message.lower() or "exception" in message.lower():
+            
+            # A. Notify User in UI
+            emit_log(project_id, "system", f"⚠️ Browser Error Detected: {message}")
+            emit_log(project_id, "system", "🔧 Auto-Fixing...")
+
+            # B. Get Chat History (Context)
+            chat_history = []
+            try:
+                rows = db_select("messages", {"project_id": project_id})
+                rows.sort(key=lambda x: x['created_at'])
+                for r in rows:
+                    chat_history.append({"role": r["role"], "content": r["content"]})
+            except:
+                pass 
+
+            # C. Fetch Owner for Token Billing
+            owner_id = None
+            try:
+                proj = db_select_one("projects", {"id": project_id}, "owner_id")
+                if proj: owner_id = proj["owner_id"]
+            except: pass
+
+            if not owner_id:
+                print(f"⚠️ Could not find owner for project {project_id}, skipping auto-fix.")
+                return JSONResponse({"status": "error", "detail": "Owner not found"})
+
+            # D. Construct the "Fix It" Prompt
+            error_prompt = f"""
+            CRITICAL RUNTIME ERROR REPORTED BY BROWSER:
+            {message}
+
+            analyze the previous code and this error message.
+            Fix the specific file causing this crash immediately.
+            """
+
+            # E. Trigger the Agent (Using the shared loop)
+            background_tasks.add_task(
+                run_agent_loop, 
+                project_id=project_id, 
+                prompt=error_prompt, 
+                user_id=owner_id,
+                history=chat_history,
+                is_xmode=True # Force X-Mode for bug fixes usually helps
+            )
+            
+    except Exception as e:
+        print(f"Log Error: {e}")
+        
+    return JSONResponse({"status": "ok"})
+
+
+# ==========================================================================
 # FILE API ROUTES
 # ==========================================================================
+
 @app.get("/api/project/{project_id}/files")
-async def list_files(request: Request, project_id: str):
+async def get_project_files(request: Request, project_id: str):
+    """
+    Returns the flat list of files for the WebContainer.
+    """
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
+    # Fetch from Supabase
     res = (
         supabase.table("files")
-        .select("path,updated_at")
+        .select("path,content")
         .eq("project_id", project_id)
-        .order("updated_at", desc=True)
         .execute()
     )
-    return {"files": res.data if res and res.data else []}
+    
+    if asyncio.iscoroutine(res): res = await res
+    
+    rows = getattr(res, "data", [])
+    if not rows and isinstance(res, list): rows = res
+        
+    return {"files": rows}
 
-from fastapi import Response # Ensure this is imported
 
 @app.get("/api/project/{project_id}/file")
 async def get_file_content(request: Request, project_id: str, path: str):
-    print(f"📂 [BACKEND] Fetching file: {path} for project: {project_id}") # DEBUG PRINT
+    print(f"📂 [BACKEND] Fetching file: {path} for project: {project_id}")
     
     try:
-        # 1. Fetch from Database
         res = supabase.table("files").select("content").eq("project_id", project_id).eq("path", path).execute()
+        if asyncio.iscoroutine(res): res = await res
         
-        # 2. Extract content safely
         content = ""
         if res.data and len(res.data) > 0:
             content = res.data[0].get("content", "")
         else:
             print(f"⚠️ [BACKEND] File not found in DB: {path}")
 
-        # 3. Return JSON (Standard Standard)
         return JSONResponse({"content": content})
         
     except Exception as e:
         print(f"❌ [BACKEND] Error: {e}")
         return JSONResponse({"content": f"// Error loading file: {e}"})
+
 
 @app.post("/api/project/{project_id}/save")
 async def save_file(
@@ -1274,6 +1486,7 @@ async def save_file(
     supabase.table("projects").update({"updated_at": "now()"}).eq("id", project_id).execute()
     return {"success": True}
 
+
 @app.get("/api/project/{project_id}/tokens")
 async def check_tokens(request: Request, project_id: str):
     user = get_current_user(request)
@@ -1282,7 +1495,7 @@ async def check_tokens(request: Request, project_id: str):
 
 
 # ==========================================================================
-# STATIC FILE SERVING
+# STATIC FILE SERVING & WEBCONTAINER SUPPORT
 # ==========================================================================
 def _guess_media_type(path: str) -> str:
     mt, _ = mimetypes.guess_type(path)
@@ -1290,7 +1503,9 @@ def _guess_media_type(path: str) -> str:
     if path.endswith(".js"): return "application/javascript"
     if path.endswith(".css"): return "text/css"
     if path.endswith(".html"): return "text/html"
+    if path.endswith(".json"): return "application/json"
     return "text/plain"
+
 
 @app.get("/app/{project_id}/{path:path}")
 async def serve_project_file(request: Request, project_id: str, path: str):
@@ -1308,6 +1523,8 @@ async def serve_project_file(request: Request, project_id: str, path: str):
         .maybe_single()
         .execute()
     )
+    if asyncio.iscoroutine(res): res = await res
+
     row = res.data if res else None
     
     if not row:
@@ -1373,16 +1590,16 @@ def lint_code_with_esbuild(content: str, filename: str) -> str | None:
     try:
         with tempfile.NamedTemporaryFile(suffix=".js", delete=False, mode='w', encoding='utf-8') as tmp:
             tmp.write(content)
-            tmp_path = tmp.name
+            tmp.write_path = tmp.name
 
         result = subprocess.run(
-            ["npx", "esbuild", tmp_path, "--loader=jsx", "--format=esm", "--log-level=error"],
+            ["npx", "esbuild", tmp.name, "--loader=jsx", "--format=esm", "--log-level=error"],
             capture_output=True,
             text=True,
             timeout=10
         )
         
-        os.remove(tmp_path)
+        os.remove(tmp.name)
 
         if result.returncode != 0:
             return result.stderr.strip()
@@ -1394,118 +1611,28 @@ def lint_code_with_esbuild(content: str, filename: str) -> str | None:
 
 
 # ==========================================================================
-# AI AGENT WORKFLOW (THE FIXER)
+# AI AGENT WORKFLOW (TRIGGER)
 # ==========================================================================
 async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
-    res = (
-        supabase.table("files")
-        .select("path,content")
-        .eq("project_id", project_id)
-        .execute()
-    )
-    rows = res.data if res and res.data else []
-    return {r["path"]: (r.get("content") or "") for r in rows}
-
-async def _start_server_with_retry(project_id: str, triggered_error: str = None):
-    """
-    Robust Starter:
-    1. Marks as BOOTING.
-    2. Runs AI fixes (if needed) in a thread.
-    3. Starts server.
-    """
-    _BOOTING_PROJECTS.add(project_id)
-    
     try:
-        max_retries = 3
-        current_error = triggered_error 
-        history = []
-        coder = Coder()
-
-        for attempt in range(1, max_retries + 2):
-            # Yield control to allow other requests (like dashboard nav) to process
-            await asyncio.sleep(0.1)
-
-            # --- PHASE A: FIXING ---
-            if current_error:
-                emit_phase(project_id, "fixing")
-                emit_status(project_id, f"Analyzing Crash ({attempt})...")
-                
-                hint = ""
-                if "ENOENT" in current_error or "no such file" in current_error:
-                    hint = "\nHint: Server can't find a file. Check paths in server.js."
-                elif "require is not defined" in current_error:
-                    hint = "\nHint: 'require' is not supported. Use 'import' or delete server.js."
-
-                fix_prompt = (
-                    f"The app crashed with this error:\n\n{current_error}\n{hint}\n\n"
-                    "Fix the code (server.js, package.json) to resolve this."
-                )
-                
-                try:
-                    # Fetch files async
-                    file_tree = await _fetch_file_tree(project_id)
-                    
-                    # Run AI in thread (Non-blocking)
-                    res = await asyncio.to_thread(
-                        coder.generate_code,
-                        plan_section="Crash Fix",
-                        plan_text=fix_prompt,
-                        file_tree=file_tree,
-                        project_name=project_id,
-                        history=history
-                    )
-                    
-                    if res.get("message"):
-                        history.append({"role": "assistant", "content": res.get("message")})
-
-                    ops = res.get("operations", [])
-                    for op in ops:
-                        p = op.get("path"); c = op.get("content")
-                        if p and c:
-                            db_upsert("files", {"project_id": project_id, "path": p, "content": c}, on_conflict="project_id,path")
-                            emit_file_changed(project_id, p)
-                    
-                    emit_log(project_id, "coder", "Fix applied. Retrying start...")
-                    current_error = None
-                    
-                except Exception as e:
-                    print(f"Fixing failed: {e}")
-
-            # --- PHASE B: STARTING ---
-            try:
-                if attempt == 1 and not current_error:
-                     emit_status(project_id, "Booting server...")
-                else:
-                     emit_status(project_id, "Restarting server...")
-
-                # Yield control again before heavy lifting
-                await asyncio.sleep(0.1)
-
-                file_tree = await _fetch_file_tree(project_id)
-                info = await run_manager.start(project_id, file_tree)
-                
-                emit_status(project_id, "Server Running")
-                emit_progress(project_id, "Ready", 100)
-                return
-
-            except Exception as e:
-                err_str = str(e)
-                
-                if "E2B" in err_str or "API Key" in err_str:
-                    emit_status(project_id, "System Error")
-                    emit_log(project_id, "system", f"Infrastructure Error: {err_str}")
-                    return
-
-                clean_error = err_str.replace("App crashed during startup:", "").strip()
-                emit_log(project_id, "system", f"Crash detected: {clean_error[:100]}...")
-                
-                current_error = clean_error
-                await asyncio.sleep(1) 
-
-        emit_status(project_id, "❌ Auto-fix failed.")
+        # 1. Execute Query
+        query = supabase.table("files").select("path,content").eq("project_id", project_id)
+        res = query.execute()
         
-    finally:
-        _BOOTING_PROJECTS.discard(project_id)
+        # 2. Check if response is a coroutine
+        if asyncio.iscoroutine(res):
+            res = await res
+            
+        # 3. Normalize Data
+        rows = getattr(res, "data", [])
+        if not rows and isinstance(res, list):
+            rows = res
+            
+        return {r["path"]: (r.get("content") or "") for r in rows if r.get("path")}
+        
+    except Exception as e:
+        print(f"⚠️ Fetch Error: {e}")
+        return {}
 
 @app.post("/api/project/{project_id}/agent/start")
 async def agent_start(
@@ -1539,150 +1666,10 @@ async def agent_start(
     emit_status(project_id, "Agent received prompt")
     emit_log(project_id, "user", prompt)
 
-    async def _run():
-        nonlocal prompt
-        try:
-            await asyncio.sleep(0.5)
-            file_tree = await _fetch_file_tree(project_id)
-            
-            # [SELF-HEALING]
-            try:
-                projects_dir = os.path.join(ROOT_DIR, "projects")
-                error_log_path = os.path.join(projects_dir, project_id, "server_errors.txt")
-                if os.path.exists(error_log_path):
-                    with open(error_log_path, 'r', encoding="utf-8") as f:
-                        errors = f.read().strip()
-                        if errors:
-                            prompt += f"\n\n[CRITICAL RUNTIME ERRORS DETECTED]\n{errors}\n"
-                            emit_log(project_id, "system", "🩺 Auto-Healing: Found crash logs.")
-                    with open(error_log_path, 'w', encoding="utf-8") as f: f.write("")
-            except: pass
-
-            planner = Planner()
-            coder = XCoder() if (xmode and 'XCoder' in globals()) else Coder()
-            
-            # --- PHASE 1: PLANNER ---
-            emit_phase(project_id, "planner")
-            emit_progress(project_id, "Architecting solution...", 10)
-            
-            plan_res = await asyncio.to_thread(
-                planner.generate_plan,
-                user_request=prompt, 
-                project_context={"project_id": project_id, "files": list(file_tree.keys())}
-            )
-            
-            tk = plan_res.get("usage", {}).get("total_tokens", 0)
-            if tk: add_monthly_tokens(user["id"], tk)
-            
-            # --- DISPLAY PLAN (CLEAN VERSION) ---
-            raw_plan = plan_res.get("plan", {})
-            real_assistant_msg = plan_res.get("assistant_message")
-            
-            emit_log(project_id, "assistant", real_assistant_msg or "I have created a plan for your application.")
-
-            tasks = raw_plan.get("todo", [])
-            if tasks:
-                steps_html = ""
-                for i, task in enumerate(tasks, 1):
-                    # [CRITICAL PARSING FIX]
-                    # We split by "]" and take the second part to remove the metadata tag.
-                    # Example: "Step 1: [Project:...] Do the work" -> "Do the work"
-                    task_content = task
-                    if "]" in task:
-                        parts = task.split("]", 1)
-                        if len(parts) > 1:
-                            task_content = parts[1].strip()
-
-                    steps_html += (
-                        f'<div style="display:flex; gap:25px; position:relative; z-index:2; margin-bottom:20px;">'
-                        f'  <div style="width:12px; height:12px; background:#0f172a; border:2px solid #3b82f6; border-radius:50%; box-shadow:0 0 10px #3b82f6; flex-shrink:0; margin-top:6px; position:relative; z-index:2;"></div>'
-                        f'  <div style="flex:1; background:rgba(30,41,59,0.3); border:1px solid rgba(255,255,255,0.05); border-radius:8px; padding:18px;">'
-                        f'    <span style="color:#60a5fa; font-size:11px; font-weight:bold; letter-spacing:1px; margin-bottom:6px; display:block; font-family:monospace; opacity:0.8;">{i:02}</span>'
-                        f'    <div style="color:#cbd5e1; font-size:14px; line-height:1.5;">{task_content}</div>'
-                        f'  </div>'
-                        f'</div>'
-                    )
-                
-                full_html = (
-                    f'  <div style="margin-bottom:30px; padding-bottom:15px; border-bottom:1px solid rgba(255,255,255,0.05);">'
-                    f'    <div style="color:#e2e8f0; font-size:18px; font-weight:400; letter-spacing:1px; text-transform:uppercase;">✦BluePrint</div>'
-                    f'  </div>'
-                    f'  <div style="position:relative; padding-left:5px;">'
-                    f'    <div style="position:absolute; left:6px; top:10px; bottom:10px; width:1px; background:linear-gradient(to bottom,#3b82f6,rgba(59,130,246,0.1)); z-index:1;"></div>'
-                    f'    {steps_html}'
-                    f'  </div>'
-                    f'</div>'
-                )
-                
-                emit_log(project_id, "planner", full_html)
-
-            if not tasks:
-                emit_status(project_id, "Response Complete")
-                emit_progress(project_id, "Done", 100)
-                return
-
-            # --- PHASE 2: CODER ---
-            emit_phase(project_id, "coder")
-            total = len(tasks)
-            
-            for i, task in enumerate(tasks, 1):
-                try: enforce_token_limit_or_raise(user["id"])
-                except HTTPException:
-                    emit_log(project_id, "system", "⚠️ Token limit reached. Stopping.")
-                    return
-
-                pct = 10 + (90 * (i / total))
-                emit_progress(project_id, f"Building step {i}/{total}...", pct)
-                emit_status(project_id, f"Implementing task {i}/{total}...")
-                
-                code_res = await coder.generate_code(
-                    plan_section="Implementation",
-                    plan_text=task,
-                    file_tree=file_tree,
-                    project_name=project_id
-                )
-                
-                tk = code_res.get("usage", {}).get("total_tokens", 0)
-                if tk: add_monthly_tokens(user["id"], tk)
-
-                if code_res.get("message"):
-                    emit_log(project_id, "coder", code_res.get("message"))
-
-                ops = code_res.get("operations", [])
-                emit_phase(project_id, "files")
-                
-                for op in ops:
-                    path = op.get("path")
-                    content = op.get("content")
-                    
-                    if path and content is not None:
-                        if path.startswith("static/") and path.endswith(".js"):
-                            try:
-                                lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
-                                if lint_err:
-                                    emit_log(project_id, "system", f"❌ Syntax Error in {path}:\n{lint_err}")
-                            except: pass
-
-                        db_upsert(
-                            "files", 
-                            {"project_id": project_id, "path": path, "content": content}, 
-                            on_conflict="project_id,path"
-                        )
-                        emit_file_changed(project_id, path)
-                
-                file_tree = await _fetch_file_tree(project_id)
-            
-            # --- FINISH ---
-            emit_status(project_id, "Coding Complete. Starting Server...")
-            emit_progress(project_id, "Booting...", 100)
-            await _start_server_with_retry(project_id)
-            
-        except Exception as e:
-            emit_status(project_id, "Error")
-            emit_log(project_id, "system", f"Workflow failed: {e}")
-            print(traceback.format_exc())
-
-    asyncio.create_task(_run())
+    # Dispatch shared loop
+    asyncio.create_task(
+        run_agent_loop(project_id, prompt, user["id"], xmode)
+    )
     return {"started": True}
 
 @app.get("/api/project/{project_id}/events")
@@ -1700,7 +1687,7 @@ async def agent_events(request: Request, project_id: str):
                     ev = await asyncio.wait_for(q.get(), timeout=15)
                     yield f"data: {json.dumps(ev)}\n\n"
                 except asyncio.TimeoutError:
-                    yield ": keep-alive\n\n"
+                    yield f": keep-alive\n\n"
         finally:
             progress_bus.unsubscribe(project_id, q)
 
@@ -1713,156 +1700,6 @@ async def agent_events(request: Request, project_id: str):
             "X-Accel-Buffering": "no"
         }
     )
-# ==========================================================================
-# MIDDLEWARE: ASSET RESCUE (CRITICAL FOR REACT/VITE)
-# ==========================================================================
-@app.middleware("http")
-async def asset_rescue_middleware(request: Request, call_next):
-    """
-    catches 404s for assets like '/src/main.tsx' or '/vite.svg'
-    and redirects them to the correct project preview URL.
-    """
-    response = await call_next(request)
-    
-    if response.status_code == 404:
-        path = request.url.path
-        
-        # If it looks like a file extension (js, css, png, svg, json, tsx)
-        if "." in path.split("/")[-1]: 
-            referer = request.headers.get("referer")
-            
-            if referer:
-                # Case 1: Request from DEV PREVIEW (/run/{id})
-                match_run = re.search(r"/run/([a-zA-Z0-9-]+)", referer)
-                if match_run:
-                    project_id = match_run.group(1)
-                    # Redirect /src/main.tsx -> /run/{id}/src/main.tsx
-                    new_url = f"/run/{project_id}{path}"
-                    return RedirectResponse(new_url)
-
-                # Case 2: Request from PUBLIC APP (/app/{slug})
-                match_app = re.search(r"/app/([a-zA-Z0-9-]+)", referer)
-                if match_app:
-                    slug = match_app.group(1)
-                    new_url = f"/app/{slug}{path}"
-                    return RedirectResponse(new_url)
-                    
-    return response
-
-
-# ==========================================================================
-# SERVER PREVIEW RUNNER & PROXY
-# ==========================================================================
-run_manager = ProjectRunManager()
-deployer = Deployer(run_manager, supabase) 
-
-@app.post("/api/project/{project_id}/run/start")
-async def run_start(request: Request, project_id: str):
-    user = get_current_user(request)
-    _require_project_owner(user, project_id)
-    
-    if not DEV_MODE: 
-        raise HTTPException(403, "Server preview is DEV_MODE only.")
-        
-    # Check if already booting to prevent double-clicks
-    if project_id in _BOOTING_PROJECTS:
-        return {"ok": True, "status": "already_booting"}
-
-    # Trigger the robust starter in background
-    asyncio.create_task(_start_server_with_retry(project_id))
-    
-    # Touch access time
-    _LAST_ACCESS[project_id] = time.time()
-    
-    return {"ok": True, "status": "starting"}
-
-@app.post("/api/project/{project_id}/run/stop")
-async def run_stop(request: Request, project_id: str):
-    user = get_current_user(request)
-    _require_project_owner(user, project_id)
-    
-    await run_manager.stop(project_id)
-    emit_log(project_id, "system", "Server stopped.")
-    return {"ok": True}
-
-@app.get("/api/project/{project_id}/run/status")
-async def run_status(request: Request, project_id: str):
-    user = get_current_user(request)
-    _require_project_owner(user, project_id)
-    
-    running, port = run_manager.is_running(project_id)
-    booting = project_id in _BOOTING_PROJECTS
-    return {"running": running, "port": port, "booting": booting}
-
-@app.api_route("/run/{project_id}/{path:path}", methods=["GET","POST","PUT","DELETE","OPTIONS","PATCH"])
-async def run_proxy(request: Request, project_id: str, path: str):
-    """
-    DEV MODE PROXY
-    1. Proxies traffic IF the server is running.
-    2. If booting -> Shows 'Booting'.
-    3. If stopped -> Shows 'Server Offline' (Does NOT auto-start).
-    """
-    user = get_current_user(request)
-    _require_project_owner(user, project_id)
-    if not DEV_MODE: raise HTTPException(403, "Dev only")
-
-    _LAST_ACCESS[project_id] = time.time()
-    
-    # --- SCENARIO 1: CURRENTLY BOOTING ---
-    if project_id in _BOOTING_PROJECTS:
-        loading_path = os.path.join(FRONTEND_TEMPLATES_DIR, "agentloading.html")
-        loading_html = "<h2>🚧 Booting...</h2><p>Server is starting up...</p>"
-        if os.path.exists(loading_path):
-            with open(loading_path, "r", encoding="utf-8") as f:
-                loading_html = f.read()
-        # Auto-refresh to check progress
-        loading_html = loading_html.replace("<head>", '<head><meta http-equiv="refresh" content="2">', 1)
-        return HTMLResponse(loading_html, status_code=200)
-
-    # --- SCENARIO 2: RUNNING (Try to Proxy) ---
-    try:
-        r = await run_manager.proxy(
-            project_id=project_id,
-            path=path or "",
-            method=request.method,
-            headers=dict(request.headers),
-            body=await request.body(),
-            query=request.url.query
-        )
-        return Response(
-            content=r.content, 
-            status_code=r.status_code, 
-            headers={k: v for k, v in r.headers.items() if k.lower() not in ("content-encoding", "transfer-encoding", "connection")}, 
-            media_type=r.headers.get("content-type")
-        )
-    except RuntimeError as e:
-        err_msg = str(e)
-        
-        # --- SCENARIO 3: CRASH / STOPPED ---
-        if "CRASH_DETECTED" in err_msg:
-            clean_error = err_msg.replace("CRASH_DETECTED:", "").strip()
-            
-            # If it's just "Server not running", show the "Click Run" screen
-            if "Server not running" in clean_error:
-                return templates.TemplateResponse(
-                    "projects/serverstopped.html", 
-                    {"request": request, "project_id": project_id}
-                )
-
-            # If it's a REAL crash (connection failed while running), Auto-Fix it
-            print(f"🔥 Proxy caught crash for {project_id}: {clean_error}")
-            asyncio.create_task(_start_server_with_retry(project_id, triggered_error=clean_error))
-            
-            # Show "Fixing" Screen
-            loading_path = os.path.join(FRONTEND_TEMPLATES_DIR, "agentloading.html")
-            loading_html = "<h2>💥 Fixing...</h2><p>AI is resolving the crash...</p>"
-            if os.path.exists(loading_path):
-                with open(loading_path, "r", encoding="utf-8") as f:
-                    loading_html = f.read()
-            loading_html = loading_html.replace("<head>", '<head><meta http-equiv="refresh" content="3">', 1)
-            return HTMLResponse(loading_html, status_code=200)
-
-        raise HTTPException(502, f"Proxy failed: {e}")
 
 @app.get("/projects/{project_id}/game", response_class=HTMLResponse)
 async def project_game(request: Request, project_id: str):
@@ -1875,62 +1712,19 @@ async def agent_ping(request: Request, project_id: str):
     emit_log(project_id, "system", "🔥 Pong from backend")
     return {"ok": True}
 
-
-# ==========================================================================
-# 🚀 PUBLIC APP HOSTING (Consolidated Route)
-# ==========================================================================
-@app.api_route("/app/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"])
-async def public_app_catchall(request: Request, full_path: str):
-    """
-    Catches ALL traffic to /app/..., parses the slug, and routes it.
-    """
-    clean_path = full_path.strip("/")
-    parts = clean_path.split("/", 1)
-    
-    if not clean_path:
-        return HTMLResponse("<h1>404 - Not Found</h1>", status_code=404)
-        
-    project_slug = parts[0]
-    remainder = parts[1] if len(parts) > 1 else ""
-
-    # Redirect root to trailing slash for relative paths
-    if len(parts) == 1 and not str(request.url.path).endswith("/"):
-         return RedirectResponse(url=f"/app/{project_slug}/")
-
-    try:
-        # Access Tracking (Lazy)
-        try:
-             r = supabase.table("projects").select("id").eq("subdomain", project_slug).single().execute()
-             if r.data:
-                 _LAST_ACCESS[r.data['id']] = time.time()
-        except: pass
-            
-        return await deployer.handle_request(request, project_slug, remainder)
-        
-    except RuntimeError as e:
-        err_msg = str(e)
-        if "CRASH_DETECTED" in err_msg:
-            clean_error = err_msg.replace("CRASH_DETECTED:", "").strip()
-
-            # --- LAZY LOADING ---
-            try:
-                res = supabase.table("projects").select("id").eq("subdomain", project_slug).single().execute()
-                if res.data:
-                    project_id = res.data['id']
-                    
-                    _LAST_ACCESS[project_id] = time.time()
-                    
-                    if project_id not in _BOOTING_PROJECTS:
-                        print(f"🌍 Public Boot: {project_id}")
-                        _BOOTING_PROJECTS.add(project_id)
-                        task = asyncio.create_task(_start_server_with_retry(project_id, triggered_error=clean_error))
-                        task.add_done_callback(lambda _: _BOOTING_PROJECTS.discard(project_id))
-                    
-                    return HTMLResponse("<html><head><meta http-equiv='refresh' content='3'></head><body><h2>Waking up app...</h2></body></html>")
-            except Exception: pass
-                
-        raise HTTPException(502, "Service Unavailable")
-
 @app.get("/health")
 async def health():
     return {"ok": True, "ts": int(time.time()), "dev_mode": DEV_MODE}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    from pyngrok import ngrok
+    import sys
+
+    # Open a tunnel to port 8000
+    # This URL bypasses GitHub's Proxy completely
+    public_url = ngrok.connect(8000).public_url
+    print(f"\n🚀 \033[92mYOUR BYPASS URL: {public_url}\033[0m 🚀\n")
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
