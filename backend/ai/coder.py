@@ -199,8 +199,9 @@ class Coder:
             "3. **Shadcn/UI**: The folder `src/components/ui/` is fully populated.\n"
             "4. **Node.js (ES Modules)**: Backend uses `import/export`. Entry point is `server.js`.\n"
             "5. **Express.js**: Server is configured with CORS and Dotenv.\n\n"
+            "**IMPORTANT** even though these are already in place, please try to make the UI less bootstrappy and more fun and polished, try to make the components yourself instead of always using shadcn UI, but when feel the need to use shadcn UI, do it, in a not very obivious way. .\n\n"
 
-            "STRICT IMPORT RULES (CONTEXT AWARE):\n"
+            "STRICT IMPORT RULES:\n"
             "- **FRONTEND (`src/` files)**:\n"
             "  - Use `@/` alias (e.g., `import { Button } from '@/components/ui/button'`).\n"
             "  - Do NOT use relative paths like `../../`.\n"
