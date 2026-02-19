@@ -1213,9 +1213,10 @@ async def project_export(request: Request, project_id: str):
 # ==========================================================================
 # REUSABLE AGENT LOOP (Used by UI and Auto-Fix)
 # ==========================================================================
-async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: bool = False, history: List[Dict] = None):
+async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: bool = False, history: List[Dict] = None, skip_planner: bool = False):
     """
     The core logic for the AI Agent. Can be called from the endpoint or the log-fixer.
+    If skip_planner is True, it directly sends the prompt to the Coder.
     """
     try:
         await asyncio.sleep(0.5)
@@ -1224,67 +1225,73 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         planner = Planner()
         coder = XCoder() if (is_xmode and 'XCoder' in globals()) else Coder()
         
-        # --- PHASE 1: PLANNER ---
-        emit_phase(project_id, "planner")
-        emit_progress(project_id, "Architecting solution...", 10)
-        
-        # Pass history to planner if available
-        plan_context = {"project_id": project_id, "files": list(file_tree.keys())}
-        if history:
-            plan_context["history"] = history
+        if not skip_planner:
+            # --- PHASE 1: PLANNER ---
+            emit_phase(project_id, "planner")
+            emit_progress(project_id, "Architecting solution...", 10)
+            
+            # Pass history to planner if available
+            plan_context = {"project_id": project_id, "files": list(file_tree.keys())}
+            if history:
+                plan_context["history"] = history
 
-        plan_res = await asyncio.to_thread(
-            planner.generate_plan,
-            user_request=prompt, 
-            project_context=plan_context
-        )
-        
-        tk = plan_res.get("usage", {}).get("total_tokens", 0)
-        if tk and user_id: add_monthly_tokens(user_id, tk)
-        
-        # --- DISPLAY PLAN ---
-        raw_plan = plan_res.get("plan", {})
-        real_assistant_msg = plan_res.get("assistant_message")
-        
-        emit_log(project_id, "assistant", real_assistant_msg or "I have created a plan for your application.")
+            plan_res = await asyncio.to_thread(
+                planner.generate_plan,
+                user_request=prompt, 
+                project_context=plan_context
+            )
+            
+            tk = plan_res.get("usage", {}).get("total_tokens", 0)
+            if tk and user_id: add_monthly_tokens(user_id, tk)
+            
+            # --- DISPLAY PLAN ---
+            raw_plan = plan_res.get("plan", {})
+            real_assistant_msg = plan_res.get("assistant_message")
+            
+            emit_log(project_id, "assistant", real_assistant_msg or "I have created a plan for your application.")
 
-        tasks = raw_plan.get("todo", [])
-        if tasks:
-            steps_html = ""
-            for i, task in enumerate(tasks, 1):
-                task_content = task
-                if "]" in task:
-                    parts = task.split("]", 1)
-                    if len(parts) > 1:
-                        task_content = parts[1].strip()
+            tasks = raw_plan.get("todo", [])
+            if tasks:
+                steps_html = ""
+                for i, task in enumerate(tasks, 1):
+                    task_content = task
+                    if "]" in task:
+                        parts = task.split("]", 1)
+                        if len(parts) > 1:
+                            task_content = parts[1].strip()
 
-                steps_html += (
-                    f'<div style="display:flex; gap:25px; position:relative; z-index:2; margin-bottom:20px;">'
-                    f'  <div style="width:12px; height:12px; background:#0f172a; border:2px solid #3b82f6; border-radius:50%; box-shadow:0 0 10px #3b82f6; flex-shrink:0; margin-top:6px; position:relative; z-index:2;"></div>'
-                    f'  <div style="flex:1; background:rgba(30,41,59,0.3); border:1px solid rgba(255,255,255,0.05); border-radius:8px; padding:18px;">'
-                    f'    <span style="color:#60a5fa; font-size:11px; font-weight:bold; letter-spacing:1px; margin-bottom:6px; display:block; font-family:monospace; opacity:0.8;">{i:02}</span>'
-                    f'    <div style="color:#cbd5e1; font-size:14px; line-height:1.5;">{task_content}</div>'
+                    steps_html += (
+                        f'<div style="display:flex; gap:25px; position:relative; z-index:2; margin-bottom:20px;">'
+                        f'  <div style="width:12px; height:12px; background:#0f172a; border:2px solid #3b82f6; border-radius:50%; box-shadow:0 0 10px #3b82f6; flex-shrink:0; margin-top:6px; position:relative; z-index:2;"></div>'
+                        f'  <div style="flex:1; background:rgba(30,41,59,0.3); border:1px solid rgba(255,255,255,0.05); border-radius:8px; padding:18px;">'
+                        f'    <span style="color:#60a5fa; font-size:11px; font-weight:bold; letter-spacing:1px; margin-bottom:6px; display:block; font-family:monospace; opacity:0.8;">{i:02}</span>'
+                        f'    <div style="color:#cbd5e1; font-size:14px; line-height:1.5;">{task_content}</div>'
+                        f'  </div>'
+                        f'</div>'
+                    )
+                
+                full_html = (
+                    f'  <div style="margin-bottom:30px; padding-bottom:15px; border-bottom:1px solid rgba(255,255,255,0.05);">'
+                    f'    <div style="color:#e2e8f0; font-size:18px; font-weight:400; letter-spacing:1px; text-transform:uppercase;">✦ BluePrint</div>'
+                    f'  </div>'
+                    f'  <div style="position:relative; padding-left:5px;">'
+                    f'    <div style="position:absolute; left:6px; top:10px; bottom:10px; width:1px; background:linear-gradient(to bottom,#3b82f6,rgba(59,130,246,0.1)); z-index:1;"></div>'
+                    f'    {steps_html}'
                     f'  </div>'
                     f'</div>'
                 )
-            
-            full_html = (
-                f'  <div style="margin-bottom:30px; padding-bottom:15px; border-bottom:1px solid rgba(255,255,255,0.05);">'
-                f'    <div style="color:#e2e8f0; font-size:18px; font-weight:400; letter-spacing:1px; text-transform:uppercase;">✦ BluePrint</div>'
-                f'  </div>'
-                f'  <div style="position:relative; padding-left:5px;">'
-                f'    <div style="position:absolute; left:6px; top:10px; bottom:10px; width:1px; background:linear-gradient(to bottom,#3b82f6,rgba(59,130,246,0.1)); z-index:1;"></div>'
-                f'    {steps_html}'
-                f'  </div>'
-                f'</div>'
-            )
-            
-            emit_log(project_id, "planner", full_html)
+                
+                emit_log(project_id, "planner", full_html)
 
-        if not tasks:
-            emit_status(project_id, "Response Complete")
-            emit_progress(project_id, "Done", 100)
-            return
+            if not tasks:
+                emit_status(project_id, "Response Complete")
+                emit_progress(project_id, "Done", 100)
+                return
+        else:
+            # --- BYPASS PLANNER FOR LOG ERRORS ---
+            emit_phase(project_id, "coder")
+            emit_log(project_id, "system", "⚡ Sending Error Trace Directly to Coder...")
+            tasks = [prompt] # Treat the error output directly as the task
 
         # --- PHASE 2: CODER ---
         emit_phase(project_id, "coder")
@@ -1303,7 +1310,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             emit_status(project_id, f"Implementing task {i}/{total}...")
             
             code_res = await coder.generate_code(
-                plan_section="Implementation",
+                plan_section="Bug Fix" if skip_planner else "Implementation",
                 plan_text=task,
                 file_tree=file_tree,
                 project_name=project_id
@@ -1410,7 +1417,8 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
                 prompt=error_prompt, 
                 user_id=owner_id,
                 history=chat_history,
-                is_xmode=True # Force X-Mode for bug fixes usually helps
+                is_xmode=True, # Force X-Mode for bug fixes usually helps
+                skip_planner=True # <--- bypasses planner to send directly to coder
             )
             
     except Exception as e:
