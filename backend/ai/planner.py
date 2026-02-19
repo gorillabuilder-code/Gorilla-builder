@@ -161,7 +161,7 @@ class Planner:
     "   - Frontend Imports: Use `@/` aliases (e.g., `import { Button } from '@/components/ui/button'`).\n"
     "   - Backend Imports: Use relative paths with `.js` extension (e.g., `import router from './routes/api.js'`).\n"
     "2. **AI Integration Specs (USE THESE EXACTLY):**\n"
-    "   - **High-Performance Logic (Strict)**: Use `process.env.OPENROUTER_API_KEY`. Explicitly instruct the coder to use **'openai/gpt-oss-120b'** (preferred for complex reasoning) Do NOT default to Gemini.\n"
+    "   - **High-Performance Logic (Strict)**: Use `process.env.OPENROUTER_API_KEY`. Explicitly instruct the coder to use **'openai/gpt-oss-120b:free'** (preferred for complex reasoning) Do NOT default to Gemini.\n"
     "   - **Vision**: Use `process.env.OPENROUTER_API_KEY` with 'accounts/fireworks/models/qwen3-8b' or a similar free vision model.\n"
     "   - **Voice (STT)**: 'accounts/fireworks/models/whisper-v3-turbo'.\n"
     "   - **Image Gen**: 'accounts/fireworks/models/playground-v2-5-1024px-aesthetic'.\n"

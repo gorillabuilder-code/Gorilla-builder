@@ -91,9 +91,10 @@ class Coder:
             "messages": messages,
             "temperature": temperature,
             "provider": {
-            "order": ["sambanova", "minimax/highspeed"],
+            "order": ["sambanova", "minimax/highspeed", "siliconflow"],
             "allow_fallbacks": False,
             "sort": "throughput"
+            }
         }
         
         # OpenRouter specific headers
@@ -230,8 +231,9 @@ class Coder:
 
             "GLOBAL RULES:\n"
             "1. Output valid JSON only. No markdown blocks. ALL API KEYS ARE IN THE ENVIRONMENT.\n"
-            "2. NEVER generate .env or Dockerfile.\n"
-            "3. NEVER use literal '\\n'. Use physical newlines.\n\n"
+            "2. NEVER generate .env or Dockerfile. The main server is always server.js and the backend is always node.js within the routes/ folder, the frontend is always react/typescript.\n"
+            "3. NEVER use literal '\\n'. Use physical newlines.\n"
+            "4. There is no read file action, to find a file please look into the conversation history\n\n"
 
             "SPECIFIC RULES:\n"
             "1. **Frontend (React)**: Use Functional Components. Tailwind ONLY for styling. No CSS files.\n"
