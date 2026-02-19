@@ -18,7 +18,7 @@ import httpx
 # --- Configuration for OpenRouter ---
 # CHANGED: Switched from Fireworks to OpenRouter env vars
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "x-ai/grok-code-fast-1") # Grok 2 is the latest stable on OpenRouter
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "minimax/minimax-m2.5") # Grok 2 is the latest stable on OpenRouter
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # OpenRouter requirements for rankings
@@ -90,6 +90,10 @@ class Coder:
             "model": OPENROUTER_MODEL,
             "messages": messages,
             "temperature": temperature,
+            "provider": {
+            "order": ["sambanova", "minimax/highspeed"],
+            "allow_fallbacks": False,
+            "sort": "throughput"
         }
         
         # OpenRouter specific headers
