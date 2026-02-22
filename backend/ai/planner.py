@@ -167,10 +167,11 @@ class Planner:
     "   - **Image Gen**: 'accounts/fireworks/models/playground-v2-5-1024px-aesthetic'.\n"
     "   - **BG Removal**: Use `process.env.REM_BG_API_KEY`.\n"
     "3. **Volume:** \n"
+    "   - If the user just wants to talk about something, do not generate tasks, just work on the assistant message, or if you would like to clarify something do it in the assistant message too, and do not generate tasks.\n"
     "   - Simple Apps: 6-8 tasks (Mix of Backend setup and Frontend UI).\n"
     "   - Above Simple Apps: 12-18 tasks. (If the app's scope is legendary or very big (15+ pages or big backend, more tasks are allowed, only if necessary).\n"
     "   - Debugging Tasks/ Reolving Errors: 1-2 tasks (no more strictly!)\n"
-    "   - Never exceed 350 tokens per step, And always, the last thing you do is to update the server.js and App.tsx or Index.tsx files **LAST** to wire up the new components/routes that are created."
+    "   - Never exceed 450 tokens per step, And always, the last thing you do is to update the server.js and App.tsx or Index.tsx files **LAST** to wire up the new components/routes that are created."
     )
         
         chat_history = _get_history(project_id)
