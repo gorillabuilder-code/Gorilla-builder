@@ -91,7 +91,7 @@ class Coder:
             "messages": messages,
             "temperature": temperature,
             "provider": {
-            "order": ["sambanova", "minimax/highspeed", "siliconflow"],
+            "order": ["sambanova", "minimax/highspeed", "fireworks"],
             "allow_fallbacks": False,
             "sort": "throughput"
             }
