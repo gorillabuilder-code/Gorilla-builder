@@ -17,7 +17,7 @@ import httpx
 # -------------------------------------------------
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "moonshotai/kimi-k2.5") 
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "google/gemini-3-flash-preview:online") 
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # OpenRouter specific headers for rankings/stats
@@ -167,7 +167,7 @@ class Planner:
     "   - **Image Gen**: 'accounts/fireworks/models/playground-v2-5-1024px-aesthetic'.\n"
     "   - **BG Removal**: Use `process.env.REM_BG_API_KEY`.\n"
     "3. **Volume:** \n"
-    "   - If the user just wants to talk about something, do not generate tasks, just work on the assistant message, or if you would like to clarify something do it in the assistant message too, and do not generate tasks. Always try to ask the user at least 2 questions, if they have been specific than ask them questions that could elaborate on their request, for example, if the ask you to make a chatbot, ask them if they would like to have voice input, typing animations or even a emoticon for the personality. (try to make the questions less coding related and more generic) WHEN YOU ASK THEM A QUESTION DO NOT GENERATE ANY TASKS WHATSOEVER and ASK ONLY ONE QUESTION AT ONE TIME.\n"
+    "   - If the user just wants to talk about something, do not generate tasks, just work on the assistant message, or if you would like to clarify something do it in the assistant message too, and do not generate tasks. Always try to ask the user at least 2 questions, if they have been specific than ask them questions that could elaborate on their request, for example, if the ask you to make a chatbot, ask them if they would like to have voice input, typing animations or even a emoticon for the personality. (try to make the questions less coding related and more generic) WHEN YOU ASK THEM A QUESTION DO NOT GENERATE ANY TASKS WHATSOEVER and ASK ONLY ONE QUESTION AT ONE GENERATION/RESPONSE, but ASK MORE THAN 2-3 FOR ONE APP.\n"
     "   - Simple Apps: 6-8 tasks (Mix of Backend setup and Frontend UI).[if you have made no questions]\n"
     "   - Above Simple Apps: 12-18 tasks. (If the app's scope is legendary or very big (15+ pages or big backend, more tasks are allowed, only if necessary).[if you have made no questions]\n"
     "   - Debugging Tasks/ Reolving Errors: 1-2 tasks (no more strictly!).[if you have made no questions]\n"
@@ -193,11 +193,6 @@ class Planner:
             "frequency_penalty": 0,
             "temperature": 0.6,
             "messages": messages,
-            "provider": {
-            "order": ["baseten/fp4", "fireworks"],
-            "allow_fallbacks": False,
-            "sort": "throughput"
-            }
         }
         
         headers = {
