@@ -17,7 +17,7 @@ import httpx
 # -------------------------------------------------
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "google/gemini-3-flash-preview") 
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "google/gemini-3-flash-preview:online") 
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # OpenRouter specific headers for rankings/stats
@@ -161,16 +161,18 @@ class Planner:
     "   - Frontend Imports: Use `@/` aliases (e.g., `import { Button } from '@/components/ui/button'`).\n"
     "   - Backend Imports: Use relative paths with `.js` extension (e.g., `import router from './routes/api.js'`).\n"
     "2. **AI Integration Specs (USE THESE EXACTLY):**\n"
-    "   - **High-Performance Logic (Strict)**: Use `process.env.OPENROUTER_API_KEY`. Explicitly instruct the coder to use **'openai/gpt-oss-120b'** (preferred for complex reasoning) Do NOT default to Gemini.\n"
+    "   - **High-Performance Logic (Strict)**: Use `process.env.OPENROUTER_API_KEY`. Explicitly instruct the coder to use **'openai/gpt-oss-120b:free'** (preferred for complex reasoning) Do NOT default to Gemini.\n"
     "   - **Vision**: Use `process.env.OPENROUTER_API_KEY` with 'accounts/fireworks/models/qwen3-8b' or a similar free vision model.\n"
     "   - **Voice (STT)**: 'accounts/fireworks/models/whisper-v3-turbo'.\n"
+    "   - **Voice (TTS)**: 'openai/gpt-audio-mini' from openrouter API.\n"
     "   - **Image Gen**: 'accounts/fireworks/models/playground-v2-5-1024px-aesthetic'.\n"
     "   - **BG Removal**: Use `process.env.REM_BG_API_KEY`.\n"
     "3. **Volume:** \n"
-    "   - Simple Apps: 6-8 tasks (Mix of Backend setup and Frontend UI).\n"
-    "   - Above Simple Apps: 12-18 tasks. (If the app's scope is legendary or very big (15+ pages or big backend, more tasks are allowed, only if necessary).\n"
-    "   - Debugging Tasks/ Reolving Errors: 1-2 tasks (no more strictly!)\n"
-    "   - Never exceed 350 tokens per step, And always, the last thing you do is to update the server.js and App.tsx or Index.tsx files **LAST** to wire up the new components/routes that are created."
+    "   - If the user just wants to talk about something, do not generate tasks, just work on the assistant message, or if you would like to clarify something do it in the assistant message too, and do not generate tasks. Always try to ask the user at least 2 questions, if they have been specific than ask them questions that could elaborate on their request, for example, if the ask you to make a chatbot, ask them if they would like to have voice input, typing animations or even a emoticon for the personality. (try to make the questions less coding related and more generic) WHEN YOU ASK THEM A QUESTION DO NOT GENERATE ANY TASKS WHATSOEVER and ASK ONLY ONE QUESTION AT ONE GENERATION/RESPONSE, but ASK MORE THAN 2-3 FOR ONE APP.\n"
+    "   - Simple Apps: 6-8 tasks (Mix of Backend setup and Frontend UI).[if you have made no questions]\n"
+    "   - Above Simple Apps: 12-18 tasks. (If the app's scope is legendary or very big (15+ pages or big backend, more tasks are allowed, only if necessary).[if you have made no questions]\n"
+    "   - Debugging Tasks/ Reolving Errors: 1-2 tasks (no more strictly!).[if you have made no questions]\n"
+    "   - Never exceed 450 tokens per step, And always, the last thing you do is to update the server.js and App.tsx or Index.tsx files **LAST** to wire up the new components/routes that are created."
     )
         
         chat_history = _get_history(project_id)
@@ -191,7 +193,7 @@ class Planner:
             "presence_penalty": 0,
             "frequency_penalty": 0,
             "temperature": 0.6,
-            "messages": messages
+            "messages": messages,
         }
         
         headers = {
