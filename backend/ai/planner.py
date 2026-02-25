@@ -164,6 +164,7 @@ class Planner:
     "   - **High-Performance Logic (Strict)**: Use `process.env.OPENROUTER_API_KEY`. Explicitly instruct the coder to use **'openai/gpt-oss-120b:free'** (preferred for complex reasoning) Do NOT default to Gemini.\n"
     "   - **Vision**: Use `process.env.OPENROUTER_API_KEY` with 'accounts/fireworks/models/qwen3-8b' or a similar free vision model.\n"
     "   - **Voice (STT)**: 'accounts/fireworks/models/whisper-v3-turbo'.\n"
+    "   - **Voice (TTS)**: 'openai/gpt-audio-mini' from openrouter API.\n"
     "   - **Image Gen**: 'accounts/fireworks/models/playground-v2-5-1024px-aesthetic'.\n"
     "   - **BG Removal**: Use `process.env.REM_BG_API_KEY`.\n"
     "3. **Volume:** \n"
