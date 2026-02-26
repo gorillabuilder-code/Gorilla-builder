@@ -170,10 +170,10 @@ class Planner:
     "   - **BG Removal**: Use `process.env.REM_BG_API_KEY`.\n"
     "3. **Volume:** \n"
     "   - Always try to ask the user at least 2 questions to elaborate on their request. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS.\n"
-    "   - Simple Apps: 6-8 tasks (Mix of DB, Backend, Frontend).\n"
-    "   - Above Simple Apps: 12-18 tasks.\n"
+    "   - Simple Apps: 8-10 tasks (Mix of DB, Backend, Frontend).\n"
+    "   - Above Simple Apps: 14-22 tasks.\n"
     "   - Debugging Tasks: 1-2 tasks.\n"
-    "   - Never exceed 450 tokens per step. Update `server.js` and `Index.tsx` **LAST** to wire up components/routes."
+    "   - Never exceed 450 tokens per step. Update `server.js` and `App.tsx` **LAST** to wire up components/routes."
         )
         
         chat_history = _get_history(project_id)
