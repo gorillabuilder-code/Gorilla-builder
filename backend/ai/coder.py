@@ -18,7 +18,7 @@ import httpx
 # --- Configuration for OpenRouter ---
 # CHANGED: Switched from Fireworks to OpenRouter env vars
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "minimax/minimax-m2.5") # Grok 2 is the latest stable on OpenRouter
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b") 
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # OpenRouter requirements for rankings
@@ -91,7 +91,7 @@ class Coder:
             "messages": messages,
             "temperature": temperature,
             "provider": {
-            "order": ["sambanova", "fireworks", "minimax/highspeed"],
+            "order": ["cerebras"],
             "allow_fallbacks": False,
             "sort": "throughput"
             }
@@ -112,7 +112,7 @@ class Coder:
             
             content = data["choices"][0]["message"]["content"]
             usage = data.get("usage", {})
-            total_tokens = int(usage.get("total_tokens", 0))*0.9
+            total_tokens = int(usage.get("total_tokens", 0))*0.3
             
             return content, total_tokens
 
@@ -276,7 +276,7 @@ class Coder:
                     
                 canonical = self._normalize_and_validate_ops(parsed)
                 # IMPORTANT: Return total cumulative tokens so user is billed for retries
-                canonical["usage"] = {"total_tokens": cumulative_tokens*0.95}
+                canonical["usage"] = {"total_tokens": cumulative_tokens*0.3}
 
                 # --- SUCCESS: UPDATE HISTORY ---
                 self.project_states[project_name].append({
