@@ -112,7 +112,7 @@ class Coder:
             
             content = data["choices"][0]["message"]["content"]
             usage = data.get("usage", {})
-            total_tokens = int(usage.get("total_tokens", 0))*0.3
+            total_tokens = int(usage.get("total_tokens", 0))*0.16
             
             return content, total_tokens
 
@@ -276,7 +276,7 @@ class Coder:
                     
                 canonical = self._normalize_and_validate_ops(parsed)
                 # IMPORTANT: Return total cumulative tokens so user is billed for retries
-                canonical["usage"] = {"total_tokens": cumulative_tokens*0.3}
+                canonical["usage"] = {"total_tokens": cumulative_tokens*0.15}
 
                 # --- SUCCESS: UPDATE HISTORY ---
                 self.project_states[project_name].append({
