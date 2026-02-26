@@ -17,7 +17,7 @@ export class WebRunner {
     async boot() {
         if (this.instance) return this.instance;
         
-        console.log("🥾 Booting WebContainer (Credentialless Mode)...");
+        console.log("Booting WebContainer...");
         
         // 🚨 THIS IS THE CRITICAL FIX 🚨
         // We must tell WebContainer that our server uses 'credentialless' headers.
@@ -92,11 +92,30 @@ export class WebRunner {
     }
 
     /**
-     * Start the Dev Server
+     * Start the Dev Server (AND Push DB First)
      */
     async start(onReady, logger) {
         if (!this.instance) throw new Error("Container not booted");
 
+        // 🚨 NEW DATABASE PUSH STEP 🚨
+        logger("system", "🗄️ Provisioning local SQLite database...");
+        
+        const dbProcess = await this.instance.spawn('npm', ['run', 'db:push']);
+        
+        dbProcess.output.pipeTo(new WritableStream({
+            write(data) {
+                console.log("[DB PUSH]", data); // Logs to browser console so you can debug
+            }
+        }));
+
+        const dbExitCode = await dbProcess.exit;
+        if (dbExitCode !== 0) {
+            logger("system", `⚠️ Database push failed (code ${dbExitCode}). Check console.`);
+        } else {
+            logger("system", "✅ Database created successfully!");
+        }
+
+        // 🚀 START SERVER AS NORMAL
         logger("system", "🚀 Starting Dev Server...");
 
         // Run 'npm run dev'
