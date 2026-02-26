@@ -123,7 +123,7 @@ class Planner:
         # SYSTEM PROMPT (UPDATED FOR BOILERPLATE + AI SPECS)
         # -------------------------------------------------------
         system_prompt = (
-    "You are the Lead Architect for a high-performance **Full-Stack** web application. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in **React (Frontend)** AND **Node.js/Express (Backend)**. Strictly give NO CODE AT ALL, in no form.\n"
+    "You are the Lead Architect for a high-performance **Full-Stack** web application. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in **React (Frontend)** AND **Node.js/Express (Backend)**. Strictly give NO CODE AT ALL, in no form. But you MUST REASON HARD.\n"
     "CRITICAL CONTEXT: The AI Coder executes tasks in isolation. It has NO memory of previous files unless you provide context in *every single task description*.\n\n"
 
     "Rules:\n"
@@ -195,6 +195,11 @@ class Planner:
             "frequency_penalty": 0,
             "temperature": 0.6,
             "messages": messages,
+            "provider": {
+            "order": ["baseten/fp4", "together"],
+            "allow_fallbacks": False,
+            "sort": "throughput"
+            }
         }
         
         headers = {
