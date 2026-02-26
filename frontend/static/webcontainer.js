@@ -121,10 +121,28 @@ export class WebRunner {
         // Run 'npm run dev'
         this.shell = await this.instance.spawn('npm', ['run', 'dev']);
 
+        // 🚨 ERROR AGGREGATION BUFFER 🚨
+        let errorBuffer = "";
+
+        // Flush the buffer to the coder every 3 seconds
+        const errorInterval = setInterval(() => {
+            if (errorBuffer.trim() !== "") {
+                logger("coder", `❌ Compiled Runtime Errors:\n${errorBuffer.trim()}`);
+                errorBuffer = ""; // Reset the buffer after sending
+            }
+        }, 3000);
+
         this.shell.output.pipeTo(new WritableStream({
             write(data) {
-                if (data.includes('ReferenceError') || data.includes('SyntaxError')) {
-                    logger("coder", `❌ Runtime Error:\n${data}`);
+                // Catch standard Node errors and Vite build errors
+                if (data.includes('ReferenceError') || 
+                    data.includes('SyntaxError') || 
+                    data.includes('Error:') || 
+                    data.includes('[ERROR]') || 
+                    data.includes('Failed to resolve')) {
+                    
+                    // Add the chunk to our buffer instead of sending immediately
+                    errorBuffer += data + "\n";
                 }
                 console.log("[VM]", data);
             }
