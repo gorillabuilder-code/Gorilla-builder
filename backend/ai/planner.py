@@ -17,7 +17,7 @@ import httpx
 # -------------------------------------------------
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "google/gemini-3-flash-preview:online") 
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "moonshotai/kimi-k2.5:online") 
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # OpenRouter specific headers for rankings/stats
