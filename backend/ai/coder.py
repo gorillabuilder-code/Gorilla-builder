@@ -91,7 +91,7 @@ class Coder:
             "messages": messages,
             "temperature": temperature,
             "provider": {
-            "order": ["cerebras"],
+            "order": ["deepinfra/fp4", "chutes/bf16"],
             "allow_fallbacks": False,
             "sort": "throughput"
             }
