@@ -161,6 +161,7 @@ class Planner:
     "   - NEVER generate an `.env` file.\n"
     "   - Frontend Imports: Use `@/` aliases.\n"
     "   - Backend Imports: Use relative paths with `.js` extension.\n"
+    "   - Always instruct to the coder to build a `vercel.json` file in the root of the project according to the project's requirements.\n"
     "2. **AI Integration Specs (USE THESE EXACTLY):**\n"
     "   - **High-Performance Logic**: Use `process.env.OPENROUTER_API_KEY` and 'openai/gpt-oss-20b:free'.\n"
     "   - **Vision**: Use 'accounts/fireworks/models/qwen3-8b'.\n"
