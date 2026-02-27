@@ -1174,6 +1174,9 @@ async def create_project(
         return RedirectResponse("/dashboard?error=creation_failed_rls", status_code=303)
 
 # 3. EDITOR PAGE
+from fastapi.responses import JSONResponse, HTMLResponse
+from typing import Optional
+
 @app.get("/projects/{project_id}/editor", response_class=HTMLResponse)
 async def project_editor(request: Request, project_id: str, file: str = "index.html", prompt: Optional[str] = None):
     user = get_current_user(request)
@@ -1188,35 +1191,14 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
     used, limit = get_token_usage_and_limit(user["id"])
     user["tokens"] = {"used": used, "limit": limit}
 
-    return templates.TemplateResponse(
-        "projects/project-editor.html",
-        {
-            "request": request, 
-            "project_id": project_id, 
-            "project": project, 
-            "file": file, 
-            "user": user,
-            "initial_prompt": prompt,
-            "has_github": has_github # Now the HTML knows!
-        }
-    )
-    
-# 4. X-MODE EDITOR (Purple Theme)
-@app.get("/projects/{project_id}/xmode", response_class=HTMLResponse)
-async def project_xmode(request: Request, project_id: str, file: str = "index.html"):
-    user = get_current_user(request)
-    _require_project_owner(user, project_id)
-    
-    project = {}
+    # --- 🚨 FIX: ALWAYS DEFINE has_github 🚨 ---
+    has_github = False 
     try:
-        res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
-        if res.data:
-            project = res.data
-    except Exception:
-        print(f"⚠️ Failed to load project details for {project_id}")
-    
-    used, limit = get_token_usage_and_limit(user["id"])
-    user["tokens"] = {"used": used, "limit": limit}
+        user_data = db_select_one("users", {"id": user["id"]}, "github_access_token")
+        if user_data and user_data.get("github_access_token"):
+            has_github = True
+    except Exception as e:
+        print(f"GitHub token check skipped or failed: {e}")
 
     return templates.TemplateResponse(
         "projects/project-editor.html",
@@ -1226,7 +1208,8 @@ async def project_xmode(request: Request, project_id: str, file: str = "index.ht
             "project": project, 
             "file": file, 
             "user": user,
-            "xmode": True
+            "initial_prompt": prompt,
+            "has_github": has_github  # Safely defined no matter what!
         }
     )
 

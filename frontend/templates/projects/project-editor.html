@@ -458,16 +458,16 @@ body.xmode {
 
     <div class="header-actions">
       <a class="pill" href="/projects/{{ project_id }}/settings" title="Project settings">
-        <i class="ph-bold ph-gear">h</i>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
       </a>
       
       {% if user.plan == 'premium' %}
       <button class="pill" id="btnExportZip" style="color: #ffd700;" title="Export project to ZIP">
-        <i class="ph-bold ph-download-simple"></i> ZIP
+        ⬇ ZIP
       </button>
       {% endif %}
       <a class="pill" href="/projects/{{ project_id }}/game" target="_blank" style="background: rgba(255,0,0,0.1); color: var(--danger); border-color: rgba(255,0,0,0.3);" title="Play game">
-        <i class="ph-bold ph-game-controller"></i> PLAY
+        ▶ PLAY
       </a>
       <span class="pill" id="connPill" title="SSE connection" style="cursor: default;">
         <span class="dot warn" id="connDot"></span>
@@ -522,15 +522,15 @@ body.xmode {
         <select class="select" id="previewMode">
           <option value="server">Server Preview</option>
         </select>
-        <button class="smallbtn" id="btnRunServer" style="margin-left:8px;"><i class="ph-fill ph-play"></i> Run</button>
-        <button class="smallbtn danger" id="btnStopServer" style="margin-left:4px;"><i class="ph-fill ph-stop"></i> Stop</button>
+        <button class="smallbtn" id="btnRunServer" style="margin-left:8px;">▶ Run</button>
+        <button class="smallbtn danger" id="btnStopServer" style="margin-left:4px;">⏹ Stop</button>
         <span class="badge" id="serverStatus" style="margin-left:8px;">stopped</span>
       </div>
 
       <div style="display:flex; gap:12px; align-items:center;">
         {% if user and user.tokens %}
         <span class="badge" title="Tokens used this month">
-          <i class="ph-fill ph-lightning" style="color: var(--accent);"></i> <span id="tokenDisplay">{{ "{:,}".format(user.tokens.used) }}</span>
+          ⚡ <span id="tokenDisplay">{{ "{:,}".format(user.tokens.used) }}</span>
         </span>
         {% endif %}
         
@@ -548,25 +548,23 @@ body.xmode {
 
         {% if not has_github %}
           <a class="pill" href="/auth/github/link" style="background: #24292e; color: #fff; border-color: #374151;" title="Connect your GitHub account">
-            <i class="ph-bold ph-github-logo"></i> Link GitHub
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="margin-right:2px;"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+            Link GitHub
           </a>
         {% elif not project.github_repo_url %}
           <button class="pill" id="btn-github-action" onclick="commitToGithub()" style="background: #24292e; color: #fff; border-color: #374151; cursor: pointer;">
-            <i class="ph-bold ph-git-branch"></i> Push to GitHub
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="margin-right:2px;"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+            Push to GitHub
           </button>
         {% else %}
           <button class="pill" id="btn-github-action" onclick="commitToGithub()" style="background: #24292e; color: #fff; border-color: #374151; cursor: pointer;">
-            <i class="ph-bold ph-arrows-clockwise"></i> Update Repo
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:2px;"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            Update Repo
           </button>
         {% endif %}
         
         <a class="pill" href="/projects/{{ project_id }}/deploy" target="_blank" style="border-color: #ef9a46; color: #efa346; background: rgba(239, 154, 70, 0.1);">
-          <i class="ph-bold ph-rocket-launch"></i> 
-          {% if project.github_repo_url %}
-            Update Deployment
-          {% else %}
-            Publish
-          {% endif %}
+          🚀 {% if project.github_repo_url %}Update Deployment{% else %}Deploy App{% endif %}
         </a>
 
       </div>
@@ -577,7 +575,7 @@ body.xmode {
     <aside class="files">
       <div class="tree-header">
         <div class="treeTitle">Explorer</div>
-        <button class="upload-btn" id="btnUpload" title="Upload file"><i class="ph-bold ph-plus"></i> Upload</button>
+        <button class="upload-btn" id="btnUpload" title="Upload file">+ Upload</button>
         <input type="file" id="uploadInput" hidden />
       </div>
       <div class="file-list" id="filetree"></div>
@@ -597,28 +595,35 @@ body.xmode {
     
     // Set loading state
     btn.disabled = true;
-    btn.innerHTML = '<i class="ph-bold ph-spinner ph-spin"></i> Syncing...';
+    btn.innerHTML = 'Syncing...';
     btn.style.opacity = "0.7";
 
     try {
       const res = await fetch(`/projects/{{ project_id }}/github/publish`, { method: 'POST' });
+      
+      // Catch non-JSON HTML error responses before parsing (Fixes the <!DOCTYPE> crash)
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+          throw new Error("Server error. Please refresh and ensure you are logged in.");
+      }
+      
       const data = await res.json();
       
       if (!res.ok) throw new Error(data.detail || "Failed to sync to GitHub");
       
       // Success State
-      btn.innerHTML = '<i class="ph-bold ph-check-circle" style="color: #10b981;"></i> Synced';
+      btn.innerHTML = '✓ Synced';
       
-      // Revert to "Update Repo" after a delay
+      // Revert to "Update Repo" state after 3 seconds
       setTimeout(() => {
-        btn.innerHTML = '<i class="ph-bold ph-arrows-clockwise"></i> Update Repo';
+        btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:2px;"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg> Update Repo';
         btn.disabled = false;
         btn.style.opacity = "1";
       }, 3000);
 
     } catch (err) {
       console.error(err);
-      btn.innerHTML = '<i class="ph-bold ph-warning-circle" style="color: #ef4444;"></i> Error';
+      btn.innerHTML = 'Error (See Console)';
       
       setTimeout(() => {
         btn.innerHTML = originalHTML;
