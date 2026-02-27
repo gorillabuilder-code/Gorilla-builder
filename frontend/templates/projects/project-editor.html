@@ -457,15 +457,17 @@ body.xmode {
     </div>
 
     <div class="header-actions">
-      <a class="pill" href="/projects/{{ project_id }}/settings" title="Project settings">⚙</a>
+      <a class="pill" href="/projects/{{ project_id }}/settings" title="Project settings">
+        <i class="ph-bold ph-gear">h</i>
+      </a>
       
       {% if user.plan == 'premium' %}
       <button class="pill" id="btnExportZip" style="color: #ffd700;" title="Export project to ZIP">
-        ⬇ ZIP
+        <i class="ph-bold ph-download-simple"></i> ZIP
       </button>
       {% endif %}
       <a class="pill" href="/projects/{{ project_id }}/game" target="_blank" style="background: rgba(255,0,0,0.1); color: var(--danger); border-color: rgba(255,0,0,0.3);" title="Play game">
-        PLAY
+        <i class="ph-bold ph-game-controller"></i> PLAY
       </a>
       <span class="pill" id="connPill" title="SSE connection" style="cursor: default;">
         <span class="dot warn" id="connDot"></span>
@@ -509,11 +511,6 @@ body.xmode {
 </aside>
 
 <section class="main">
-  
-  {% if user.plan != 'premium' %}
-
-  {% endif %}
-
   <div class="topbar">
     <div class="tabs">
       <div class="tab active" id="tabCode">Code</div>
@@ -525,54 +522,65 @@ body.xmode {
         <select class="select" id="previewMode">
           <option value="server">Server Preview</option>
         </select>
-        <button class="smallbtn" id="btnRunServer" style="margin-left:8px;">▶ Run</button>
-        <button class="smallbtn danger" id="btnStopServer" style="margin-left:4px;">⏹ Stop</button>
+        <button class="smallbtn" id="btnRunServer" style="margin-left:8px;"><i class="ph-fill ph-play"></i> Run</button>
+        <button class="smallbtn danger" id="btnStopServer" style="margin-left:4px;"><i class="ph-fill ph-stop"></i> Stop</button>
         <span class="badge" id="serverStatus" style="margin-left:8px;">stopped</span>
       </div>
 
       <div style="display:flex; gap:12px; align-items:center;">
         {% if user and user.tokens %}
         <span class="badge" title="Tokens used this month">
-          ⚡ <span id="tokenDisplay">{{ "{:,}".format(user.tokens.used) }}</span>
+          <i class="ph-fill ph-lightning" style="color: var(--accent);"></i> <span id="tokenDisplay">{{ "{:,}".format(user.tokens.used) }}</span>
         </span>
         {% endif %}
         
         <span class="badge" id="saveStatus">Saved</span>
-              <a class="pill" href="/dashboard" target="_blank">
-          Dashboard
-        </a>
+        
+        <a class="pill" href="/dashboard" target="_blank">Dashboard</a>
         {% if user.plan != 'premium' %}
-          <a class="pill" style= "background-color:var(--accent); color:#fff; border-color:var(--accent);" href="/pricing" target="_blank">
-            UPGRADE
-          </a>
+          <a class="pill" style="background-color:var(--accent); color:#fff; border-color:var(--accent);" href="/pricing" target="_blank">UPGRADE</a>
         {% endif %}
-        
         {% if user.plan != 'free' %}
-        <a class="pill" href="/projects/{{ project_id }}/xmode" style="border-color: #d946ef; color: #d946ef;">
-            Xmode
-        </a>
+          <a class="pill" href="/projects/{{ project_id }}/xmode" style="border-color: #d946ef; color: #d946ef;">Xmode</a>
+        {% endif %}
+
+        <div style="width: 1px; height: 20px; background: var(--border); margin: 0 4px;"></div>
+
+        {% if not has_github %}
+          <a class="pill" href="/auth/github/link" style="background: #24292e; color: #fff; border-color: #374151;" title="Connect your GitHub account">
+            <i class="ph-bold ph-github-logo"></i> Link GitHub
+          </a>
+        {% elif not project.github_repo_url %}
+          <button class="pill" id="btn-github-action" onclick="commitToGithub()" style="background: #24292e; color: #fff; border-color: #374151; cursor: pointer;">
+            <i class="ph-bold ph-git-branch"></i> Push to GitHub
+          </button>
+        {% else %}
+          <button class="pill" id="btn-github-action" onclick="commitToGithub()" style="background: #24292e; color: #fff; border-color: #374151; cursor: pointer;">
+            <i class="ph-bold ph-arrows-clockwise"></i> Update Repo
+          </button>
         {% endif %}
         
-        <a class="pill" href="/projects/{{ project_id }}/deploy" style="border-color: #ef9a46; color: #efa346;" target="_blank">
-          Deploy
+        <a class="pill" href="/projects/{{ project_id }}/deploy" target="_blank" style="border-color: #ef9a46; color: #efa346; background: rgba(239, 154, 70, 0.1);">
+          <i class="ph-bold ph-rocket-launch"></i> 
+          {% if project.github_repo_url %}
+            Update Deployment
+          {% else %}
+            Publish
+          {% endif %}
         </a>
+
       </div>
     </div>
   </div>
-
 
   <div class="content">
     <aside class="files">
       <div class="tree-header">
         <div class="treeTitle">Explorer</div>
-        <button class="upload-btn" id="btnUpload" title="Upload file">+ Upload</button>
+        <button class="upload-btn" id="btnUpload" title="Upload file"><i class="ph-bold ph-plus"></i> Upload</button>
         <input type="file" id="uploadInput" hidden />
       </div>
       <div class="file-list" id="filetree"></div>
-
-      {% if user.plan != 'premium' %}
-
-      {% endif %}
     </aside>
 
     <div class="stage">
@@ -580,6 +588,48 @@ body.xmode {
       <iframe id="preview"></iframe>
     </div>
   </div>
+</section>
+
+<script>
+  async function commitToGithub() {
+    const btn = document.getElementById("btn-github-action");
+    const originalHTML = btn.innerHTML;
+    
+    // Set loading state
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ph-bold ph-spinner ph-spin"></i> Syncing...';
+    btn.style.opacity = "0.7";
+
+    try {
+      const res = await fetch(`/projects/{{ project_id }}/github/publish`, { method: 'POST' });
+      const data = await res.json();
+      
+      if (!res.ok) throw new Error(data.detail || "Failed to sync to GitHub");
+      
+      // Success State
+      btn.innerHTML = '<i class="ph-bold ph-check-circle" style="color: #10b981;"></i> Synced';
+      
+      // Revert to "Update Repo" after a delay
+      setTimeout(() => {
+        btn.innerHTML = '<i class="ph-bold ph-arrows-clockwise"></i> Update Repo';
+        btn.disabled = false;
+        btn.style.opacity = "1";
+      }, 3000);
+
+    } catch (err) {
+      console.error(err);
+      btn.innerHTML = '<i class="ph-bold ph-warning-circle" style="color: #ef4444;"></i> Error';
+      
+      setTimeout(() => {
+        btn.innerHTML = originalHTML;
+        btn.disabled = false;
+        btn.style.opacity = "1";
+      }, 3000);
+    }
+  }
+</script>
+
+</div>
 
 
 </section>
