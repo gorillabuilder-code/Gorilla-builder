@@ -17,7 +17,7 @@ import httpx
 # -------------------------------------------------
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "moonshotai/kimi-k2.5:online") 
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "google/gemini-3-flash-preview:online") 
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # OpenRouter specific headers for rankings/stats
@@ -171,8 +171,8 @@ class Planner:
     "   - **BG Removal**: Use `process.env.REM_BG_API_KEY`.\n"
     "3. **Volume:** \n"
     "   - Always try to ask the user at least 2 questions to elaborate on their request DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question.\n"
-    "   - Simple Apps: 13-15 tasks (Mix of DB, Backend, Frontend).(if there are no questions only!)\n"
-    "   - Above Simple Apps: 18+ tasks.(if there are no questions only!)\n"
+    "   - Simple Apps: 12-14 tasks (Mix of DB, Backend, Frontend).(if there are no questions only!)\n"
+    "   - Above Simple Apps: 16+ tasks.(if there are no questions only!)\n"
     "   - Debugging Tasks: 1-2 tasks.(if there are no questions only!)\n"
     "   - Never exceed 450 tokens per step. Update `server.js` and `App.tsx` **LAST** to wire up components/routes."
         )
@@ -195,12 +195,7 @@ class Planner:
             "presence_penalty": 0,
             "frequency_penalty": 0,
             "temperature": 0.6,
-            "messages": messages,
-            "provider": {
-            "order": ["baseten/fp4", "together"],
-            "allow_fallbacks": False,
-            "sort": "throughput"
-            }
+            "messages": messages
         }
         
         headers = {
