@@ -137,7 +137,7 @@ hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:14px 0}
     </div>
     <div style="display:flex;gap:10px">
       <a class="btn" href="/projects/{{ project_id }}/editor">← Back to editor</a>
-      <a class="btn" href="/app/{{ project.subdomain if project.subdomain else project_id }}/" target="_blank">Open Live App ↗</a>
+      <a class="btn" href="/projects/{{ project_id }}/deploy" target="_blank">Deploy</a>
     </div>
   </div>
 
@@ -173,20 +173,6 @@ hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:14px 0}
       <span class="url-preview">https://gorillabuilder.dev/app/{{ project.subdomain if project.subdomain else project_id }}</span>
       <div class="note">This is your permanent public URL. It automatically wakes up your app when visited.</div>
 
-      <hr/>
-
-      {% if user.plan != 'premium' %}
-      <div class="premium-lock">
-        🔒 Upgrade to Premium to unlock
-      </div>
-      {% endif %}
-
-      <label>Custom Domain</label>
-      <input type="text" placeholder="e.g. myapp.com" 
-             {% if user.plan != 'premium' %}disabled{% endif %} />
-      <div class="note">Connect your own domain name. DNS verification required.</div>
-
-      <hr/>
     </div>
   </div>
 </div>

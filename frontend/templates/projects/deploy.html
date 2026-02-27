@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Deploy {{ project.name }} · Gor://a</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+  <style>
+    /* --- FONTS --- */
+    @font-face {
+      font-family: 'din-next-w01-light';
+      font-style: normal;
+      font-weight: 400;
+      src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2');
+      font-display: swap;
+    }
+
+    /* --- VARIABLES --- */
+    :root {
+      --bg: #050505;
+      --sidebar-bg: rgba(10, 10, 12, 0.6);
+      --panel-bg: rgba(20, 20, 25, 0.4);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-hover: rgba(255, 255, 255, 0.15);
+      --accent: #3b6cff;
+      --accent-glow: rgba(59, 108, 255, 0.25);
+      --text: #ffffff;
+      --text-muted: #8a8a93;
+      --success: #10b981;
+      --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E");
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    body.premium {
+      --accent: #ffd700; 
+      --accent-glow: rgba(255, 215, 0, 0.2);
+    }
+
+    * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; outline: none; }
+
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      height: 100vh; display: flex; overflow: hidden;
+    }
+
+    /* --- BACKGROUND EFFECTS --- */
+    .noise-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background-image: var(--noise); pointer-events: none; z-index: 0;
+    }
+
+    .glow-spot {
+      position: fixed; width: 600px; height: 600px;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+      opacity: 0.4; pointer-events: none; z-index: 0;
+      top: -200px; left: 20%; filter: blur(80px);
+    }
+
+    /* --- SIDEBAR --- */
+    aside {
+      width: 260px; background: var(--sidebar-bg); backdrop-filter: blur(20px);
+      border-right: 1px solid var(--border); display: flex; flex-direction: column;
+      padding: 24px 16px; z-index: 10; position: relative;
+    }
+
+    .logo {
+      font-size: 22px; font-weight: 600; color: #fff;
+      display: flex; align-items: center; gap: 12px; margin-bottom: 40px;
+      padding-left: 12px; letter-spacing: -0.5px; text-decoration: none;
+    }
+    .logo svg { color: var(--accent); width: 24px; height: 24px; }
+
+    nav { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+    nav a {
+      color: var(--text-muted); text-decoration: none; padding: 10px 12px;
+      border-radius: 10px; font-size: 14px; transition: all 0.2s var(--ease-out);
+      display: flex; align-items: center; gap: 12px; position: relative; overflow: hidden;
+    }
+    nav a:hover { background: rgba(255,255,255,0.05); color: #fff; }
+    nav a.active { background: rgba(255,255,255,0.08); color: #fff; font-weight: 500; }
+    nav a i { font-size: 18px; opacity: 0.7; }
+    nav a:hover i, nav a.active i { opacity: 1; color: var(--accent); }
+
+    /* --- USER PROFILE --- */
+    .profile-container { margin-top: auto; position: relative; padding-top: 16px; border-top: 1px solid var(--border); }
+    .user-profile {
+      display: flex; align-items: center; gap: 12px; padding: 10px;
+      border-radius: 12px; cursor: pointer; transition: background 0.2s;
+    }
+    .user-profile:hover { background: rgba(255,255,255,0.05); }
+
+    .avatar {
+      width: 36px; height: 36px; background: linear-gradient(135deg, #2a2a30, #151518);
+      border: 1px solid var(--border); border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 600; color: #fff; position: relative;
+    }
+
+    .user-info { display: flex; flex-direction: column; font-size: 13px; line-height: 1.3; }
+    .user-name { color: #fff; font-weight: 500; }
+    .user-plan { color: var(--text-muted); font-size: 11px; text-transform: capitalize; }
+
+    /* --- MAIN CONTENT --- */
+    main { flex: 1; overflow-y: auto; padding: 40px 60px; position: relative; z-index: 1; }
+
+    @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    .animate-entry { animation: slideUp 0.6s var(--ease-out) forwards; opacity: 0; }
+
+    /* HEADER */
+    .header-row { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 40px; }
+    .greeting h1 { font-size: 38px; font-weight: 300; margin: 0 0 4px; letter-spacing: -0.5px; }
+    .greeting p { color: var(--text-muted); margin: 0; font-size: 15px; }
+
+    /* --- DEPLOYMENT WIZARD --- */
+    .wizard-container {
+      width: 100%; max-width: 700px; margin: 0 auto;
+      background: var(--panel-bg); border: 1px solid var(--border);
+      border-radius: 16px; padding: 40px; backdrop-filter: blur(20px);
+    }
+
+    .step { display: flex; gap: 24px; padding-bottom: 35px; position: relative; }
+    .step:not(:last-child)::after {
+      content: ''; position: absolute; left: 23px; top: 48px; bottom: 0;
+      width: 2px; background: var(--border);
+    }
+    .step.completed:not(:last-child)::after { background: var(--success); }
+    
+    /* FIX: Instead of inline styles, use a clean CSS class */
+    .step.locked { opacity: 0.4; pointer-events: none; }
+
+    .step-icon {
+      width: 48px; height: 48px; border-radius: 50%;
+      background: #111; border: 2px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; color: var(--text-muted); flex-shrink: 0; z-index: 2;
+      transition: all 0.3s var(--ease-out);
+    }
+    .step.active .step-icon { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 15px var(--accent-glow); }
+    .step.completed .step-icon { background: var(--success); border-color: var(--success); color: #000; }
+
+    .step-content { flex: 1; padding-top: 10px; }
+    .step-title { font-size: 18px; font-weight: 600; margin-bottom: 8px; color: #fff; }
+    .step-desc { font-size: 15px; color: var(--text-muted); margin-bottom: 20px; line-height: 1.5; }
+
+    .btn {
+      padding: 12px 24px; border-radius: 8px; border: none; font-size: 14px; font-weight: 600;
+      cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: 0.2s;
+      text-decoration: none;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover:not(:disabled) { filter: brightness(1.1); box-shadow: 0 4px 15px var(--accent-glow); }
+    
+    .btn-github { background: #24292e; color: white; border: 1px solid #374151; }
+    .btn-github:hover { background: #1b1f23; }
+
+    .status-badge {
+      color: var(--success); font-size: 14px; display: inline-flex; align-items: center; 
+      gap: 6px; font-weight: 500; background: rgba(16, 185, 129, 0.1); 
+      padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.2);
+    }
+
+    /* THE VERCEL BOX */
+    .vercel-box {
+      margin-top: 30px; padding: 40px; border-radius: 12px;
+      background: linear-gradient(135deg, #000 0%, #111 100%);
+      border: 1px solid #333; text-align: center;
+      animation: popIn 0.6s var(--ease-out) forwards;
+    }
+    
+    /* FIX: Hidden class for display logic */
+    .is-hidden { display: none !important; }
+
+    .loader {
+      display: none; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white; border-radius: 50%; animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes popIn { 
+      0% { opacity: 0; transform: scale(0.95) translateY(10px); } 
+      100% { opacity: 1; transform: scale(1) translateY(0); } 
+    }
+
+    .error-text { color: #fca5a5; font-size: 13px; margin-top: 12px; display: none; background: rgba(239, 68, 68, 0.1); padding: 10px; border-radius: 6px; border: 1px solid rgba(239, 68, 68, 0.2);}
+  </style>
+</head>
+<body class="{% if user.plan == 'premium' %}premium{% endif %}">
+
+  <div class="noise-overlay"></div>
+  <div class="glow-spot"></div>
+
+  <aside>
+    <a href="/dashboard" class="logo">
+      <svg version="1.0" xmlns="http://www.w3.org/2000/svg" width="800" height="803" viewBox="0 0 600 550" preserveAspectRatio="xMidYMid meet"> <g transform="translate(0.000000,603.000000) scale(0.100000,-0.100000)" fill="#ffffff" stroke="none"> <path d="M1497 6023 c827 -2 2179 -2 3005 0 827 1 151 2 -1502 2 -1653 0 -2329 -1 -1503 -2z"/> <path d="M2802 5273 c-43 -24 -131 -143 -182 -246 -99 -202 -106 -410 -19 -598 59 -128 153 -189 246 -158 56 18 81 37 108 84 34 57 32 112 -6 216 -54 145 -51 327 7 490 41 113 27 176 -46 214 -38 20 -68 19 -108 -2z"/> <path d="M3290 5268 c-74 -50 -185 -230 -228 -369 -44 -142 -37 -293 19 -440 52 -134 141 -208 234 -195 131 20 194 151 136 281 -67 150 -67 316 0 522 26 80 29 98 20 126 -28 83 -116 119 -181 75z"/> <path d="M685 4560 c-171 -34 -283 -139 -331 -306 -15 -50 -18 -129 -23 -519 -4 -321 -10 -466 -18 -480 -32 -56 -64 -70 -205 -90 -26 -4 -46 -17 -72 -45 -33 -36 -36 -45 -36 -99 0 -98 62 -161 157 -161 59 0 119 -26 146 -64 22 -31 22 -35 28 -496 5 -424 8 -471 26 -531 11 -37 31 -87 46 -111 72 -124 228 -198 418 -198 125 0 200 111 151 223 -26 59 -64 82 -148 90 -73 7 -116 27 -148 70 -20 28 -21 41 -27 490 -6 505 -8 526 -68 632 l-28 50 28 50 c60 106 62 128 68 630 6 427 7 462 25 491 26 44 68 65 139 71 81 7 131 35 157 88 26 53 25 91 -2 145 -32 61 -73 80 -168 79 -41 -1 -93 -5 -115 -9z"/> <path d="M5102 4550 c-68 -42 -92 -135 -54 -209 26 -52 60 -72 140 -81 83 -9 128 -32 157 -80 19 -33 20 -56 26 -500 6 -505 6 -513 66 -621 l26 -45 -26 -45 c-59 -103 -61 -113 -67 -619 -5 -461 -5 -465 -28 -501 -28 -45 -72 -67 -156 -77 -111 -14 -160 -66 -153 -165 4 -66 26 -103 78 -130 28 -15 50 -18 124 -13 218 12 351 101 416 278 22 61 23 74 28 533 6 503 6 500 58 547 19 18 78 34 155 43 33 4 56 15 78 35 29 27 30 31 30 118 0 88 -1 91 -31 116 -33 28 -45 32 -127 40 -66 7 -110 31 -137 76 -19 33 -20 56 -26 505 -6 496 -6 500 -55 598 -70 138 -221 217 -414 217 -57 0 -83 -5 -108 -20z"/> <path d="M1965 3849 c-113 -9 -166 -24 -280 -79 -312 -150 -493 -462 -471 -810 13 -209 89 -379 238 -529 161 -163 321 -236 545 -248 269 -14 478 70 667 267 61 65 95 111 130 179 70 136 89 217 89 386 0 124 -3 151 -27 230 -53 176 -145 314 -282 425 -174 139 -372 197 -609 179z m214 -324 c173 -46 319 -185 372 -354 23 -76 28 -212 9 -282 -50 -186 -208 -340 -391 -384 -181 -42 -372 15 -499 152 -100 106 -144 218 -143 363 1 290 228 517 518 519 44 0 104 -6 134 -14z"/> <path d="M3880 3849 c-190 -17 -341 -86 -488 -224 -112 -104 -200 -249 -239 -395 -25 -92 -25 -339 0 -430 78 -281 316 -519 597 -597 101 -28 339 -25 443 5 152 44 285 128 397 250 146 158 211 332 212 557 0 244 -82 436 -259 606 -181 175 -402 251 -663 228z m213 -324 c282 -73 454 -362 382 -640 -45 -171 -179 -312 -355 -371 -80 -27 -243 -25 -324 5 -202 73 -337 252 -353 466 -17 243 150 475 388 539 71 19 191 20 262 1z"/> </g> </svg>
+      Gor://a
+    </a>
+
+    <nav>
+      <a href="/dashboard">
+        <i class="ph ph-squares-four"></i> Projects
+      </a>
+      <a href="/projects/{{ project.id }}/editor">
+        <i class="ph ph-code"></i> Editor
+      </a>
+      <a href="/pricing">
+        <i class="ph ph-lightning"></i> Upgrade
+      </a>
+    </nav>
+
+    <div class="profile-container">
+      <div class="user-profile">
+        <div class="avatar">
+          {{ user.email[0].upper() if user.email else 'U' }}
+        </div>
+        <div class="user-info">
+          <span class="user-name">{% if user.email %}{{ user.email.split('@')[0] }}{% else %}User{% endif %}</span>
+          <span class="user-plan">{{ user.plan|capitalize }} Plan</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="header-row animate-entry" style="animation-delay: 0ms;">
+      <div class="greeting">
+        <h1>Deploy Project</h1>
+        <p>Push <strong>{{ project.name }}</strong> to GitHub and deploy it live on Vercel.</p>
+      </div>
+      
+      <div>
+        <a href="/projects/{{ project.id }}/editor" class="btn" style="background: rgba(255,255,255,0.05); color: #fff; border: 1px solid var(--border);">
+          <i class="ph-bold ph-arrow-left"></i> Back to Editor
+        </a>
+      </div>
+    </div>
+
+    <div class="wizard-container animate-entry" style="animation-delay: 100ms;">
+      
+      <div class="step {% if has_github %}completed{% else %}active{% endif %}" id="step1">
+        <div class="step-icon"><i class="ph-bold ph-github-logo"></i></div>
+        <div class="step-content">
+          <div class="step-title">Connect GitHub</div>
+          <div class="step-desc">Link your GitHub account so Gor://a can create a repository for your project.</div>
+          
+          {% if not has_github %}
+            <a href="/auth/github" class="btn btn-github">
+              <i class="ph-fill ph-github-logo"></i> Connect GitHub Account
+            </a>
+          {% else %}
+            <div class="status-badge">
+              <i class="ph-bold ph-check-circle"></i> GitHub Connected
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="step {% if not has_github %}locked{% elif project.vercel_optimized %}completed{% else %}active{% endif %}" id="step2">
+        <div class="step-icon"><i class="ph-bold ph-magic-wand"></i></div>
+        <div class="step-content">
+          <div class="step-title">Prepare for Vercel</div>
+          <div class="step-desc">Our AI needs to inject a <code>vercel.json</code> file and configure your Express backend for a serverless environment.</div>
+          
+          {% if not project.vercel_optimized %}
+            <button class="btn btn-primary" id="btn-optimize" onclick="runOptimization()">
+              <div class="loader" id="loader-optimize"></div>
+              <span>Optimize Codebase</span>
+            </button>
+            <div class="error-text" id="err-optimize"></div>
+          {% else %}
+             <div class="status-badge">
+              <i class="ph-bold ph-check-circle"></i> Codebase Optimized
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="step {% if not project.vercel_optimized %}locked{% elif project.github_repo_url %}completed{% else %}active{% endif %}" id="step3">
+        <div class="step-icon"><i class="ph-bold ph-git-branch"></i></div>
+        <div class="step-content">
+          <div class="step-title">Create Repository</div>
+          <div class="step-desc">We will create a private GitHub repository and push your optimized code to the main branch.</div>
+          
+          {% if not project.github_repo_url %}
+            <button class="btn btn-primary" id="btn-push" onclick="pushToGithub()">
+              <div class="loader" id="loader-push"></div>
+              <span>Push to GitHub</span>
+            </button>
+            <div class="error-text" id="err-push"></div>
+          {% else %}
+            <div class="status-badge">
+              <i class="ph-bold ph-check-circle"></i> Pushed to GitHub
+            </div>
+            <br>
+            <a href="{{ project.github_repo_url }}" target="_blank" style="color: var(--accent); font-size: 13px; text-decoration: none; margin-top: 10px; display: inline-block;">
+              View Repository &rarr;
+            </a>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="vercel-box {% if not project.github_repo_url %}is-hidden{% endif %}" id="vercel-box">
+        <h3 style="margin: 0 0 10px; color: white; font-size: 24px;">Ready for Liftoff 🚀</h3>
+        <p style="color: var(--text-muted); font-size: 15px; margin: 0 0 30px;">Your code is on GitHub and formatted perfectly for Vercel's serverless infrastructure.</p>
+        
+        <a href="https://vercel.com/new/clone?repository-url={{ project.github_repo_url }}" target="_blank" id="vercel-link" style="display:inline-block; transition: transform 0.2s;">
+          <img src="https://vercel.com/button" alt="Deploy with Vercel" style="height: 44px;" />
+        </a>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    const projectId = "{{ project.id }}";
+
+    async function runOptimization() {
+      const btn = document.getElementById("btn-optimize");
+      const loader = document.getElementById("loader-optimize");
+      const span = btn.querySelector("span");
+      const errBox = document.getElementById("err-optimize");
+
+      btn.disabled = true;
+      loader.style.display = "block";
+      span.innerText = "Agent Optimizing (This takes ~30s)...";
+      errBox.style.display = "none";
+
+      try {
+        const res = await fetch(`/api/project/${projectId}/deploy-optimize`, { method: 'POST' });
+        const data = await res.json();
+        
+        if (!res.ok) throw new Error(data.detail || "Optimization failed");
+
+        // Reload the page to unlock Step 3
+        window.location.reload();
+      } catch (err) {
+        btn.disabled = false;
+        loader.style.display = "none";
+        span.innerText = "Retry Optimization";
+        errBox.innerText = err.message;
+        errBox.style.display = "block";
+      }
+    }
+
+    async function pushToGithub() {
+      const btn = document.getElementById("btn-push");
+      const loader = document.getElementById("loader-push");
+      const span = btn.querySelector("span");
+      const errBox = document.getElementById("err-push");
+
+      btn.disabled = true;
+      loader.style.display = "block";
+      span.innerText = "Creating Repo & Pushing Code...";
+      errBox.style.display = "none";
+
+      try {
+        const res = await fetch(`/api/project/${projectId}/deploy-push`, { method: 'POST' });
+        const data = await res.json();
+        
+        if (!res.ok) throw new Error(data.detail || "Push failed");
+
+        // Success! Show the Vercel Button immediately without reloading
+        document.getElementById("step3").classList.remove("active");
+        document.getElementById("step3").classList.add("completed");
+        
+        const vercelBox = document.getElementById("vercel-box");
+        const vercelLink = document.getElementById("vercel-link");
+        
+        // Update the link and reveal the official SVG button
+        vercelLink.href = `https://vercel.com/new/clone?repository-url=${data.repo_url}`;
+        vercelBox.classList.remove("is-hidden");
+        
+        btn.style.display = "none";
+        
+      } catch (err) {
+        btn.disabled = false;
+        loader.style.display = "none";
+        span.innerText = "Retry Push";
+        errBox.innerText = err.message;
+        errBox.style.display = "block";
+      }
+    }
+  </script>
+
+</body>
+</html>

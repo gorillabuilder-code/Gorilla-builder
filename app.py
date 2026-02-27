@@ -519,11 +519,22 @@ async def docs_root():
 # ==========================================================================
 # AUTHENTICATION ROUTES (Consolidated & Secured)
 # ==========================================================================
+import os
 import random
 import string
 import time
+import httpx
 from fastapi import APIRouter, Request, Form, BackgroundTasks, HTTPException, Response
 from fastapi.responses import RedirectResponse
+
+# --- OAuth Environment Variables ---
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
+
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI")
 
 # Global memory for storing OTPs during signup flow
 PENDING_SIGNUPS = {}
@@ -540,7 +551,7 @@ def get_current_user_safe(request: Request):
               user = supabase.auth.get_user(token)
               if user: return user
         
-        # Fallback to session (for dev/google auth) if used
+        # Fallback to session (for dev/google/github auth) if used
         if "user" in request.session:
             return request.session["user"]
             
@@ -706,8 +717,7 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
         error_msg = "Invalid email or password."
         
         try:
-            # Check if user exists but uses Google Auth (Passwordless)
-            # This prevents the "Dev User" bug by strictly identifying the account type
+            # Check if user exists but uses Google/GitHub Auth (Passwordless)
             users = supabase.auth.admin.list_users()
             target_user = next((u for u in users if u.email == email), None)
             
@@ -715,27 +725,21 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
                 identities = getattr(target_user, "identities", [])
                 providers = [i.provider for i in identities]
                 
-                # If they only have Google and no password set
+                # If they only have OAuth and no password set
                 if "google" in providers and "email" not in providers:
-                    error_msg = "This account uses Google Login. Please click 'Log in with Google'."
-                # If they have Google but maybe typed the wrong password
-                elif "google" in providers:
-                    error_msg = "Invalid password. Try logging in with Google instead."
+                    error_msg = "This account uses Google Login. Please click 'Continue with Google'."
+                elif "github" in providers and "email" not in providers:
+                    error_msg = "This account uses GitHub Login. Please click 'Continue with GitHub'."
+                elif "google" in providers or "github" in providers:
+                    error_msg = "Invalid password. Try logging in with your connected OAuth provider."
         except:
             pass # Keep generic error if admin check fails
 
         # 4. STRICT FAILURE: Return to login page with error
-        # Absolutely NO redirects to dashboard here
         return templates.TemplateResponse("auth/login.html", {
             "request": request, 
             "error": error_msg,
             "email_prefill": email
-        })
-            
-        # Default Error (Wrong password, etc.)
-        return templates.TemplateResponse("auth/login.html", {
-            "request": request, 
-            "error": "Invalid email or password."
         })
 
 @app.get("/auth/logout")
@@ -750,7 +754,7 @@ async def logout(request: Request):
     return response
 
 # --------------------------------------------------------------------------
-# 3. FORGOT PASSWORD & OAUTH (Simplified)
+# 3. FORGOT PASSWORD
 # --------------------------------------------------------------------------
 
 @app.post("/auth/forgot-password")
@@ -766,7 +770,6 @@ async def forgot_password_action(request: Request, email: str = Form(...)):
     except Exception as e:
         return templates.TemplateResponse("auth/forgot_password.html", {"request": request, "error": f"Error: {e}"})
 
-# ... (Google Auth routes remain similar, ensure they redirect to /dashboard on success)
 # --------------------------------------------------------------------------
 # 4. GOOGLE OAUTH
 # --------------------------------------------------------------------------
@@ -812,6 +815,110 @@ async def auth_google_callback(request: Request, code: str):
         user_id = _stable_user_id_for_email(email)
         ensure_public_user(user_id, email)
         
+        request.session["user"] = {"id": user_id, "email": email}
+        
+        return RedirectResponse("/dashboard", status_code=303)
+
+# --------------------------------------------------------------------------
+# 5. GITHUB OAUTH (Crucial for Vercel Deployment pipeline)
+# --------------------------------------------------------------------------
+
+@app.get("/auth/github")
+async def auth_github(request: Request):
+    if not GITHUB_CLIENT_ID or not GITHUB_REDIRECT_URI:
+        raise HTTPException(500, "GitHub Auth config missing.")
+    
+    # Scope 'repo' is REQUIRED to push code on the user's behalf
+    scope = "user:email repo"
+    auth_url = f"https://github.com/login/oauth/authorize?client_id={GITHUB_CLIENT_ID}&redirect_uri={GITHUB_REDIRECT_URI}&scope={scope}"
+    return RedirectResponse(auth_url)
+
+@app.get("/auth/github/callback")
+async def auth_github_callback(request: Request, code: str):
+    if not GITHUB_CLIENT_ID or not GITHUB_CLIENT_SECRET:
+        raise HTTPException(500, "GitHub Auth config missing.")
+    
+    async with httpx.AsyncClient() as client:
+        # 1. Exchange code for GitHub Access Token
+        res = await client.post(
+            "https://github.com/login/oauth/access_token", 
+            data={
+                "client_id": GITHUB_CLIENT_ID,
+                "client_secret": GITHUB_CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": GITHUB_REDIRECT_URI
+            },
+            headers={"Accept": "application/json"}
+        )
+        
+        if res.status_code != 200:
+             raise HTTPException(400, "GitHub Login Failed")
+        
+        tokens = res.json()
+        access_token = tokens.get("access_token")
+        
+        if not access_token:
+            error_msg = tokens.get("error_description", "Failed to retrieve GitHub access token")
+            raise HTTPException(400, error_msg)
+
+        # 2. Get User Profile Data
+        user_res = await client.get(
+            "https://api.github.com/user", 
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+        )
+        user_data = user_res.json()
+        email = user_data.get("email")
+        github_username = user_data.get("login", "unknown_github_user") # Grab their username just in case!
+
+        # 3. If primary email is private, hit the emails endpoint directly
+        if not email:
+            emails_res = await client.get(
+                "https://api.github.com/user/emails",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github.v3+json"
+                }
+            )
+            if emails_res.status_code == 200:
+                emails_data = emails_res.json()
+                if isinstance(emails_data, list):
+                    # Attempt A: Find the Primary & Verified email
+                    for em in emails_data:
+                        if isinstance(em, dict) and em.get("primary") and em.get("verified"):
+                            email = em.get("email")
+                            break
+                    
+                    # Attempt B: Just find ANY Verified email
+                    if not email:
+                        for em in emails_data:
+                            if isinstance(em, dict) and em.get("verified"):
+                                email = em.get("email")
+                                break
+                    
+                    # Attempt C: Just take the very first email they have listed
+                    if not email and len(emails_data) > 0 and isinstance(emails_data[0], dict):
+                        email = emails_data[0].get("email")
+
+        # 🚨 4. THE ULTIMATE FALLBACK 🚨
+        # If their privacy settings are on maximum lockdown, we build a proxy email
+        # so they can still create an account and build apps!
+        if not email:
+            email = f"{github_username}@noreply.github.com"
+
+        # 5. Sync User in Database
+        user_id = _stable_user_id_for_email(email)
+        ensure_public_user(user_id, email)
+        
+        # 6. Store the GitHub access token so we can push code later
+        try:
+            supabase.table("users").update({"github_access_token": access_token}).eq("id", user_id).execute()
+        except Exception as e:
+            print(f"⚠️ Failed to save github_access_token for {email}: {e}")
+
+        # 7. Finalize Login
         request.session["user"] = {"id": user_id, "email": email}
         
         return RedirectResponse("/dashboard", status_code=303)
