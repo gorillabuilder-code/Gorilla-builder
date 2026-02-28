@@ -1685,7 +1685,7 @@ async def publish_to_github(request: Request, project_id: str):
             tree_sha = tree_res.json()["sha"]
             
             # C. Create Commit
-            commit_res = await client.post(f"https://api.github.com/repos/{full_name}/git/commits", json={"message": "Deploy via Gor://a Builder", "tree": tree_sha}, headers=headers)
+            commit_res = await client.post(f"https://api.github.com/repos/{full_name}/git/commits", json={"message": "Publish via Gor://a Builder", "tree": tree_sha}, headers=headers)
             if commit_res.status_code != 201:
                 return JSONResponse({"detail": f"Commit Error: {commit_res.text}"}, status_code=500)
             commit_sha = commit_res.json()["sha"]
