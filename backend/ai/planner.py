@@ -171,8 +171,8 @@ class Planner:
     "   - **BG Removal**: Use `process.env.REM_BG_API_KEY`.\n"
     "3. **Volume:** \n"
     "   - Always try to ask the user at least 2 questions to elaborate on their request DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question.\n"
-    "   - Simple Apps: 12-14 tasks (Mix of DB, Backend, Frontend).(if there are no questions only!)\n"
-    "   - Above Simple Apps: 16+ tasks.(if there are no questions only!)\n"
+    "   - Simple Apps: 8-10 tasks (Mix of DB, Backend, Frontend).(if there are no questions only!)\n"
+    "   - Above Simple Apps: 15+ tasks.(if there are no questions only!)\n"
     "   - Debugging Tasks: 1-2 tasks.(if there are no questions only!)\n"
     "   - Never exceed 450 tokens per step. Update `server.js` and `App.tsx` **LAST** to wire up components/routes."
         )

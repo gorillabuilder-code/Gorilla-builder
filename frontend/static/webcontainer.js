@@ -67,82 +67,125 @@ export class WebRunner {
     }
 
     /**
-     * Run npm install
+     * Helper to create a debounced error logger
+     * Waits for 3 seconds of silence before sending the aggregated buffer to the coder.
+     */
+    _createDebouncedLogger(logger, contextName) {
+        let buffer = "";
+        let timeout = null;
+
+        const flush = () => {
+            if (buffer.trim() !== "") {
+                logger("coder", `❌ ${contextName} Errors:\n${buffer.trim()}\n\nPlease fix these issues.`);
+                buffer = "";
+            }
+        };
+
+        return {
+            push: (data) => {
+                buffer += data + "\n";
+                if (timeout) clearTimeout(timeout);
+                timeout = setTimeout(flush, 3000); // Wait 3 seconds after the LAST error
+            },
+            flushImmediate: () => {
+                if (timeout) clearTimeout(timeout);
+                flush();
+            }
+        };
+    }
+
+    /**
+     * Run npm install (With Retry Loop & Error Debouncing)
      */
     async install(logger) {
         if (!this.instance) throw new Error("Container not booted");
         
-        logger("system", "Installing dependencies...");
-        
-        // Use 'npm install'
-        const process = await this.instance.spawn('npm', ['install']);
-        
-        process.output.pipeTo(new WritableStream({
-            write(data) {
-                if(data.includes('ERR') || data.includes('warn')) console.warn(data);
-            }
-        }));
+        let success = false;
 
-        const exitCode = await process.exit;
-        if (exitCode !== 0) {
-            logger("system", `⚠️ npm install finished with code ${exitCode}`);
-        } else {
-            logger("system", "✅ Dependencies installed.");
+        while (!success) {
+            logger("system", "Installing dependencies...");
+            const errorTracker = this._createDebouncedLogger(logger, "NPM Install");
+
+            const process = await this.instance.spawn('npm', ['install']);
+            
+            process.output.pipeTo(new WritableStream({
+                write(data) {
+                    if(data.includes('ERR') || data.includes('warn')) {
+                        console.warn("[NPM]", data);
+                        errorTracker.push(data);
+                    }
+                }
+            }));
+
+            const exitCode = await process.exit;
+            
+            if (exitCode !== 0) {
+                errorTracker.flushImmediate(); // Ensure final errors are sent
+                logger("system", `⚠️ npm install failed (code ${exitCode}). Coder notified. Retrying in 10s...`);
+                // Wait 10 seconds to give the Coder AI time to write the fixes to the file system
+                await new Promise(resolve => setTimeout(resolve, 10000));
+            } else {
+                logger("system", "✅ Dependencies installed.");
+                success = true;
+            }
         }
     }
 
     /**
-     * Start the Dev Server (AND Push DB First)
+     * Start the Dev Server (AND Push DB First, with retry loops)
      */
     async start(onReady, logger) {
         if (!this.instance) throw new Error("Container not booted");
 
-        // 🚨 NEW DATABASE PUSH STEP 🚨
-        logger("system", "🗄️ Provisioning local SQLite database...");
+        // 🚨 DATABASE PUSH WITH RETRY LOOP 🚨
+        let dbSuccess = false;
         
-        const dbProcess = await this.instance.spawn('npm', ['run', 'db:push']);
-        
-        dbProcess.output.pipeTo(new WritableStream({
-            write(data) {
-                console.log("[DB PUSH]", data); // Logs to browser console so you can debug
-            }
-        }));
+        while (!dbSuccess) {
+            logger("system", "🗄️ Provisioning local SQLite database...");
+            const dbErrorTracker = this._createDebouncedLogger(logger, "Database Push");
 
-        const dbExitCode = await dbProcess.exit;
-        if (dbExitCode !== 0) {
-            logger("system", `⚠️ Database push failed (code ${dbExitCode}). Check console.`);
-        } else {
-            logger("system", "✅ Database created successfully!");
+            const dbProcess = await this.instance.spawn('npm', ['run', 'db:push']);
+            
+            dbProcess.output.pipeTo(new WritableStream({
+                write(data) {
+                    console.log("[DB PUSH]", data);
+                    // Catch SQLite, Prisma, or standard NPM errors
+                    if (data.toLowerCase().includes('error') || data.includes('ERR')) {
+                        dbErrorTracker.push(data);
+                    }
+                }
+            }));
+
+            const dbExitCode = await dbProcess.exit;
+            
+            if (dbExitCode !== 0) {
+                dbErrorTracker.flushImmediate();
+                logger("system", `⚠️ Database push failed (code ${dbExitCode}). Coder notified. Retrying in 10s...`);
+                await new Promise(resolve => setTimeout(resolve, 10000));
+            } else {
+                logger("system", "✅ Database created successfully!");
+                dbSuccess = true;
+            }
         }
 
         // 🚀 START SERVER AS NORMAL
         logger("system", "🚀 Starting Dev Server...");
 
-        // Run 'npm run dev'
         this.shell = await this.instance.spawn('npm', ['run', 'dev']);
 
-        // 🚨 ERROR AGGREGATION BUFFER 🚨
-        let errorBuffer = "";
-
-        // Flush the buffer to the coder every 3 seconds
-        const errorInterval = setInterval(() => {
-            if (errorBuffer.trim() !== "") {
-                logger("coder", `❌ Compiled Runtime Errors:\n${errorBuffer.trim()}`);
-                errorBuffer = ""; // Reset the buffer after sending
-            }
-        }, 3000);
+        // 🚨 DEV SERVER ERROR DEBOUNCING 🚨
+        const serverErrorTracker = this._createDebouncedLogger(logger, "Runtime/Server");
 
         this.shell.output.pipeTo(new WritableStream({
             write(data) {
-                // Catch standard Node errors and Vite build errors
+                // Catch standard Node errors, crashes, and Vite build errors
                 if (data.includes('ReferenceError') || 
                     data.includes('SyntaxError') || 
                     data.includes('Error:') || 
                     data.includes('[ERROR]') || 
                     data.includes('Failed to resolve')) {
                     
-                    // Add the chunk to our buffer instead of sending immediately
-                    errorBuffer += data + "\n";
+                    serverErrorTracker.push(data);
                 }
                 console.log("[VM]", data);
             }
