@@ -243,7 +243,7 @@ class Planner:
                 tasks = data.get("tasks", [])
                 assistant_message = data.get("assistant_message", "Plan updated.")
                 usage = data_api.get("usage", {})
-                total_tokens = int(usage.get("total_tokens", 0))*2.5
+                total_tokens = int(usage.get("total_tokens", 0))*1.5
 
                 base_plan = {
                     "capabilities": [],
@@ -259,7 +259,7 @@ class Planner:
                     "assistant_message": assistant_message,
                     "plan": base_plan,
                     "todo_md": self._to_todo_md(base_plan, assistant_message),
-                    "usage": {"total_tokens": int(total_tokens)*2.5}
+                    "usage": {"total_tokens": int(total_tokens)*1.5}
                 }
 
             except Exception as e:

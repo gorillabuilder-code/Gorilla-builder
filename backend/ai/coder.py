@@ -91,7 +91,7 @@ class Coder:
             "messages": messages,
             "temperature": temperature,
             "provider": {
-            "order": ["sambanova"],
+            "order": ["sambanova", "friendli"],
             "allow_fallbacks": False,
             "sort": "throughput"
             }
@@ -112,7 +112,7 @@ class Coder:
             
             content = data["choices"][0]["message"]["content"]
             usage = data.get("usage", {})
-            total_tokens = int(usage.get("total_tokens", 0))*0.16
+            total_tokens = int(usage.get("total_tokens", 0))*0.85
             
             return content, total_tokens
 
@@ -276,7 +276,7 @@ class Coder:
                     
                 canonical = self._normalize_and_validate_ops(parsed)
                 # IMPORTANT: Return total cumulative tokens so user is billed for retries
-                canonical["usage"] = {"total_tokens": cumulative_tokens*0.15}
+                canonical["usage"] = {"total_tokens": cumulative_tokens*0.85}
 
                 # --- SUCCESS: UPDATE HISTORY ---
                 self.project_states[project_name].append({
