@@ -1206,6 +1206,7 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
             "request": request, 
             "project_id": project_id, 
             "project": project, 
+            "project_name": project.get("name", "Untitled Project") if project else "Untitled Project",
             "file": file, 
             "user": user,
             "initial_prompt": prompt,
@@ -1220,7 +1221,7 @@ async def project_preview(request: Request, project_id: str):
     _require_project_owner(user, project_id)
     return templates.TemplateResponse(
         "projects/project-preview.html",
-        {"request": request, "project_id": project_id, "user": user}
+        {"request": request, "project_id": project_id, "project_name": project.get("name", "Untitled Project") if project else "Untitled Project", "user": user}
     )
 
 # 6. SETTINGS PAGE
@@ -1237,7 +1238,7 @@ async def project_settings(request: Request, project_id: str):
         
     return templates.TemplateResponse(
         "projects/project-settings.html",
-        {"request": request, "project_id": project_id, "project": project, "user": user}
+        {"request": request, "project_id": project_id, "project": project, "project_name": project.get("name", "Untitled Project") if project else "Untitled Project", "user": user}
     )
 
 @app.post("/projects/{project_id}/settings")
@@ -1582,13 +1583,12 @@ async def optimize_for_vercel(request: Request, project_id: str):
         raise HTTPException(500, detail=str(e))
 
 # 4. Push to GitHub
-# --- 2. THE GITHUB PUBLISH ROUTE (Fixes the JSON parsing crash) ---
+
 @app.post("/projects/{project_id}/github/publish")
 async def publish_to_github(request: Request, project_id: str):
     try:
         user = get_current_user(request)
         
-        # Verify ownership safely
         proj_check = supabase.table("projects").select("owner_id").eq("id", project_id).single().execute()
         if not proj_check.data or proj_check.data["owner_id"] != user["id"]:
             return JSONResponse({"detail": "Unauthorized"}, status_code=403)
@@ -1602,8 +1602,14 @@ async def publish_to_github(request: Request, project_id: str):
         res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
         project = res.data
         
-        clean_name = re.sub(r'[^a-z0-9-]', '-', project.get("name", "app").lower()).strip('-')
-        repo_name = f"gorilla-{clean_name}-{project_id[:6]}"
+        # --- UPDATED LOGIC: Make repo name match the Gorilla project name ---
+        raw_name = project.get("name", "gorilla-project")
+        # Sanitize to replace spaces and special characters with hyphens (required by GitHub)
+        repo_name = re.sub(r'[^a-z0-9-]', '-', raw_name.lower()).strip('-')
+        
+        # Fallback just in case the name was completely invalid characters
+        if not repo_name:
+            repo_name = f"gorilla-project-{project_id[:6]}"
         
         files_res = supabase.table("files").select("path,content").eq("project_id", project_id).execute()
         files = getattr(files_res, "data", [])
@@ -1612,15 +1618,19 @@ async def publish_to_github(request: Request, project_id: str):
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"}
         
         async with httpx.AsyncClient() as client:
-            # A. Create the repository
-            repo_res = await client.post("https://api.github.com/user/repos", json={"name": repo_name, "private": True}, headers=headers)
+            # A. Create or Find Repository
+            repo_res = await client.post(
+                "https://api.github.com/user/repos", 
+                json={"name": repo_name, "private": True, "auto_init": True}, 
+                headers=headers
+            )
             if repo_res.status_code not in [201, 422]:
                 return JSONResponse({"detail": f"GitHub Repo Creation Failed: {repo_res.text}"}, status_code=500)
             
             repo_data = repo_res.json()
             full_name = repo_data.get("full_name")
             
-            # If repo exists (422), find the right username
+            # If repo already exists (422)
             if repo_res.status_code == 422:
                 user_info_res = await client.get("https://api.github.com/user", headers=headers)
                 if user_info_res.status_code == 200:
@@ -1628,28 +1638,56 @@ async def publish_to_github(request: Request, project_id: str):
                     full_name = f"{login}/{repo_name}"
                 else:
                     return JSONResponse({"detail": "Failed to fetch GitHub username for existing repo."}, status_code=500)
+                
+                # SAFETY NET: Check if the existing repo is completely empty!
+                branch_res = await client.get(f"https://api.github.com/repos/{full_name}/branches/main", headers=headers)
+                if branch_res.status_code == 404:
+                    # The repo exists but is empty! Initialize it manually via the Contents API
+                    readme_content = base64.b64encode(b"# Init\n").decode("utf-8")
+                    await client.put(
+                        f"https://api.github.com/repos/{full_name}/contents/README.md",
+                        json={"message": "Initialize empty repository", "content": readme_content},
+                        headers=headers
+                    )
 
             # B. Bulk Create Blobs & Tree
             tree = []
             for f in files:
-                if f["path"].startswith(".gorilla/"): continue
+                path = f.get("path", "")
+                if path.startswith(".gorilla/"): continue
+                
+                # GitHub API rejects strictly empty strings for inline blobs. Give it a single space.
+                content = f.get("content")
+                if not content:
+                    content = " "
+                    
                 tree.append({
-                    "path": f["path"].lstrip("/"),
+                    "path": path.lstrip("/"),
                     "mode": "100644",
                     "type": "blob",
-                    "content": f["content"] or ""
+                    "content": content
+                })
+            
+            # If the tree is completely empty, inject a default README so the commit always succeeds.
+            if len(tree) == 0:
+                tree.append({
+                    "path": "README.md",
+                    "mode": "100644",
+                    "type": "blob",
+                    "content": f"# {project.get('name', 'Gorilla Project')}\n\nAuto-generated by Gor://a Builder."
                 })
                 
             tree_res = await client.post(f"https://api.github.com/repos/{full_name}/git/trees", json={"tree": tree}, headers=headers)
+            
             if tree_res.status_code != 201:
-                return JSONResponse({"detail": "Failed to build Git Tree."}, status_code=500)
+                return JSONResponse({"detail": f"Git Tree Error: {tree_res.text}"}, status_code=500)
                 
             tree_sha = tree_res.json()["sha"]
             
             # C. Create Commit
             commit_res = await client.post(f"https://api.github.com/repos/{full_name}/git/commits", json={"message": "Deploy via Gor://a Builder", "tree": tree_sha}, headers=headers)
             if commit_res.status_code != 201:
-                return JSONResponse({"detail": "Failed to create commit."}, status_code=500)
+                return JSONResponse({"detail": f"Commit Error: {commit_res.text}"}, status_code=500)
             commit_sha = commit_res.json()["sha"]
             
             # D. Update Reference (Create or Update Main Branch)
@@ -1665,6 +1703,8 @@ async def publish_to_github(request: Request, project_id: str):
             return JSONResponse({"status": "ok", "repo_url": repo_url})
             
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return JSONResponse({"detail": str(e)}, status_code=500)
 
 # ==========================================================================

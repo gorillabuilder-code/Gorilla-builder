@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Editor · {{ project_id }} · gor://a</title>
+<title>Editor · {{ project_name }} · Gor://a Builder</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 
 
@@ -564,7 +564,7 @@ body.xmode {
         {% endif %}
         
         <a class="pill" href="/projects/{{ project_id }}/deploy" target="_blank" style="border-color: #ef9a46; color: #efa346; background: rgba(239, 154, 70, 0.1);">
-          🚀 {% if project.github_repo_url %}Update Deployment{% else %}Deploy App{% endif %}
+          {% if project.github_repo_url %}Update Deployment{% else %}Deploy App{% endif %}
         </a>
 
       </div>

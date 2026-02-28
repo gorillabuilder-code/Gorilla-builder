@@ -18,7 +18,7 @@ import httpx
 # --- Configuration for OpenRouter ---
 # CHANGED: Switched from Fireworks to OpenRouter env vars
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b") 
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "minimax/minimax-m2.5") 
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # OpenRouter requirements for rankings
@@ -91,7 +91,7 @@ class Coder:
             "messages": messages,
             "temperature": temperature,
             "provider": {
-            "order": ["deepinfra/fp4"],
+            "order": ["sambanova"],
             "allow_fallbacks": False,
             "sort": "throughput"
             }
