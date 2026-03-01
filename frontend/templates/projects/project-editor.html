@@ -7,7 +7,9 @@
 
 
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
-
+<script>
+    window.GORILLA_API_KEY = "{{ gorilla_api_key }}";
+</script>
 <script type="module">
   import { marked } from "https://esm.sh/marked";
   import DOMPurify from "https://esm.sh/dompurify";

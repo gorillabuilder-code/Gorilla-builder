@@ -193,13 +193,16 @@ class Planner:
     "   - Frontend Imports: Use `@/` aliases.\n"
     "   - Backend Imports: Use relative paths with `.js` extension.\n"
     "   - Always instruct to the coder to build a `vercel.json` file in the root of the project according to the project's requirements.\n"
+    
+    # --- 🚨 PHASE 5: THE AI PROXY INJECTION 🚨 ---
     "2. **AI Integration Specs (USE THESE EXACTLY):**\n"
-    "   - **High-Performance Logic**: Use `process.env.OPENROUTER_API_KEY` and 'openai/gpt-oss-20b:free'.\n"
-    "   - **Vision**: Use 'accounts/fireworks/models/qwen3-8b'.\n"
-    "   - **Voice (STT)**: 'accounts/fireworks/models/whisper-v3-turbo'.\n"
-    "   - **Voice (TTS)**: 'openai/gpt-audio-mini'.\n"
-    "   - **Image Gen**: 'accounts/fireworks/models/playground-v2-5-1024px-aesthetic'.\n"
-    "   - **BG Removal**: Use `process.env.REM_BG_API_KEY`.\n"
+    "   - **Core Rule**: You MUST route all AI API calls through the Gorilla Proxy using `process.env.GORILLA_API_KEY`.\n"
+    "   - **High-Performance Logic (LLM)**: Set baseURL to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1` and use model `openai/gpt-oss-20b:free`.\n"
+    "   - **Image Generation**: Send POST request to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/generations` with standard OpenAI payload.\n"
+    "   - **Voice (STT)**: Send POST to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/audio/transcriptions` (OpenAI format).\n"
+    "   - **Voice (TTS)**: DO NOT USE AN API. Strictly use the browser's native `window.speechSynthesis` Web Speech API in frontend components.\n"
+    "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background`.\n"
+    
     "3. **Volume:** \n"
     "   - Always try to ask the user at least 2 questions to elaborate on their request DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question.\n"
     "   - Simple Apps: 8-10 tasks (Mix of DB, Backend, Frontend).(if there are no questions only!)\n"

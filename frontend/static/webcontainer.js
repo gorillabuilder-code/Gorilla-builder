@@ -19,7 +19,6 @@ export class WebRunner {
         
         console.log("Booting WebContainer...");
         
-        // 🚨 THIS IS THE CRITICAL FIX 🚨
         // We must tell WebContainer that our server uses 'credentialless' headers.
         this.instance = await WebContainer.boot({
             coep: 'credentialless' 
@@ -68,7 +67,6 @@ export class WebRunner {
 
     /**
      * Helper to create a debounced error logger
-     * Waits for 3 seconds of silence before sending the aggregated buffer to the coder.
      */
     _createDebouncedLogger(logger, contextName) {
         let buffer = "";
@@ -85,7 +83,7 @@ export class WebRunner {
             push: (data) => {
                 buffer += data + "\n";
                 if (timeout) clearTimeout(timeout);
-                timeout = setTimeout(flush, 3000); // Wait 3 seconds after the LAST error
+                timeout = setTimeout(flush, 3000);
             },
             flushImmediate: () => {
                 if (timeout) clearTimeout(timeout);
@@ -120,9 +118,8 @@ export class WebRunner {
             const exitCode = await process.exit;
             
             if (exitCode !== 0) {
-                errorTracker.flushImmediate(); // Ensure final errors are sent
+                errorTracker.flushImmediate();
                 logger("system", `⚠️ npm install failed (code ${exitCode}). Coder notified. Retrying in 10s...`);
-                // Wait 10 seconds to give the Coder AI time to write the fixes to the file system
                 await new Promise(resolve => setTimeout(resolve, 10000));
             } else {
                 logger("system", "✅ Dependencies installed.");
@@ -137,6 +134,11 @@ export class WebRunner {
     async start(onReady, logger) {
         if (!this.instance) throw new Error("Container not booted");
 
+        // 🚨 PHASE 4: Inject the Gorilla API Key into the environment
+        const envVars = {
+            GORILLA_API_KEY: window.GORILLA_API_KEY || "", 
+        };
+
         // 🚨 DATABASE PUSH WITH RETRY LOOP 🚨
         let dbSuccess = false;
         
@@ -144,12 +146,12 @@ export class WebRunner {
             logger("system", "🗄️ Provisioning local SQLite database...");
             const dbErrorTracker = this._createDebouncedLogger(logger, "Database Push");
 
-            const dbProcess = await this.instance.spawn('npm', ['run', 'db:push']);
+            // Pass envVars to the DB push in case any seed scripts need the AI
+            const dbProcess = await this.instance.spawn('npm', ['run', 'db:push'], { env: envVars });
             
             dbProcess.output.pipeTo(new WritableStream({
                 write(data) {
                     console.log("[DB PUSH]", data);
-                    // Catch SQLite, Prisma, or standard NPM errors
                     if (data.toLowerCase().includes('error') || data.includes('ERR')) {
                         dbErrorTracker.push(data);
                     }
@@ -171,14 +173,13 @@ export class WebRunner {
         // 🚀 START SERVER AS NORMAL
         logger("system", "🚀 Starting Dev Server...");
 
-        this.shell = await this.instance.spawn('npm', ['run', 'dev']);
+        // 🚨 PHASE 4: Pass envVars to the dev server so the deployed Node app has the key!
+        this.shell = await this.instance.spawn('npm', ['run', 'dev'], { env: envVars });
 
-        // 🚨 DEV SERVER ERROR DEBOUNCING 🚨
         const serverErrorTracker = this._createDebouncedLogger(logger, "Runtime/Server");
 
         this.shell.output.pipeTo(new WritableStream({
             write(data) {
-                // Catch standard Node errors, crashes, and Vite build errors
                 if (data.includes('ReferenceError') || 
                     data.includes('SyntaxError') || 
                     data.includes('Error:') || 
@@ -191,7 +192,6 @@ export class WebRunner {
             }
         }));
 
-        // Listen for the "Server Ready" event
         this.instance.on('server-ready', (port, url) => {
             console.log(`⚡ Server ready at ${url}`);
             this.url = url;
@@ -199,9 +199,6 @@ export class WebRunner {
         });
     }
 
-    /**
-     * Write a single file (Hot Module Reload trigger)
-     */
     async writeFile(path, content) {
         if (!this.instance) return;
         await this.instance.fs.writeFile(path, content);

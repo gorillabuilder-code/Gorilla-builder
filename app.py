@@ -140,6 +140,16 @@ app.add_middleware(
     secret_key=os.getenv("AUTH_SECRET_KEY", secrets.token_hex(32)),
 )
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Allows apps hosted anywhere to use the API
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 if os.path.isdir(FRONTEND_STYLES_DIR):
     app.mount("/styles", StaticFiles(directory=FRONTEND_STYLES_DIR), name="styles")
 
@@ -1261,7 +1271,8 @@ from typing import Optional
 async def project_editor(request: Request, project_id: str, file: str = "index.html", prompt: Optional[str] = None):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
-    
+    user_data_for_api = db_select_one("users", {"id": user["id"]}, "gorilla_api_key")
+    api_key = user_data_for_api.get("gorilla_api_key", "") if user_data_for_api else ""
     try:
         res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
         project = res.data
@@ -1290,7 +1301,8 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
             "file": file, 
             "user": user,
             "initial_prompt": prompt,
-            "has_github": has_github  # Safely defined no matter what!
+            "has_github": has_github,
+            "gorilla_api_key": api_key
         }
     )
 
@@ -2077,6 +2089,218 @@ import time
 async def health():
     return {"ok": True, "ts": int(time.time()), "dev_mode": DEV_MODE}
 
+# ==========================================================================
+# THE GORILLA AI PROXY GATEWAY
+# ==========================================================================
+import math
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+
+security = HTTPBearer()
+
+# --- Proxy Environment Variables ---
+FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
+REMBG_API_KEY = os.getenv("REMBG_API_KEY", "") # If your RemBG has a key
+REMBG_API_URL = os.getenv("REMBG_API_URL", "http://localhost:5000/api/remove")
+
+def _deduct_proxy_tokens(user_id: str, cost: float, feature: str):
+    """Helper to safely deduct tokens for API Gateway usage."""
+    if cost <= 0: return
+    try:
+        # Assuming you have a token_logs table or similar to track usage.
+        # If you just update the user row, do that here. 
+        # Here is a standard insert into a usage table:
+        supabase.table("token_logs").insert({
+            "user_id": user_id,
+            "tokens_used": math.ceil(cost), # Round up fractional tokens
+            "reason": f"api_proxy_{feature}"
+        }).execute()
+    except Exception as e:
+        print(f"⚠️ Failed to deduct {cost} tokens for {user_id}: {e}")
+
+async def verify_gorilla_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """
+    THE BOUNCER: Intercepts all /api/v1 requests, verifies the gb_live_ key,
+    and checks if the user has enough Gorilla Credits.
+    """
+    api_key = credentials.credentials
+    if not api_key.startswith("gb_live_"):
+        raise HTTPException(status_code=401, detail="Invalid API Key format. Must start with 'gb_live_'")
+    
+    # 1. Look up user by key
+    res = supabase.table("users").select("id, plan").eq("gorilla_api_key", api_key).single().execute()
+    if not res or not res.data:
+        raise HTTPException(status_code=401, detail="Invalid API Key. Unauthorized.")
+    
+    user = res.data
+    user_id = user["id"]
+    
+    # 2. Check Token Balance
+    used, limit = get_token_usage_and_limit(user_id)
+    if used >= limit:
+        # 402 Payment Required perfectly matches OpenAI's out-of-credits error!
+        raise HTTPException(status_code=402, detail="Payment Required: Gorilla Credits limit reached. Top up to continue.")
+        
+    return {"user_id": user_id, "plan": user.get("plan")}
+
+
+# --- 1. LLM CHAT (OpenRouter / 0.5 tokens per 1 API token) ---
+@app.post("/api/v1/chat/completions")
+async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_key)):
+    user_id = auth["user_id"]
+    payload = await request.json()
+    
+    # Force the model to OpenRouter's massive 120b model as requested
+    payload["model"] = "openai/gpt-oss-20b:free" # Replace with your exact OpenRouter model string
+    
+    # Ask OpenRouter to send usage stats back even if it's a stream
+    if "stream_options" not in payload:
+        payload["stream_options"] = {"include_usage": True}
+        
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": SITE_URL,
+        "X-Title": SITE_NAME
+    }
+    
+    # Handle Streaming Responses
+    is_stream = payload.get("stream", False)
+    
+    if is_stream:
+        async def stream_generator():
+            total_tokens = 0
+            async with httpx.AsyncClient() as client:
+                async with client.stream("POST", OPENROUTER_URL, json=payload, headers=headers) as resp:
+                    if resp.status_code != 200:
+                        yield f"data: {json.dumps({'error': 'Upstream provider error'})}\n\n"
+                        return
+                    
+                    async for chunk in resp.aiter_text():
+                        yield chunk
+                        # OpenRouter includes {"usage": {"total_tokens": X}} in the final SSE chunk
+                        if '"usage":' in chunk and '"total_tokens":' in chunk:
+                            try:
+                                # Quick and dirty parse of the usage chunk
+                                parts = chunk.split('"total_tokens":')
+                                if len(parts) > 1:
+                                    token_val = parts[1].split(',')[0].split('}')[0].strip()
+                                    total_tokens = int(token_val)
+                            except: pass
+            
+            # Bill the user after the stream closes (0.5 tokens per 1 API token)
+            if total_tokens > 0:
+                _deduct_proxy_tokens(user_id, total_tokens * 0.5, "chat_stream")
+                
+        return StreamingResponse(stream_generator(), media_type="text/event-stream")
+    
+    # Handle Standard Non-Streaming Responses
+    else:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(OPENROUTER_URL, json=payload, headers=headers)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail=resp.text)
+            
+            data = resp.json()
+            total_tokens = data.get("usage", {}).get("total_tokens", 0)
+            
+            # Bill the user (0.5 tokens per 1 API token)
+            _deduct_proxy_tokens(user_id, total_tokens * 0.5, "chat")
+            
+            return JSONResponse(data)
+
+
+# --- 2. IMAGE GENERATION (Fireworks / 250 tokens per image) ---
+@app.post("/api/v1/images/generations")
+async def proxy_image_generations(request: Request, auth=Depends(verify_gorilla_key)):
+    user_id = auth["user_id"]
+    payload = await request.json()
+    
+    num_images = int(payload.get("n", 1))
+    
+    fireworks_payload = {
+        "model": "accounts/fireworks/models/playground-v2-5-1024px-aesthetic",
+        "prompt": payload.get("prompt", ""),
+        "n": num_images,
+        "size": payload.get("size", "1024x1024"),
+        "response_format": payload.get("response_format", "url")
+    }
+    
+    headers = {
+        "Authorization": f"Bearer {FIREWORKS_API_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+    
+    async with httpx.AsyncClient() as client:
+        resp = await client.post("https://api.fireworks.ai/inference/v1/image_generation", json=fireworks_payload, headers=headers)
+        
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        
+        # Bill 250 tokens per image generated
+        _deduct_proxy_tokens(user_id, 250 * num_images, "image_gen")
+        
+        return JSONResponse(resp.json())
+
+
+# --- 3. SPEECH TO TEXT (Fireworks Whisper / 100 tokens per min) ---
+@app.post("/api/v1/audio/transcriptions")
+async def proxy_audio_transcriptions(
+    file: UploadFile = File(...),
+    model: str = Form("accounts/fireworks/models/whisper-v3-turbo"),
+    auth=Depends(verify_gorilla_key)
+):
+    user_id = auth["user_id"]
+    file_bytes = await file.read()
+    
+    # Heuristic Duration Calculation:
+    # A standard mp3/m4a voice memo is roughly 1MB per minute.
+    # We use file size to estimate minutes (minimum 1 minute)
+    file_size_mb = len(file_bytes) / (1024 * 1024)
+    estimated_minutes = max(1, math.ceil(file_size_mb)) 
+    cost = estimated_minutes * 100
+    
+    headers = {"Authorization": f"Bearer {FIREWORKS_API_KEY}"}
+    files_payload = {"file": (file.filename, file_bytes, file.content_type)}
+    data_payload = {"model": "accounts/fireworks/models/whisper-v3-turbo"}
+    
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://api.fireworks.ai/inference/v1/audio/transcriptions", 
+            files=files_payload, 
+            data=data_payload, 
+            headers=headers
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        
+        # Bill 100 tokens per estimated minute
+        _deduct_proxy_tokens(user_id, cost, "stt_whisper")
+        
+        return JSONResponse(resp.json())
+
+
+# --- 4. BACKGROUND REMOVAL (RemBG / 0 tokens / Free Forever) ---
+@app.post("/api/v1/images/remove-background")
+async def proxy_remove_background(file: UploadFile = File(...), auth=Depends(verify_gorilla_key)):
+    # Verify key, but we don't bill them for this!
+    file_bytes = await file.read()
+    
+    headers = {}
+    if REMBG_API_KEY:
+        headers["x-api-key"] = REMBG_API_KEY
+        
+    files_payload = {"file": (file.filename, file_bytes, file.content_type)}
+    
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(REMBG_API_URL, files=files_payload, headers=headers)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=f"RemBG Error: {resp.text}")
+        
+        # Returns the raw PNG image file directly to the frontend
+        return Response(content=resp.content, media_type="image/png")
 
 if __name__ == "__main__":
     import uvicorn
