@@ -5,6 +5,8 @@
 <title>Deploy · {{ project.name if project else project_id }} · Gor://a Builder</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 
+<script src="https://unpkg.com/@phosphor-icons/web"></script>
+
 <style>
 @font-face{
   font-family:'din-next-w01-light';
@@ -99,7 +101,7 @@ body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
 .step-header h2 { font-size: 15px; margin: 0; color: #fff; font-weight: 600; }
 .step-desc { font-size: 13px; color: var(--muted); margin-bottom: 16px; line-height: 1.5; max-width: 85%; }
 
-/* Logic Classes (No Jinja in inline styles!) */
+/* Logic Classes */
 .locked-step {
   opacity: 0.4;
   pointer-events: none;
@@ -129,11 +131,62 @@ body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
 /* THE VERCEL BOX */
 .vercel-box {
   padding: 40px; border-radius: 16px; margin-top: 24px;
-  background: linear-gradient(135deg, #000 0%, rgba(255,255,255,0.02) 100%);
-  border: 1px solid rgba(255,255,255,0.1); text-align: center;
+  background: linear-gradient(135deg, #050505 0%, rgba(255,255,255,0.02) 100%);
+  border: 1px solid rgba(255,255,255,0.1); text-align: left;
 }
-.vercel-box h3 { margin: 0 0 10px; font-size: 20px; font-weight: 500; }
-.vercel-box p { color: var(--muted); font-size: 13px; margin: 0 0 24px; }
+.vercel-box h3 { margin: 0 0 10px; font-size: 20px; font-weight: 500; text-align: center; }
+.vercel-box p.subtitle { color: var(--muted); font-size: 13px; margin: 0 0 32px; text-align: center; }
+
+.env-instructions {
+  background: rgba(15, 20, 30, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 32px;
+}
+.env-instructions h4 { margin: 0 0 8px 0; font-size: 14px; display: flex; align-items: center; gap: 8px; color: #fff; }
+.env-instructions h4 i { color: var(--accent); font-size: 18px; }
+.env-instructions p { margin: 0 0 16px 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+.env-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.env-input-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.env-input-group label { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.env-input-group input {
+  background: #000;
+  border: 1px solid var(--border);
+  color: #fff;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: monospace;
+}
+.env-input-group input:read-only { color: var(--accent); }
+
+.copy-btn {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0 16px;
+  cursor: pointer;
+  transition: 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 21px; /* aligns with inputs */
+}
+.copy-btn:hover { background: rgba(255,255,255,0.1); }
+
+.deploy-action { display: flex; justify-content: center; }
 </style>
 </head>
 
@@ -210,17 +263,54 @@ body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
 
   <div class="vercel-box {{ 'hidden' if not project.github_repo_url else '' }}" id="vercel-box">
     <h3>Ready for Liftoff 🚀</h3>
-    <p>Your codebase is safely stored on GitHub and formatted perfectly for Vercel's serverless infrastructure. Click below to launch your live URL.</p>
+    <p class="subtitle">Your codebase is safely stored on GitHub and formatted perfectly for Vercel's serverless infrastructure.</p>
     
-    <a href="https://vercel.com/new/clone?repository-url={{ project.github_repo_url }}" target="_blank" id="vercel-link" style="display:inline-block; transition: transform 0.2s;">
-      <img src="https://vercel.com/button" alt="Deploy with Vercel" style="height: 40px;" />
-    </a>
+    <div class="env-instructions">
+      <h4><i class="ph-fill ph-key"></i> IMPORTANT: Secure API Key</h4>
+      <p>Your application uses the Gorilla AI Proxy to handle LLM chats, image generation, and background removal. You must inject your master key into Vercel during deployment.</p>
+      
+      <div class="env-row">
+        <div class="env-input-group" style="flex: 0.5;">
+          <label>Environment Variable Name</label>
+          <input type="text" id="envKey" value="GORILLA_API_KEY" readonly>
+        </div>
+        <div class="env-input-group">
+          <label>Value (Your Master Key)</label>
+          <input type="text" id="envValue" value="{{ gorilla_api_key }}" readonly>
+        </div>
+        <button class="copy-btn" onclick="copyEnv()" title="Copy Key">
+          <i class="ph-bold ph-copy" id="copyIcon"></i>
+        </button>
+      </div>
+      <p style="font-size: 11px; color: #fca5a5; margin: 8px 0 0 0;"><i class="ph-fill ph-warning-circle"></i> Never commit this key to GitHub. Only paste it directly into Vercel's Environment Variables section.</p>
+    </div>
+
+    <div class="deploy-action">
+      <a href="https://vercel.com/new/clone?repository-url={{ project.github_repo_url }}" target="_blank" id="vercel-link" style="display:inline-block; transition: transform 0.2s;">
+        <img src="https://vercel.com/button" alt="Deploy with Vercel" style="height: 44px;" />
+      </a>
+    </div>
   </div>
 
 </div>
 
 <script>
   const projectId = "{{ project_id }}";
+
+  function copyEnv() {
+    const key = document.getElementById("envValue").value;
+    navigator.clipboard.writeText(key).then(() => {
+      const icon = document.getElementById("copyIcon");
+      icon.classList.remove("ph-copy");
+      icon.classList.add("ph-check");
+      icon.style.color = "#10b981";
+      setTimeout(() => {
+        icon.classList.remove("ph-check");
+        icon.classList.add("ph-copy");
+        icon.style.color = "inherit";
+      }, 2000);
+    });
+  }
 
   async function runOptimization() {
     const btn = document.getElementById("btn-optimize");

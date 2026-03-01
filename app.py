@@ -1077,13 +1077,26 @@ async def settings_page(request: Request):
 @app.get("/settings/skills", response_class=HTMLResponse)
 async def agent_skills_page(request: Request):
     user = get_current_user(request)
+    api_key = ""
     try:
-        res = supabase.table("users").select("plan").eq("id", user["id"]).single().execute()
-        user["plan"] = res.data.get("plan", "free") if res.data else "free"
+        # Fetch both plan and api_key in one query
+        res = supabase.table("users").select("plan, gorilla_api_key").eq("id", user["id"]).single().execute()
+        if res and res.data:
+            user["plan"] = res.data.get("plan", "free")
+            api_key = res.data.get("gorilla_api_key", "")
+        else:
+            user["plan"] = "free"
     except Exception:
         user["plan"] = "free"
         
-    return templates.TemplateResponse("dashboard/agentskills.html", {"request": request, "user": user})
+    return templates.TemplateResponse(
+        "dashboard/agentskills.html", 
+        {
+            "request": request, 
+            "user": user,
+            "gorilla_api_key": api_key # <--- Passing the key!
+        }
+    )
 
 @app.post("/api/user/skills")
 async def save_agent_skills(request: Request):
@@ -1634,8 +1647,9 @@ async def project_deploy_page(request: Request, project_id: str):
     except Exception:
         project = {}
         
-    user_data = db_select_one("users", {"id": user["id"]}, "github_access_token")
+    user_data = db_select_one("users", {"id": user["id"]}, "github_access_token, gorilla_api_key")
     has_github = bool(user_data and user_data.get("github_access_token"))
+    api_key = user_data.get("gorilla_api_key", "")
 
     return templates.TemplateResponse(
         "projects/deploy.html",
@@ -1644,6 +1658,7 @@ async def project_deploy_page(request: Request, project_id: str):
             "project_id": project_id,
             "project": project,
             "has_github": has_github,
+            "gorilla_api_key": api_key, # <--- Passing the key to the template
             "user": user
         }
     )
@@ -2092,6 +2107,18 @@ async def health():
 # ==========================================================================
 # THE GORILLA AI PROXY GATEWAY
 # ==========================================================================
+
+# --- Proxy Environment Variables ---
+FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
+REMBG_API_KEY = os.getenv("REMBG_API_KEY", "") 
+REMBG_API_URL = os.getenv("REMBG_API_URL", "http://localhost:5000/api/remove")
+
+# Add these missing OpenRouter variables!
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
+SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev")
+SITE_NAME = os.getenv("SITE_NAME", "Gorilla Builder")
+
 import math
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -2152,7 +2179,7 @@ async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_k
     payload = await request.json()
     
     # Force the model to OpenRouter's massive 120b model as requested
-    payload["model"] = "openai/gpt-oss-20b:free" # Replace with your exact OpenRouter model string
+    payload["model"] = "openai/gpt-oss-120b" # Replace with your exact OpenRouter model string
     
     # Ask OpenRouter to send usage stats back even if it's a stream
     if "stream_options" not in payload:
@@ -2191,7 +2218,7 @@ async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_k
             
             # Bill the user after the stream closes (0.5 tokens per 1 API token)
             if total_tokens > 0:
-                _deduct_proxy_tokens(user_id, total_tokens * 0.5, "chat_stream")
+                _deduct_proxy_tokens(user_id, total_tokens * 0.63, "chat_stream")
                 
         return StreamingResponse(stream_generator(), media_type="text/event-stream")
     
