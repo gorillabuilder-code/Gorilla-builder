@@ -2135,14 +2135,17 @@ def _deduct_proxy_tokens(user_id: str, cost: float, feature: str):
     """Helper to safely deduct tokens for API Gateway usage."""
     if cost <= 0: return
     try:
-        # Assuming you have a token_logs table or similar to track usage.
-        # If you just update the user row, do that here. 
-        # Here is a standard insert into a usage table:
-        supabase.table("token_logs").insert({
-            "user_id": user_id,
-            "tokens_used": math.ceil(cost), # Round up fractional tokens
-            "reason": f"api_proxy_{feature}"
-        }).execute()
+        tokens_to_add = math.ceil(cost) # Round up fractional tokens
+        
+        # 1. Fetch current tokens_used from the users table
+        res = supabase.table("users").select("tokens_used").eq("id", user_id).single().execute()
+        current_used = res.data.get("tokens_used", 0) if res.data and res.data.get("tokens_used") else 0
+        
+        # 2. Add the cost and update the database
+        new_total = current_used + tokens_to_add
+        supabase.table("users").update({"tokens_used": new_total}).eq("id", user_id).execute()
+        
+        print(f"💰 Deducted {tokens_to_add} tokens for {feature} (User: {user_id})")
     except Exception as e:
         print(f"⚠️ Failed to deduct {cost} tokens for {user_id}: {e}")
 
@@ -2179,7 +2182,7 @@ async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_k
     payload = await request.json()
     
     # Force the model to OpenRouter's massive 120b model as requested
-    payload["model"] = "openai/gpt-oss-120b" # Replace with your exact OpenRouter model string
+    payload["model"] = "xiaomi/mimo-v2-flash" # Replace with your exact OpenRouter model string
     
     # Ask OpenRouter to send usage stats back even if it's a stream
     if "stream_options" not in payload:
@@ -2218,7 +2221,7 @@ async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_k
             
             # Bill the user after the stream closes (0.5 tokens per 1 API token)
             if total_tokens > 0:
-                _deduct_proxy_tokens(user_id, total_tokens * 0.63, "chat_stream")
+                _deduct_proxy_tokens(user_id, total_tokens * 0.3, "chat_stream")
                 
         return StreamingResponse(stream_generator(), media_type="text/event-stream")
     
@@ -2233,7 +2236,7 @@ async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_k
             total_tokens = data.get("usage", {}).get("total_tokens", 0)
             
             # Bill the user (0.5 tokens per 1 API token)
-            _deduct_proxy_tokens(user_id, total_tokens * 0.5, "chat")
+            _deduct_proxy_tokens(user_id, total_tokens * 0.3, "chat")
             
             return JSONResponse(data)
 
