@@ -523,6 +523,7 @@ import os
 import random
 import string
 import time
+import secrets
 import httpx
 from fastapi import APIRouter, Request, Form, BackgroundTasks, HTTPException, Response
 from fastapi.responses import RedirectResponse
@@ -548,8 +549,8 @@ def get_current_user_safe(request: Request):
         # Check Supabase cookie first
         token = request.cookies.get("sb_access_token")
         if token:
-              user = supabase.auth.get_user(token)
-              if user: return user
+             user = supabase.auth.get_user(token)
+             if user: return user
         
         # Fallback to session (for dev/google/github auth) if used
         if "user" in request.session:
@@ -558,6 +559,21 @@ def get_current_user_safe(request: Request):
     except:
         pass
     return None
+
+def _ensure_gorilla_api_key(user_id: str):
+    """
+    PHASE 1: AI PROXY GATEWAY
+    Checks if a user has a gb_live_ API key. If not, generates and saves one.
+    """
+    try:
+        user_data = db_select_one("users", {"id": user_id}, "gorilla_api_key")
+        if not user_data or not user_data.get("gorilla_api_key"):
+            # Generate a secure 48-character hex string (total key length ~56 chars)
+            new_key = f"gb_live_{secrets.token_hex(24)}"
+            supabase.table("users").update({"gorilla_api_key": new_key}).eq("id", user_id).execute()
+            print(f"🔑 Generated new Gorilla API Key for user: {user_id}")
+    except Exception as e:
+        print(f"⚠️ Failed to generate gorilla_api_key for {user_id}: {e}")
 
 # --------------------------------------------------------------------------
 # 1. SIGNUP FLOW (Secure)
@@ -656,6 +672,9 @@ async def auth_verify_otp(
         # 5. Sync Public DB
         ensure_public_user(res.user.id, email)
         
+        # 🚨 AI PROXY: Generate their Master Key
+        _ensure_gorilla_api_key(res.user.id)
+        
         # 6. Cleanup & Response
         if email in PENDING_SIGNUPS:
             del PENDING_SIGNUPS[email]
@@ -698,6 +717,9 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
         request.session["user"] = {"id": res.user.id, "email": email}
         # FIX: Ensure user is synced
         ensure_public_user(res.user.id, email)
+        
+        # 🚨 AI PROXY: Ensure they have a Master Key
+        _ensure_gorilla_api_key(res.user.id)
 
         # 2. Success: Set Cookie & Redirect
         response = RedirectResponse("/dashboard", status_code=303)
@@ -815,6 +837,9 @@ async def auth_google_callback(request: Request, code: str):
         user_id = _stable_user_id_for_email(email)
         ensure_public_user(user_id, email)
         
+        # 🚨 AI PROXY: Ensure they have a Master Key
+        _ensure_gorilla_api_key(user_id)
+        
         request.session["user"] = {"id": user_id, "email": email}
         
         return RedirectResponse("/dashboard", status_code=303)
@@ -911,6 +936,9 @@ async def auth_github_callback(request: Request, code: str):
         # 5. Sync User in Database
         user_id = _stable_user_id_for_email(email)
         ensure_public_user(user_id, email)
+        
+        # 🚨 AI PROXY: Ensure they have a Master Key
+        _ensure_gorilla_api_key(user_id)
         
         # 6. Store the GitHub access token so we can push code later
         try:
