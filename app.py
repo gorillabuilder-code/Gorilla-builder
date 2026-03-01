@@ -519,11 +519,22 @@ async def docs_root():
 # ==========================================================================
 # AUTHENTICATION ROUTES (Consolidated & Secured)
 # ==========================================================================
+import os
 import random
 import string
 import time
+import httpx
 from fastapi import APIRouter, Request, Form, BackgroundTasks, HTTPException, Response
 from fastapi.responses import RedirectResponse
+
+# --- OAuth Environment Variables ---
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
+
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI")
 
 # Global memory for storing OTPs during signup flow
 PENDING_SIGNUPS = {}
@@ -540,7 +551,7 @@ def get_current_user_safe(request: Request):
               user = supabase.auth.get_user(token)
               if user: return user
         
-        # Fallback to session (for dev/google auth) if used
+        # Fallback to session (for dev/google/github auth) if used
         if "user" in request.session:
             return request.session["user"]
             
@@ -706,8 +717,7 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
         error_msg = "Invalid email or password."
         
         try:
-            # Check if user exists but uses Google Auth (Passwordless)
-            # This prevents the "Dev User" bug by strictly identifying the account type
+            # Check if user exists but uses Google/GitHub Auth (Passwordless)
             users = supabase.auth.admin.list_users()
             target_user = next((u for u in users if u.email == email), None)
             
@@ -715,27 +725,21 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
                 identities = getattr(target_user, "identities", [])
                 providers = [i.provider for i in identities]
                 
-                # If they only have Google and no password set
+                # If they only have OAuth and no password set
                 if "google" in providers and "email" not in providers:
-                    error_msg = "This account uses Google Login. Please click 'Log in with Google'."
-                # If they have Google but maybe typed the wrong password
-                elif "google" in providers:
-                    error_msg = "Invalid password. Try logging in with Google instead."
+                    error_msg = "This account uses Google Login. Please click 'Continue with Google'."
+                elif "github" in providers and "email" not in providers:
+                    error_msg = "This account uses GitHub Login. Please click 'Continue with GitHub'."
+                elif "google" in providers or "github" in providers:
+                    error_msg = "Invalid password. Try logging in with your connected OAuth provider."
         except:
             pass # Keep generic error if admin check fails
 
         # 4. STRICT FAILURE: Return to login page with error
-        # Absolutely NO redirects to dashboard here
         return templates.TemplateResponse("auth/login.html", {
             "request": request, 
             "error": error_msg,
             "email_prefill": email
-        })
-            
-        # Default Error (Wrong password, etc.)
-        return templates.TemplateResponse("auth/login.html", {
-            "request": request, 
-            "error": "Invalid email or password."
         })
 
 @app.get("/auth/logout")
@@ -750,7 +754,7 @@ async def logout(request: Request):
     return response
 
 # --------------------------------------------------------------------------
-# 3. FORGOT PASSWORD & OAUTH (Simplified)
+# 3. FORGOT PASSWORD
 # --------------------------------------------------------------------------
 
 @app.post("/auth/forgot-password")
@@ -766,7 +770,6 @@ async def forgot_password_action(request: Request, email: str = Form(...)):
     except Exception as e:
         return templates.TemplateResponse("auth/forgot_password.html", {"request": request, "error": f"Error: {e}"})
 
-# ... (Google Auth routes remain similar, ensure they redirect to /dashboard on success)
 # --------------------------------------------------------------------------
 # 4. GOOGLE OAUTH
 # --------------------------------------------------------------------------
@@ -815,6 +818,110 @@ async def auth_google_callback(request: Request, code: str):
         request.session["user"] = {"id": user_id, "email": email}
         
         return RedirectResponse("/dashboard", status_code=303)
+
+# --------------------------------------------------------------------------
+# 5. GITHUB OAUTH (Crucial for Vercel Deployment pipeline)
+# --------------------------------------------------------------------------
+
+@app.get("/auth/github")
+async def auth_github(request: Request):
+    if not GITHUB_CLIENT_ID or not GITHUB_REDIRECT_URI:
+        raise HTTPException(500, "GitHub Auth config missing.")
+    
+    # Scope 'repo' is REQUIRED to push code on the user's behalf
+    scope = "user:email repo"
+    auth_url = f"https://github.com/login/oauth/authorize?client_id={GITHUB_CLIENT_ID}&redirect_uri={GITHUB_REDIRECT_URI}&scope={scope}"
+    return RedirectResponse(auth_url)
+
+@app.get("/auth/github/callback")
+async def auth_github_callback(request: Request, code: str):
+    if not GITHUB_CLIENT_ID or not GITHUB_CLIENT_SECRET:
+        raise HTTPException(500, "GitHub Auth config missing.")
+    
+    async with httpx.AsyncClient() as client:
+        # 1. Exchange code for GitHub Access Token
+        res = await client.post(
+            "https://github.com/login/oauth/access_token", 
+            data={
+                "client_id": GITHUB_CLIENT_ID,
+                "client_secret": GITHUB_CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": GITHUB_REDIRECT_URI
+            },
+            headers={"Accept": "application/json"}
+        )
+        
+        if res.status_code != 200:
+             raise HTTPException(400, "GitHub Login Failed")
+        
+        tokens = res.json()
+        access_token = tokens.get("access_token")
+        
+        if not access_token:
+            error_msg = tokens.get("error_description", "Failed to retrieve GitHub access token")
+            raise HTTPException(400, error_msg)
+
+        # 2. Get User Profile Data
+        user_res = await client.get(
+            "https://api.github.com/user", 
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+        )
+        user_data = user_res.json()
+        email = user_data.get("email")
+        github_username = user_data.get("login", "unknown_github_user") # Grab their username just in case!
+
+        # 3. If primary email is private, hit the emails endpoint directly
+        if not email:
+            emails_res = await client.get(
+                "https://api.github.com/user/emails",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github.v3+json"
+                }
+            )
+            if emails_res.status_code == 200:
+                emails_data = emails_res.json()
+                if isinstance(emails_data, list):
+                    # Attempt A: Find the Primary & Verified email
+                    for em in emails_data:
+                        if isinstance(em, dict) and em.get("primary") and em.get("verified"):
+                            email = em.get("email")
+                            break
+                    
+                    # Attempt B: Just find ANY Verified email
+                    if not email:
+                        for em in emails_data:
+                            if isinstance(em, dict) and em.get("verified"):
+                                email = em.get("email")
+                                break
+                    
+                    # Attempt C: Just take the very first email they have listed
+                    if not email and len(emails_data) > 0 and isinstance(emails_data[0], dict):
+                        email = emails_data[0].get("email")
+
+        # 🚨 4. THE ULTIMATE FALLBACK 🚨
+        # If their privacy settings are on maximum lockdown, we build a proxy email
+        # so they can still create an account and build apps!
+        if not email:
+            email = f"{github_username}@noreply.github.com"
+
+        # 5. Sync User in Database
+        user_id = _stable_user_id_for_email(email)
+        ensure_public_user(user_id, email)
+        
+        # 6. Store the GitHub access token so we can push code later
+        try:
+            supabase.table("users").update({"github_access_token": access_token}).eq("id", user_id).execute()
+        except Exception as e:
+            print(f"⚠️ Failed to save github_access_token for {email}: {e}")
+
+        # 7. Finalize Login
+        request.session["user"] = {"id": user_id, "email": email}
+        
+        return RedirectResponse("/dashboard", status_code=303)
         
 # ==========================================================================
 # BILLING ROUTES (Mock Payment Processing)
@@ -839,6 +946,8 @@ async def process_tokens(request: Request, amount: int = Form(...)):
     decrease_tokens_used(user["id"], amount)
     
     return RedirectResponse("/dashboard", status_code=303)
+from fastapi.responses import HTMLResponse, JSONResponse
+
 # ==========================================================================
 # DASHBOARD & WORKSPACE
 # ==========================================================================
@@ -846,11 +955,16 @@ async def process_tokens(request: Request, amount: int = Form(...)):
 async def dashboard(request: Request):
     user = get_current_user(request)
     
-    # Fetch latest Plan from DB
+    # Fetch latest Plan and Agent Skills from DB
+    has_skills = False
     try:
-        db_user = db_select_one("users", {"id": user["id"]}, "plan")
-        if db_user:
-            user["plan"] = db_user.get("plan", "free")
+        # Fetching both columns directly from supabase to avoid multiple queries
+        res = supabase.table("users").select("plan, agent_skills").eq("id", user["id"]).single().execute()
+        if res and res.data:
+            user["plan"] = res.data.get("plan", "free")
+            # If agent_skills is not null/empty, flag it as true
+            if res.data.get("agent_skills"):
+                has_skills = True
     except Exception:
         user["plan"] = "free"
     
@@ -877,7 +991,12 @@ async def dashboard(request: Request):
 
     return templates.TemplateResponse(
         "dashboard/dashboard.html", 
-        {"request": request, "projects": projects, "user": user}
+        {
+            "request": request, 
+            "projects": projects, 
+            "user": user,
+            "has_skills": has_skills # Now the popup knows whether to hide!
+        }
     )
 
 @app.get("/workspace", response_class=HTMLResponse)
@@ -902,6 +1021,46 @@ async def workspace(request: Request):
         "dashboard/workspace.html",
         {"request": request, "projects": projects, "user": user}
     )
+
+# ==========================================================================
+# SETTINGS & AGENT SKILLS ROUTES
+# ==========================================================================
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    user = get_current_user(request)
+    try:
+        res = supabase.table("users").select("plan").eq("id", user["id"]).single().execute()
+        user["plan"] = res.data.get("plan", "free") if res.data else "free"
+    except Exception:
+        user["plan"] = "free"
+        
+    return templates.TemplateResponse("dashboard/settings.html", {"request": request, "user": user})
+
+@app.get("/settings/skills", response_class=HTMLResponse)
+async def agent_skills_page(request: Request):
+    user = get_current_user(request)
+    try:
+        res = supabase.table("users").select("plan").eq("id", user["id"]).single().execute()
+        user["plan"] = res.data.get("plan", "free") if res.data else "free"
+    except Exception:
+        user["plan"] = "free"
+        
+    return templates.TemplateResponse("dashboard/agentskills.html", {"request": request, "user": user})
+
+@app.post("/api/user/skills")
+async def save_agent_skills(request: Request):
+    user = get_current_user(request)
+    try:
+        payload = await request.json()
+        
+        # Save the JSON directly to the agent_skills column in Supabase
+        supabase.table("users").update({"agent_skills": payload}).eq("id", user["id"]).execute()
+        
+        return JSONResponse({"status": "success", "message": "Skills saved successfully"})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"detail": f"Failed to save skills: {str(e)}"}, status_code=500)
 
 
 # ==========================================================================
@@ -1067,6 +1226,9 @@ async def create_project(
         return RedirectResponse("/dashboard?error=creation_failed_rls", status_code=303)
 
 # 3. EDITOR PAGE
+from fastapi.responses import JSONResponse, HTMLResponse
+from typing import Optional
+
 @app.get("/projects/{project_id}/editor", response_class=HTMLResponse)
 async def project_editor(request: Request, project_id: str, file: str = "index.html", prompt: Optional[str] = None):
     user = get_current_user(request)
@@ -1081,34 +1243,14 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
     used, limit = get_token_usage_and_limit(user["id"])
     user["tokens"] = {"used": used, "limit": limit}
 
-    return templates.TemplateResponse(
-        "projects/project-editor.html",
-        {
-            "request": request, 
-            "project_id": project_id, 
-            "project": project, 
-            "file": file, 
-            "user": user,
-            "initial_prompt": prompt
-        }
-    )
-    
-# 4. X-MODE EDITOR (Purple Theme)
-@app.get("/projects/{project_id}/xmode", response_class=HTMLResponse)
-async def project_xmode(request: Request, project_id: str, file: str = "index.html"):
-    user = get_current_user(request)
-    _require_project_owner(user, project_id)
-    
-    project = {}
+    # --- 🚨 FIX: ALWAYS DEFINE has_github 🚨 ---
+    has_github = False 
     try:
-        res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
-        if res.data:
-            project = res.data
-    except Exception:
-        print(f"⚠️ Failed to load project details for {project_id}")
-    
-    used, limit = get_token_usage_and_limit(user["id"])
-    user["tokens"] = {"used": used, "limit": limit}
+        user_data = db_select_one("users", {"id": user["id"]}, "github_access_token")
+        if user_data and user_data.get("github_access_token"):
+            has_github = True
+    except Exception as e:
+        print(f"GitHub token check skipped or failed: {e}")
 
     return templates.TemplateResponse(
         "projects/project-editor.html",
@@ -1116,9 +1258,11 @@ async def project_xmode(request: Request, project_id: str, file: str = "index.ht
             "request": request, 
             "project_id": project_id, 
             "project": project, 
+            "project_name": project.get("name", "Untitled Project") if project else "Untitled Project",
             "file": file, 
             "user": user,
-            "xmode": True
+            "initial_prompt": prompt,
+            "has_github": has_github  # Safely defined no matter what!
         }
     )
 
@@ -1129,7 +1273,7 @@ async def project_preview(request: Request, project_id: str):
     _require_project_owner(user, project_id)
     return templates.TemplateResponse(
         "projects/project-preview.html",
-        {"request": request, "project_id": project_id, "user": user}
+        {"request": request, "project_id": project_id, "project_name": project.get("name", "Untitled Project") if project else "Untitled Project", "user": user}
     )
 
 # 6. SETTINGS PAGE
@@ -1146,7 +1290,7 @@ async def project_settings(request: Request, project_id: str):
         
     return templates.TemplateResponse(
         "projects/project-settings.html",
-        {"request": request, "project_id": project_id, "project": project, "user": user}
+        {"request": request, "project_id": project_id, "project": project, "project_name": project.get("name", "Untitled Project") if project else "Untitled Project", "user": user}
     )
 
 @app.post("/projects/{project_id}/settings")
@@ -1213,6 +1357,9 @@ async def project_export(request: Request, project_id: str):
 # ==========================================================================
 # REUSABLE AGENT LOOP (Used by UI and Auto-Fix)
 # ==========================================================================
+import httpx
+import re
+
 async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: bool = False, history: List[Dict] = None, skip_planner: bool = False):
     """
     The core logic for the AI Agent. Can be called from the endpoint or the log-fixer.
@@ -1223,6 +1370,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         file_tree = await _fetch_file_tree(project_id)
         
         planner = Planner()
+        # Fallback to Coder if XCoder isn't explicitly defined in context
         coder = XCoder() if (is_xmode and 'XCoder' in globals()) else Coder()
         
         if not skip_planner:
@@ -1234,6 +1382,12 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             plan_context = {"project_id": project_id, "files": list(file_tree.keys())}
             if history:
                 plan_context["history"] = history
+
+            # Check for Base64 Image stash
+            image_b64 = None
+            if ".gorilla/prompt_image.b64" in file_tree:
+                image_b64 = file_tree[".gorilla/prompt_image.b64"]
+                plan_context["image_context"] = image_b64
 
             plan_res = await asyncio.to_thread(
                 planner.generate_plan,
@@ -1288,17 +1442,16 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                 emit_progress(project_id, "Done", 100)
                 return
         else:
-            # --- BYPASS PLANNER FOR LOG ERRORS ---
+            # --- BYPASS PLANNER FOR LOG ERRORS & DEPLOY OPTIMIZATIONS ---
             emit_phase(project_id, "coder")
-            emit_log(project_id, "system", "⚡ Sending Error Trace Directly to Coder...")
-            tasks = [prompt] # Treat the error output directly as the task
+            emit_log(project_id, "system", "⚡ Bypassing Planner. Triggering Coder directly...")
+            tasks = [prompt] 
 
         # --- PHASE 2: CODER ---
         emit_phase(project_id, "coder")
         total = len(tasks)
         
         for i, task in enumerate(tasks, 1):
-            # Check limits inside the loop just in case
             if user_id:
                 try: enforce_token_limit_or_raise(user_id)
                 except HTTPException:
@@ -1310,7 +1463,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             emit_status(project_id, f"Implementing task {i}/{total}...")
             
             code_res = await coder.generate_code(
-                plan_section="Bug Fix" if skip_planner else "Implementation",
+                plan_section="Direct Execution" if skip_planner else "Implementation",
                 plan_text=task,
                 file_tree=file_tree,
                 project_name=project_id
@@ -1330,7 +1483,6 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                 content = op.get("content")
                 
                 if path and content is not None:
-                    # Linting
                     if path.startswith("static/") and path.endswith(".js"):
                         try:
                             lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
@@ -1353,6 +1505,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
     except Exception as e:
         emit_status(project_id, "Error")
         emit_log(project_id, "system", f"Workflow failed: {e}")
+        import traceback
         print(traceback.format_exc())
 
 # ==========================================================================
@@ -1361,36 +1514,25 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
 
 @app.post("/api/project/{project_id}/log")
 async def log_browser_event(project_id: str, request: Request, background_tasks: BackgroundTasks):
-    """
-    Receives logs from the browser.
-    If it's a critical error, it fetches chat history and TRIGGERS the Coder to fix it.
-    """
     try:
-        # 1. Parse Data
         form = await request.form()
         level = form.get("level", "INFO")
         message = form.get("message", "")
         
         print(f"[{level}] Browser: {message}")
 
-        # 2. Check if it's a CRASH (Error/Failed)
         if "error" in message.lower() or "failed" in message.lower() or "exception" in message.lower():
-            
-            # A. Notify User in UI
             emit_log(project_id, "system", f"⚠️ Browser Error Detected: {message}")
             emit_log(project_id, "system", "🔧 Auto-Fixing...")
 
-            # B. Get Chat History (Context)
             chat_history = []
             try:
                 rows = db_select("messages", {"project_id": project_id})
                 rows.sort(key=lambda x: x['created_at'])
                 for r in rows:
                     chat_history.append({"role": r["role"], "content": r["content"]})
-            except:
-                pass 
+            except: pass 
 
-            # C. Fetch Owner for Token Billing
             owner_id = None
             try:
                 proj = db_select_one("projects", {"id": project_id}, "owner_id")
@@ -1398,10 +1540,8 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
             except: pass
 
             if not owner_id:
-                print(f"⚠️ Could not find owner for project {project_id}, skipping auto-fix.")
                 return JSONResponse({"status": "error", "detail": "Owner not found"})
 
-            # D. Construct the "Fix It" Prompt
             error_prompt = f"""
             CRITICAL RUNTIME ERROR REPORTED BY BROWSER:
             {message}
@@ -1410,15 +1550,14 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
             Fix the specific file causing this crash immediately.
             """
 
-            # E. Trigger the Agent (Using the shared loop)
             background_tasks.add_task(
                 run_agent_loop, 
                 project_id=project_id, 
                 prompt=error_prompt, 
                 user_id=owner_id,
                 history=chat_history,
-                is_xmode=True, # Force X-Mode for bug fixes usually helps
-                skip_planner=True # <--- bypasses planner to send directly to coder
+                is_xmode=True, 
+                skip_planner=True 
             )
             
     except Exception as e:
@@ -1428,25 +1567,213 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
 
 
 # ==========================================================================
+# DEPLOYMENT ROUTES (VERCEL & GITHUB)
+# ==========================================================================
+
+# 1. Dedicated Route to securely LINK GitHub without logging out the active Google user
+@app.get("/auth/github/link")
+async def link_github_account(request: Request):
+    user = get_current_user(request)
+    if not GITHUB_CLIENT_ID or not GITHUB_REDIRECT_URI:
+        raise HTTPException(500, "GitHub Auth config missing.")
+    
+    # We pass 'link' in state so the callback knows we are just attaching a token
+    scope = "user:email repo"
+    auth_url = f"https://github.com/login/oauth/authorize?client_id={GITHUB_CLIENT_ID}&redirect_uri={GITHUB_REDIRECT_URI}&scope={scope}&state=link_{user['id']}"
+    return RedirectResponse(auth_url)
+
+# 2. Render Deploy Wizard
+@app.get("/projects/{project_id}/deploy", response_class=HTMLResponse)
+async def project_deploy_page(request: Request, project_id: str):
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+    
+    try:
+        res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
+        project = res.data
+    except Exception:
+        project = {}
+        
+    user_data = db_select_one("users", {"id": user["id"]}, "github_access_token")
+    has_github = bool(user_data and user_data.get("github_access_token"))
+
+    return templates.TemplateResponse(
+        "projects/deploy.html",
+        {
+            "request": request,
+            "project_id": project_id,
+            "project": project,
+            "has_github": has_github,
+            "user": user
+        }
+    )
+
+# 3. Optimize Codebase for Vercel
+@app.post("/api/project/{project_id}/deploy-optimize")
+async def optimize_for_vercel(request: Request, project_id: str):
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+    
+    optimization_prompt = """
+    We are deploying this full-stack application to Vercel Serverless. You MUST perform these exactly:
+    1. Create a `vercel.json` file in the root directory that routes API requests:
+       `{"rewrites": [{"source": "/api/(.*)", "destination": "/server.js"}, {"source": "/(.*)", "destination": "/index.html"}]}`
+    2. Overwrite `server.js` completely. Do NOT call `app.listen(...)` at the bottom. Vercel requires you to EXPORT the express app instead. End the file with `export default app;` or `module.exports = app;`.
+    """
+    try:
+        # Await the agent directly so the frontend knows when it's done
+        await run_agent_loop(
+            project_id=project_id,
+            prompt=optimization_prompt,
+            user_id=user["id"],
+            is_xmode=True,
+            skip_planner=True 
+        )
+        supabase.table("projects").update({"vercel_optimized": True}).eq("id", project_id).execute()
+        return {"status": "ok", "detail": "Optimized for Vercel"}
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+# 4. Push to GitHub
+
+@app.post("/projects/{project_id}/github/publish")
+async def publish_to_github(request: Request, project_id: str):
+    try:
+        user = get_current_user(request)
+        
+        proj_check = supabase.table("projects").select("owner_id").eq("id", project_id).single().execute()
+        if not proj_check.data or proj_check.data["owner_id"] != user["id"]:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=403)
+        
+        user_data = db_select_one("users", {"id": user["id"]}, "github_access_token")
+        if not user_data or not user_data.get("github_access_token"):
+            return JSONResponse({"detail": "GitHub account not connected."}, status_code=400)
+        
+        token = user_data["github_access_token"]
+        
+        res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
+        project = res.data
+        
+        # --- UPDATED LOGIC: Make repo name match the Gorilla project name ---
+        raw_name = project.get("name", "gorilla-project")
+        # Sanitize to replace spaces and special characters with hyphens (required by GitHub)
+        repo_name = re.sub(r'[^a-z0-9-]', '-', raw_name.lower()).strip('-')
+        
+        # Fallback just in case the name was completely invalid characters
+        if not repo_name:
+            repo_name = f"gorilla-project-{project_id[:6]}"
+        
+        files_res = supabase.table("files").select("path,content").eq("project_id", project_id).execute()
+        files = getattr(files_res, "data", [])
+        if not files and isinstance(files_res, list): files = files_res
+
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"}
+        
+        async with httpx.AsyncClient() as client:
+            # A. Create or Find Repository
+            repo_res = await client.post(
+                "https://api.github.com/user/repos", 
+                json={"name": repo_name, "private": True, "auto_init": True}, 
+                headers=headers
+            )
+            if repo_res.status_code not in [201, 422]:
+                return JSONResponse({"detail": f"GitHub Repo Creation Failed: {repo_res.text}"}, status_code=500)
+            
+            repo_data = repo_res.json()
+            full_name = repo_data.get("full_name")
+            
+            # If repo already exists (422)
+            if repo_res.status_code == 422:
+                user_info_res = await client.get("https://api.github.com/user", headers=headers)
+                if user_info_res.status_code == 200:
+                    login = user_info_res.json().get("login")
+                    full_name = f"{login}/{repo_name}"
+                else:
+                    return JSONResponse({"detail": "Failed to fetch GitHub username for existing repo."}, status_code=500)
+                
+                # SAFETY NET: Check if the existing repo is completely empty!
+                branch_res = await client.get(f"https://api.github.com/repos/{full_name}/branches/main", headers=headers)
+                if branch_res.status_code == 404:
+                    # The repo exists but is empty! Initialize it manually via the Contents API
+                    readme_content = base64.b64encode(b"# Init\n").decode("utf-8")
+                    await client.put(
+                        f"https://api.github.com/repos/{full_name}/contents/README.md",
+                        json={"message": "Initialize empty repository", "content": readme_content},
+                        headers=headers
+                    )
+
+            # B. Bulk Create Blobs & Tree
+            tree = []
+            for f in files:
+                path = f.get("path", "")
+                if path.startswith(".gorilla/"): continue
+                
+                # GitHub API rejects strictly empty strings for inline blobs. Give it a single space.
+                content = f.get("content")
+                if not content:
+                    content = " "
+                    
+                tree.append({
+                    "path": path.lstrip("/"),
+                    "mode": "100644",
+                    "type": "blob",
+                    "content": content
+                })
+            
+            # If the tree is completely empty, inject a default README so the commit always succeeds.
+            if len(tree) == 0:
+                tree.append({
+                    "path": "README.md",
+                    "mode": "100644",
+                    "type": "blob",
+                    "content": f"# {project.get('name', 'Gorilla Project')}\n\nAuto-generated by Gor://a Builder."
+                })
+                
+            tree_res = await client.post(f"https://api.github.com/repos/{full_name}/git/trees", json={"tree": tree}, headers=headers)
+            
+            if tree_res.status_code != 201:
+                return JSONResponse({"detail": f"Git Tree Error: {tree_res.text}"}, status_code=500)
+                
+            tree_sha = tree_res.json()["sha"]
+            
+            # C. Create Commit
+            commit_res = await client.post(f"https://api.github.com/repos/{full_name}/git/commits", json={"message": "Publish via Gor://a Builder", "tree": tree_sha}, headers=headers)
+            if commit_res.status_code != 201:
+                return JSONResponse({"detail": f"Commit Error: {commit_res.text}"}, status_code=500)
+            commit_sha = commit_res.json()["sha"]
+            
+            # D. Update Reference (Create or Update Main Branch)
+            ref_res = await client.post(f"https://api.github.com/repos/{full_name}/git/refs", json={"ref": "refs/heads/main", "sha": commit_sha}, headers=headers)
+            if ref_res.status_code == 422: # Reference already exists, force update it
+                await client.patch(f"https://api.github.com/repos/{full_name}/git/refs/heads/main", json={"sha": commit_sha, "force": True}, headers=headers)
+            
+            repo_url = f"https://github.com/{full_name}"
+            
+            # E. Save to DB
+            supabase.table("projects").update({"github_repo_url": repo_url}).eq("id", project_id).execute()
+            
+            return JSONResponse({"status": "ok", "repo_url": repo_url})
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"detail": str(e)}, status_code=500)
+
+# ==========================================================================
 # FILE API ROUTES
 # ==========================================================================
 
 @app.get("/api/project/{project_id}/files")
 async def get_project_files(request: Request, project_id: str):
-    """
-    Returns the flat list of files for the WebContainer.
-    """
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
-    # Fetch from Supabase
     res = (
         supabase.table("files")
         .select("path,content")
         .eq("project_id", project_id)
         .execute()
     )
-    
     if asyncio.iscoroutine(res): res = await res
     
     rows = getattr(res, "data", [])
@@ -1457,8 +1784,6 @@ async def get_project_files(request: Request, project_id: str):
 
 @app.get("/api/project/{project_id}/file")
 async def get_file_content(request: Request, project_id: str, path: str):
-    print(f"📂 [BACKEND] Fetching file: {path} for project: {project_id}")
-    
     try:
         res = supabase.table("files").select("content").eq("project_id", project_id).eq("path", path).execute()
         if asyncio.iscoroutine(res): res = await res
@@ -1466,13 +1791,9 @@ async def get_file_content(request: Request, project_id: str, path: str):
         content = ""
         if res.data and len(res.data) > 0:
             content = res.data[0].get("content", "")
-        else:
-            print(f"⚠️ [BACKEND] File not found in DB: {path}")
 
         return JSONResponse({"content": content})
-        
     except Exception as e:
-        print(f"❌ [BACKEND] Error: {e}")
         return JSONResponse({"content": f"// Error loading file: {e}"})
 
 
@@ -1505,6 +1826,8 @@ async def check_tokens(request: Request, project_id: str):
 # ==========================================================================
 # STATIC FILE SERVING & WEBCONTAINER SUPPORT
 # ==========================================================================
+import mimetypes
+
 def _guess_media_type(path: str) -> str:
     mt, _ = mimetypes.guess_type(path)
     if mt: return mt
@@ -1547,6 +1870,8 @@ async def serve_project_file(request: Request, project_id: str, path: str):
 # ==========================================================================
 # EVENT BUS & UTILS
 # ==========================================================================
+import json
+
 class _ProgressBus:
     def __init__(self):
         self._queues: Dict[str, List[asyncio.Queue]] = {}
@@ -1567,7 +1892,6 @@ class _ProgressBus:
 
 progress_bus = _ProgressBus()
 
-# Helper Emitters
 def emit_log(pid: str, role: str, text: str) -> None:
     progress_bus.emit(pid, {"type": "log", "role": role, "text": text})
 
@@ -1590,8 +1914,11 @@ def emit_token_update(pid: str, used: int) -> None:
 # ==========================================================================
 # GATEKEEPER: LINTING
 # ==========================================================================
+import tempfile
+import subprocess
+import os
+
 def lint_code_with_esbuild(content: str, filename: str) -> str | None:
-    """Runs esbuild to check for syntax errors. (Blocking)"""
     if not filename.startswith("static/") or not filename.endswith(".js"):
         return None
 
@@ -1623,15 +1950,12 @@ def lint_code_with_esbuild(content: str, filename: str) -> str | None:
 # ==========================================================================
 async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
     try:
-        # 1. Execute Query
         query = supabase.table("files").select("path,content").eq("project_id", project_id)
         res = query.execute()
         
-        # 2. Check if response is a coroutine
         if asyncio.iscoroutine(res):
             res = await res
             
-        # 3. Normalize Data
         rows = getattr(res, "data", [])
         if not rows and isinstance(res, list):
             rows = res
@@ -1652,7 +1976,6 @@ async def agent_start(
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
-    # 1. TOKEN CHECK
     try:
         enforce_token_limit_or_raise(user["id"])
     except HTTPException as e:
@@ -1674,7 +1997,6 @@ async def agent_start(
     emit_status(project_id, "Agent received prompt")
     emit_log(project_id, "user", prompt)
 
-    # Dispatch shared loop
     asyncio.create_task(
         run_agent_loop(project_id, prompt, user["id"], xmode)
     )
@@ -1699,6 +2021,7 @@ async def agent_events(request: Request, project_id: str):
         finally:
             progress_bus.unsubscribe(project_id, q)
 
+    from fastapi.responses import StreamingResponse
     return StreamingResponse(
         _gen(), 
         media_type="text/event-stream",
@@ -1709,6 +2032,7 @@ async def agent_events(request: Request, project_id: str):
         }
     )
 
+from fastapi.responses import HTMLResponse
 @app.get("/projects/{project_id}/game", response_class=HTMLResponse)
 async def project_game(request: Request, project_id: str):
     user = get_current_user(request)
@@ -1720,6 +2044,7 @@ async def agent_ping(request: Request, project_id: str):
     emit_log(project_id, "system", "🔥 Pong from backend")
     return {"ok": True}
 
+import time
 @app.get("/health")
 async def health():
     return {"ok": True, "ts": int(time.time()), "dev_mode": DEV_MODE}

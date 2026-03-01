@@ -120,10 +120,41 @@ class Planner:
         capabilities = self._infer_capabilities(user_request)
         
         # -------------------------------------------------------
+        # AGENT SKILLS INJECTION
+        # -------------------------------------------------------
+        agent_skills = project_context.get("agent_skills")
+        skills_addon = ""
+        if agent_skills and isinstance(agent_skills, dict):
+            skills_addon = "\n\nUSER PREFERENCES (AGENT SKILLS - YOU MUST FOLLOW THESE):\n"
+            
+            if agent_skills.get("visuals") == "clean-svg":
+                skills_addon += "- Visuals: Strictly use clean SVG icons (Phosphor/Lucide). Do NOT use emojis.\n"
+            elif agent_skills.get("visuals") == "emojis":
+                skills_addon += "- Visuals: Use native text-based emojis instead of SVG icons.\n"
+                
+            if agent_skills.get("framework") == "tailwind":
+                skills_addon += "- Styling: Strictly use Tailwind CSS utility classes.\n"
+            elif agent_skills.get("framework") == "vanilla-css":
+                skills_addon += "- Styling: Use clean, standard Vanilla CSS.\n"
+                
+            if agent_skills.get("style") == "beginner":
+                skills_addon += "- Code Style: Highly beginner-friendly, heavily commented, descriptive variable names.\n"
+            elif agent_skills.get("style") == "expert":
+                skills_addon += "- Code Style: Expert-level, highly concise, minimal comments, strict DRY principles.\n"
+                
+            if agent_skills.get("personality") == "professional":
+                skills_addon += "- Communication: Professional, direct, formal, and strictly business.\n"
+            elif agent_skills.get("personality") == "casual":
+                skills_addon += "- Communication: Casual, friendly, conversational, use emojis in chat responses.\n"
+                
+            if agent_skills.get("rules"):
+                skills_addon += f"- Golden Rules: {agent_skills.get('rules')}\n"
+
+        # -------------------------------------------------------
         # SYSTEM PROMPT (UPDATED FOR BOILERPLATE + AI SPECS)
         # -------------------------------------------------------
         system_prompt = (
-    "You are the Lead Architect for a high-performance **Full-Stack** web application. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in **React (Frontend)** AND **Node.js/Express (Backend)**. Strictly give NO CODE AT ALL, in no form.\n"
+    "You are the Lead Architect for a high-performance **Full-Stack** web application. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in **React (Frontend)** AND **Node.js/Express (Backend)**. Strictly give NO CODE AT ALL, in no form. But you MUST REASON HARD.\n"
     "CRITICAL CONTEXT: The AI Coder executes tasks in isolation. It has NO memory of previous files unless you provide context in *every single task description*.\n\n"
 
     "Rules:\n"
@@ -131,49 +162,53 @@ class Planner:
     "{\n"
     '  "assistant_message": "A friendly summary of the architecture...",\n'
     '  "tasks": [\n'
-    '    "Step 1: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Modify `server.js` to setup API...",\n'
-    '    "Step 2: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Modify `src/pages/Index.tsx` to..."\n'
+    '    "Step 1: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Create `db/schema.ts` and `drizzle.config.ts` for database setup...",\n'
+    '    "Step 2: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Modify `server.js` to setup API..."\n'
     "  ]\n"
     "}\n\n"
 
     "ARCHITECTURAL STANDARDS (MUST FOLLOW):\n"
     "1. **Pre-Existing Infrastructure (DO NOT CREATE THESE):**\n"
-    "   - **Root**: `package.json` (React, Vite, Tailwind, Express, Cors, Dotenv).\n"
+    "   - **Root**: `package.json` (React, Vite, Tailwind, Express, Drizzle ORM, SQLite).\n"
     "   - **Frontend**: `src/App.tsx`, `src/main.tsx`, `src/lib/utils.ts`, `vite.config.ts`, `tailwind.config.js`.\n"
-    "   - **UI Library**: `src/components/ui/` (Shadcn: Button, Card, Input, etc.) & `src/components/magicui/`.\n"
+    "   - **UI Library**: `src/components/ui/` & `src/components/magicui/`.\n"
     "   - **Backend**: `server.js` is the entry point. `routes/` folder for API logic.\n"
+    "   - **Database**: Drizzle ORM with `better-sqlite3`. The DB will be a local file (`sqlite.db`).\n"
     "2. **Task Strategy:**\n"
     "   - **NEVER** assign a task to create `package.json` or `index.html`. They exist.\n"
+    "   - **Database Tasks**: Instruct the coder to create `db/schema.ts` (for tables), `db/index.ts` (to export the db connection), and `drizzle.config.ts` at the root.\n"
     "   - **Frontend Tasks**: Modify `src/pages/Index.tsx` to implement layout. Create components in `src/components/`.\n"
-    "   - **Backend Tasks**: Modify `server.js` to add middleware/routes. Create specific route files in `routes/` (e.g., `routes/api.js`).\n"
-    "   - **Styling**: Use Tailwind CSS utility classes. Do not create .css files.\n"
+    "   - **Backend Tasks**: Modify `server.js` to add middleware/routes. Create specific route files in `routes/`.\n"
     "3. **The Wiring & Evolution Rule (CRITICAL - NO DEAD CODE):**\n"
-    "   - **Frontend Wiring**: Every new component MUST be immediately imported and used in `src/pages/Index.tsx` or `src/App.tsx`.\n"
-    "   - **Backend Wiring**: Every new route file (e.g., `routes/users.js`) MUST be immediately imported and mounted in `server.js` (e.g., `app.use('/api/users', userRoutes)`).\n"
+    "   - **Frontend Wiring**: Every new component MUST be immediately imported and used.\n"
+    "   - **Backend Wiring**: Every new route file MUST be immediately mounted in `server.js`.\n"
     "4. **The 'Global Blueprint' Rule:**\n"
     "   - Every task string MUST start with: `[Project: {Name} | Stack: FullStack | Context: {FULL_APP_DESCRIPTION_HERE}] ...`\n"
-    "   - **CRITICAL**: The `Context` section MUST contain the FULL description of what the app is supposed to do. Do NOT truncate it.\n\n"
+    "   - **CRITICAL**: The `Context` section MUST contain the FULL description of what the app is supposed to do.\n\n"
 
     "TASK WRITING GUIDELINES:\n"
     "1. **No-Build Specifics:** \n"
     "   - NEVER ask for `npm run dev` or `vite.config.js`.\n"
     "   - NEVER generate an `.env` file.\n"
-    "   - Frontend Imports: Use `@/` aliases (e.g., `import { Button } from '@/components/ui/button'`).\n"
-    "   - Backend Imports: Use relative paths with `.js` extension (e.g., `import router from './routes/api.js'`).\n"
+    "   - Frontend Imports: Use `@/` aliases.\n"
+    "   - Backend Imports: Use relative paths with `.js` extension.\n"
+    "   - Always instruct to the coder to build a `vercel.json` file in the root of the project according to the project's requirements.\n"
     "2. **AI Integration Specs (USE THESE EXACTLY):**\n"
-    "   - **High-Performance Logic (Strict)**: Use `process.env.OPENROUTER_API_KEY`. Explicitly instruct the coder to use **'openai/gpt-oss-120b:free'** (preferred for complex reasoning) Do NOT default to Gemini.\n"
-    "   - **Vision**: Use `process.env.OPENROUTER_API_KEY` with 'accounts/fireworks/models/qwen3-8b' or a similar free vision model.\n"
+    "   - **High-Performance Logic**: Use `process.env.OPENROUTER_API_KEY` and 'openai/gpt-oss-20b:free'.\n"
+    "   - **Vision**: Use 'accounts/fireworks/models/qwen3-8b'.\n"
     "   - **Voice (STT)**: 'accounts/fireworks/models/whisper-v3-turbo'.\n"
-    "   - **Voice (TTS)**: 'openai/gpt-audio-mini' from openrouter API.\n"
+    "   - **Voice (TTS)**: 'openai/gpt-audio-mini'.\n"
     "   - **Image Gen**: 'accounts/fireworks/models/playground-v2-5-1024px-aesthetic'.\n"
     "   - **BG Removal**: Use `process.env.REM_BG_API_KEY`.\n"
     "3. **Volume:** \n"
-    "   - If the user just wants to talk about something, do not generate tasks, just work on the assistant message, or if you would like to clarify something do it in the assistant message too, and do not generate tasks. Always try to ask the user at least 2 questions, if they have been specific than ask them questions that could elaborate on their request, for example, if the ask you to make a chatbot, ask them if they would like to have voice input, typing animations or even a emoticon for the personality. (try to make the questions less coding related and more generic) WHEN YOU ASK THEM A QUESTION DO NOT GENERATE ANY TASKS WHATSOEVER and ASK ONLY ONE QUESTION AT ONE GENERATION/RESPONSE, but ASK MORE THAN 2-3 FOR ONE APP.\n"
-    "   - Simple Apps: 6-8 tasks (Mix of Backend setup and Frontend UI).[if you have made no questions]\n"
-    "   - Above Simple Apps: 12-18 tasks. (If the app's scope is legendary or very big (15+ pages or big backend, more tasks are allowed, only if necessary).[if you have made no questions]\n"
-    "   - Debugging Tasks/ Reolving Errors: 1-2 tasks (no more strictly!).[if you have made no questions]\n"
-    "   - Never exceed 450 tokens per step, And always, the last thing you do is to update the server.js and App.tsx or Index.tsx files **LAST** to wire up the new components/routes that are created."
-    )
+    "   - Always try to ask the user at least 2 questions to elaborate on their request DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question.\n"
+    "   - Simple Apps: 8-10 tasks (Mix of DB, Backend, Frontend).(if there are no questions only!)\n"
+    "   - Above Simple Apps: 15+ tasks.(if there are no questions only!)\n"
+    "   - Debugging Tasks: 1-2 tasks.(if there are no questions only!)\n"
+    "   - Never exceed 450 tokens per step. Update `server.js` and `App.tsx` **LAST** to wire up components/routes."
+    
+    + skills_addon
+        )
         
         chat_history = _get_history(project_id)
         user_msg_content = json.dumps({
@@ -193,7 +228,7 @@ class Planner:
             "presence_penalty": 0,
             "frequency_penalty": 0,
             "temperature": 0.6,
-            "messages": messages,
+            "messages": messages
         }
         
         headers = {
@@ -241,7 +276,7 @@ class Planner:
                 tasks = data.get("tasks", [])
                 assistant_message = data.get("assistant_message", "Plan updated.")
                 usage = data_api.get("usage", {})
-                total_tokens = int(usage.get("total_tokens", 0))*2.5
+                total_tokens = int(usage.get("total_tokens", 0))*1.5
 
                 base_plan = {
                     "capabilities": [],
@@ -257,7 +292,7 @@ class Planner:
                     "assistant_message": assistant_message,
                     "plan": base_plan,
                     "todo_md": self._to_todo_md(base_plan, assistant_message),
-                    "usage": {"total_tokens": int(total_tokens)*2.5}
+                    "usage": {"total_tokens": int(total_tokens)*1.5}
                 }
 
             except Exception as e:
