@@ -120,6 +120,37 @@ class Planner:
         capabilities = self._infer_capabilities(user_request)
         
         # -------------------------------------------------------
+        # AGENT SKILLS INJECTION
+        # -------------------------------------------------------
+        agent_skills = project_context.get("agent_skills")
+        skills_addon = ""
+        if agent_skills and isinstance(agent_skills, dict):
+            skills_addon = "\n\nUSER PREFERENCES (AGENT SKILLS - YOU MUST FOLLOW THESE):\n"
+            
+            if agent_skills.get("visuals") == "clean-svg":
+                skills_addon += "- Visuals: Strictly use clean SVG icons (Phosphor/Lucide). Do NOT use emojis.\n"
+            elif agent_skills.get("visuals") == "emojis":
+                skills_addon += "- Visuals: Use native text-based emojis instead of SVG icons.\n"
+                
+            if agent_skills.get("framework") == "tailwind":
+                skills_addon += "- Styling: Strictly use Tailwind CSS utility classes.\n"
+            elif agent_skills.get("framework") == "vanilla-css":
+                skills_addon += "- Styling: Use clean, standard Vanilla CSS.\n"
+                
+            if agent_skills.get("style") == "beginner":
+                skills_addon += "- Code Style: Highly beginner-friendly, heavily commented, descriptive variable names.\n"
+            elif agent_skills.get("style") == "expert":
+                skills_addon += "- Code Style: Expert-level, highly concise, minimal comments, strict DRY principles.\n"
+                
+            if agent_skills.get("personality") == "professional":
+                skills_addon += "- Communication: Professional, direct, formal, and strictly business.\n"
+            elif agent_skills.get("personality") == "casual":
+                skills_addon += "- Communication: Casual, friendly, conversational, use emojis in chat responses.\n"
+                
+            if agent_skills.get("rules"):
+                skills_addon += f"- Golden Rules: {agent_skills.get('rules')}\n"
+
+        # -------------------------------------------------------
         # SYSTEM PROMPT (UPDATED FOR BOILERPLATE + AI SPECS)
         # -------------------------------------------------------
         system_prompt = (
@@ -175,6 +206,8 @@ class Planner:
     "   - Above Simple Apps: 15+ tasks.(if there are no questions only!)\n"
     "   - Debugging Tasks: 1-2 tasks.(if there are no questions only!)\n"
     "   - Never exceed 450 tokens per step. Update `server.js` and `App.tsx` **LAST** to wire up components/routes."
+    
+    + skills_addon
         )
         
         chat_history = _get_history(project_id)

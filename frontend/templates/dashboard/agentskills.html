@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Agent Skills · Gor://a Builder</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+  <style>
+    @font-face { font-family: 'din-next-w01-light'; font-style: normal; font-weight: 400; src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2'); font-display: swap; }
+    :root { --bg: #050505; --sidebar-bg: rgba(10, 10, 12, 0.6); --panel: rgba(20, 20, 25, 0.4); --border: rgba(255, 255, 255, 0.08); --border-hover: rgba(255, 255, 255, 0.15); --accent: #3b6cff; --accent-glow: rgba(59, 108, 255, 0.25); --text: #ffffff; --text-muted: #8a8a93; --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E"); --ease-out: cubic-bezier(0.16, 1, 0.3, 1); }
+    body.premium { --accent: #ffd700; --accent-glow: rgba(255, 215, 0, 0.2); }
+    * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; outline: none; }
+    body { margin: 0; background: var(--bg); color: var(--text); height: 100vh; display: flex; overflow: hidden; }
+
+    /* App Shell Base */
+    .noise-overlay { position: fixed; inset: 0; background-image: var(--noise); pointer-events: none; z-index: 0; }
+    .glow-spot { position: fixed; width: 600px; height: 600px; background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%); opacity: 0.4; pointer-events: none; z-index: 0; top: -200px; left: 20%; filter: blur(80px); }
+    
+    aside { width: 260px; background: var(--sidebar-bg); backdrop-filter: blur(20px); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 24px 16px; z-index: 10; position: relative; }
+    .logo { font-size: 22px; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 12px; margin-bottom: 40px; padding-left: 12px; letter-spacing: -0.5px; }
+    .logo svg { color: var(--accent); width: 24px; height: 24px; }
+    .premium-badge { font-size: 10px; background: var(--accent); color: #000; padding: 2px 6px; border-radius: 4px; font-weight: 800; display: none; transform: translateY(-1px); }
+    body.premium .premium-badge { display: inline-block; }
+    nav { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+    nav a { color: var(--text-muted); text-decoration: none; padding: 10px 12px; border-radius: 10px; font-size: 14px; transition: all 0.2s var(--ease-out); display: flex; align-items: center; gap: 12px; }
+    nav a:hover { background: rgba(255,255,255,0.05); color: #fff; }
+    nav a.active { background: rgba(255,255,255,0.08); color: #fff; font-weight: 500; }
+    nav a i { font-size: 18px; opacity: 0.7; }
+    nav a:hover i, nav a.active i { opacity: 1; color: var(--accent); }
+    .profile-container { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border); }
+    .user-profile { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 12px; cursor: pointer; transition: background 0.2s; }
+    .user-profile:hover { background: rgba(255,255,255,0.05); }
+    .avatar { width: 36px; height: 36px; background: linear-gradient(135deg, #2a2a30, #151518); border: 1px solid var(--border); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; color: #fff; position: relative; }
+    .avatar::after { content: ''; position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: #10b981; border: 2px solid var(--bg); border-radius: 50%; }
+    .user-info { display: flex; flex-direction: column; font-size: 13px; line-height: 1.3; }
+    .user-name { color: #fff; font-weight: 500; }
+    .user-plan { color: var(--text-muted); font-size: 11px; text-transform: capitalize; }
+
+    main { flex: 1; overflow-y: auto; padding: 40px 60px; position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; }
+    
+    /* --- Wizard Styles --- */
+    .wizard-container { max-width: 600px; width: 100%; margin: auto; padding: 20px 0; }
+    .progress-bar { display: flex; gap: 8px; margin-bottom: 40px; }
+    .progress-dot { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.1); transition: 0.3s var(--ease-out); }
+    .progress-dot.active { background: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+    .progress-dot.completed { background: var(--accent); opacity: 0.5; }
+
+    .step { display: none; animation: fadeIn 0.4s var(--ease-out) forwards; }
+    .step.active { display: block; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+
+    .step-header { font-size: 28px; font-weight: 300; margin: 0 0 12px; color: #fff; }
+    .step-desc { font-size: 15px; color: var(--text-muted); margin: 0 0 32px; }
+
+    .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .option-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 24px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; }
+    .option-card:hover { border-color: var(--accent); background: rgba(59, 108, 255, 0.05); transform: translateY(-4px); }
+    body.premium .option-card:hover { border-color: var(--accent); background: rgba(255, 215, 0, 0.05); }
+    .option-icon { font-size: 32px; color: #fff; }
+    .option-title { font-size: 16px; font-weight: 500; color: #fff; margin: 0; }
+    .option-desc { font-size: 13px; color: var(--text-muted); margin: 0; }
+
+    .text-area { width: 100%; height: 150px; background: rgba(15, 15, 20, 0.6); border: 1px solid var(--border); border-radius: 16px; padding: 16px; color: #fff; font-size: 15px; resize: none; transition: 0.3s; margin-bottom: 24px; }
+    .text-area:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+    .btn-submit { background: var(--accent); color: #fff; border: none; padding: 14px 28px; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; gap: 8px; }
+    .btn-submit:hover { filter: brightness(1.1); transform: translateY(-2px); box-shadow: 0 10px 20px var(--accent-glow); }
+    body.premium .btn-submit { color: #000; }
+  </style>
+</head>
+<body class="{% if user.plan == 'premium' %}premium{% endif %}">
+
+  <div class="noise-overlay"></div>
+  <div class="glow-spot"></div>
+
+  <aside>
+    <div class="logo">
+      <svg viewBox="0 0 600 550" preserveAspectRatio="xMidYMid meet"> <g transform="translate(0.000000,603.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none"> <path d="M1497 6023 c827 -2 2179 -2 3005 0 827 1 151 2 -1502 2 -1653 0 -2329 -1 -1503 -2z"/> <path d="M2802 5273 c-43 -24 -131 -143 -182 -246 -99 -202 -106 -410 -19 -598 59 -128 153 -189 246 -158 56 18 81 37 108 84 34 57 32 112 -6 216 -54 145 -51 327 7 490 41 113 27 176 -46 214 -38 20 -68 19 -108 -2z"/> <path d="M3290 5268 c-74 -50 -185 -230 -228 -369 -44 -142 -37 -293 19 -440 52 -134 141 -208 234 -195 131 20 194 151 136 281 -67 150 -67 316 0 522 26 80 29 98 20 126 -28 83 -116 119 -181 75z"/> <path d="M685 4560 c-171 -34 -283 -139 -331 -306 -15 -50 -18 -129 -23 -519 -4 -321 -10 -466 -18 -480 -32 -56 -64 -70 -205 -90 -26 -4 -46 -17 -72 -45 -33 -36 -36 -45 -36 -99 0 -98 62 -161 157 -161 59 0 119 -26 146 -64 22 -31 22 -35 28 -496 5 -424 8 -471 26 -531 11 -37 31 -87 46 -111 72 -124 228 -198 418 -198 125 0 200 111 151 223 -26 59 -64 82 -148 90 -73 7 -116 27 -148 70 -20 28 -21 41 -27 490 -6 505 -8 526 -68 632 l-28 50 28 50 c60 106 62 128 68 630 6 427 7 462 25 491 26 44 68 65 139 71 81 7 131 35 157 88 26 53 25 91 -2 145 -32 61 -73 80 -168 79 -41 -1 -93 -5 -115 -9z"/> <path d="M5102 4550 c-68 -42 -92 -135 -54 -209 26 -52 60 -72 140 -81 83 -9 128 -32 157 -80 19 -33 20 -56 26 -500 6 -505 6 -513 66 -621 l26 -45 -26 -45 c-59 -103 -61 -113 -67 -619 -5 -461 -5 -465 -28 -501 -28 -45 -72 -67 -156 -77 -111 -14 -160 -66 -153 -165 4 -66 26 -103 78 -130 28 -15 50 -18 124 -13 218 12 351 101 416 278 22 61 23 74 28 533 6 503 6 500 58 547 19 18 78 34 155 43 33 4 56 15 78 35 29 27 30 31 30 118 0 88 -1 91 -31 116 -33 28 -45 32 -127 40 -66 7 -110 31 -137 76 -19 33 -20 56 -26 505 -6 496 -6 500 -55 598 -70 138 -221 217 -414 217 -57 0 -83 -5 -108 -20z"/> <path d="M1965 3849 c-113 -9 -166 -24 -280 -79 -312 -150 -493 -462 -471 -810 13 -209 89 -379 238 -529 161 -163 321 -236 545 -248 269 -14 478 70 667 267 61 65 95 111 130 179 70 136 89 217 89 386 0 124 -3 151 -27 230 -53 176 -145 314 -282 425 -174 139 -372 197 -609 179z m214 -324 c173 -46 319 -185 372 -354 23 -76 28 -212 9 -282 -50 -186 -208 -340 -391 -384 -181 -42 -372 15 -499 152 -100 106 -144 218 -143 363 1 290 228 517 518 519 44 0 104 -6 134 -14z"/> <path d="M3880 3849 c-190 -17 -341 -86 -488 -224 -112 -104 -200 -249 -239 -395 -25 -92 -25 -339 0 -430 78 -281 316 -519 597 -597 101 -28 339 -25 443 5 152 44 285 128 397 250 146 158 211 332 212 557 0 244 -82 436 -259 606 -181 175 -402 251 -663 228z m213 -324 c282 -73 454 -362 382 -640 -45 -171 -179 -312 -355 -371 -80 -27 -243 -25 -324 5 -202 73 -337 252 -353 466 -17 243 150 475 388 539 71 19 191 20 262 1z"/> </g> </svg>
+      Gor://a
+      <span class="premium-badge">PRO</span>
+    </div>
+
+    <nav>
+      <a href="/dashboard"><i class="ph ph-squares-four"></i> Projects</a>
+      <a href="/docs/intro"><i class="ph ph-book-open"></i> Docs</a>
+      <a href="/settings/skills" class="active"><i class="ph-fill ph-brain"></i> Agent Skills</a>
+      <a href="/settings"><i class="ph ph-gear"></i> Settings</a>
+    </nav>
+
+    <div class="profile-container">
+      <div class="user-profile">
+        <div class="avatar">{{ user.email[0].upper() if user.email else 'U' }}</div>
+        <div class="user-info">
+          <span class="user-name">{% if user.email %}{{ user.email.split('@')[0] }}{% else %}User{% endif %}</span>
+          <span class="user-plan">{{ user.plan|capitalize }} Plan</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="wizard-container">
+      
+      <div class="progress-bar" id="progressBar">
+        <div class="progress-dot active" id="dot-1"></div>
+        <div class="progress-dot" id="dot-2"></div>
+        <div class="progress-dot" id="dot-3"></div>
+        <div class="progress-dot" id="dot-4"></div>
+        <div class="progress-dot" id="dot-5"></div>
+      </div>
+
+      <div class="step active" id="step-1">
+        <h2 class="step-header">Visual Preference</h2>
+        <p class="step-desc">How should the AI handle icons and graphical elements in your apps?</p>
+        <div class="options-grid">
+          <div class="option-card" onclick="selectOption('visuals', 'clean-svg', 2)">
+            <div class="option-icon"><i class="ph-bold ph-diamond"></i></div>
+            <h3 class="option-title">Clean SVGs</h3>
+            <p class="option-desc">Professional, minimalist Phosphor/Lucide icons.</p>
+          </div>
+          <div class="option-card" onclick="selectOption('visuals', 'emojis', 2)">
+            <div class="option-icon">🚀</div>
+            <h3 class="option-title">Emojis</h3>
+            <p class="option-desc">Playful, native text-based emojis.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="step" id="step-2">
+        <h2 class="step-header">UI Framework</h2>
+        <p class="step-desc">What is your preferred styling approach?</p>
+        <div class="options-grid">
+          <div class="option-card" onclick="selectOption('framework', 'tailwind', 3)">
+            <div class="option-icon"><i class="ph-bold ph-wind"></i></div>
+            <h3 class="option-title">Tailwind CSS</h3>
+            <p class="option-desc">Utility classes directly in the HTML.</p>
+          </div>
+          <div class="option-card" onclick="selectOption('framework', 'vanilla-css', 3)">
+            <div class="option-icon"><i class="ph-bold ph-file-css"></i></div>
+            <h3 class="option-title">Vanilla CSS</h3>
+            <p class="option-desc">Clean, standard CSS in a dedicated stylesheet.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="step" id="step-3">
+        <h2 class="step-header">Code Style</h2>
+        <p class="step-desc">How should the AI structure and comment your code?</p>
+        <div class="options-grid">
+          <div class="option-card" onclick="selectOption('style', 'beginner', 4)">
+            <div class="option-icon"><i class="ph-bold ph-student"></i></div>
+            <h3 class="option-title">Beginner Friendly</h3>
+            <p class="option-desc">Heavily commented, descriptive variable names.</p>
+          </div>
+          <div class="option-card" onclick="selectOption('style', 'expert', 4)">
+            <div class="option-icon"><i class="ph-bold ph-terminal"></i></div>
+            <h3 class="option-title">Expert / Concise</h3>
+            <p class="option-desc">Minimal comments, advanced patterns, DRY principles.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="step" id="step-4">
+        <h2 class="step-header">Agent Personality</h2>
+        <p class="step-desc">How should the AI communicate with you in the chat?</p>
+        <div class="options-grid">
+          <div class="option-card" onclick="selectOption('personality', 'professional', 5)">
+            <div class="option-icon"><i class="ph-bold ph-briefcase"></i></div>
+            <h3 class="option-title">Professional</h3>
+            <p class="option-desc">Direct, formal, and strictly business.</p>
+          </div>
+          <div class="option-card" onclick="selectOption('personality', 'casual', 5)">
+            <div class="option-icon"><i class="ph-bold ph-coffee"></i></div>
+            <h3 class="option-title">Casual & Friendly</h3>
+            <p class="option-desc">Conversational, enthusiastic, uses emojis.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="step" id="step-5">
+        <h2 class="step-header">Golden Rules</h2>
+        <p class="step-desc">Any strict rules the AI should NEVER break? (e.g. "Always use dark mode", "Never use alert()")</p>
+        <textarea id="customRules" class="text-area" placeholder="Enter your custom instructions here..."></textarea>
+        <button class="btn-submit" id="btnSave" onclick="saveSkills()">
+          <i class="ph-bold ph-check"></i> Save Agent Skills
+        </button>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    const skillsPayload = {};
+
+    function selectOption(key, value, nextStepId) {
+      // 1. Save data
+      skillsPayload[key] = value;
+      
+      // 2. Hide current step
+      document.querySelector('.step.active').classList.remove('active');
+      
+      // 3. Show next step
+      document.getElementById('step-' + nextStepId).classList.add('active');
+      
+      // 4. Update progress bar
+      document.getElementById('dot-' + (nextStepId - 1)).classList.add('completed');
+      document.getElementById('dot-' + nextStepId).classList.add('active');
+    }
+
+    async function saveSkills() {
+      const btn = document.getElementById('btnSave');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="ph-bold ph-spinner ph-spin"></i> Saving...';
+
+      skillsPayload['rules'] = document.getElementById('customRules').value;
+
+      try {
+        const res = await fetch('/api/user/skills', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(skillsPayload)
+        });
+
+        if (res.ok) {
+          btn.innerHTML = '<i class="ph-bold ph-check"></i> Skills Saved!';
+          btn.style.background = "#10b981";
+          setTimeout(() => { window.location.href = "/dashboard"; }, 1000);
+        } else {
+          throw new Error("Failed to save.");
+        }
+      } catch (err) {
+        btn.innerHTML = 'Error. Try Again.';
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>

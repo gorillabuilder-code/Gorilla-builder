@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Dashboard · gor://a</title>
+  <title>Dashboard · Gor://a Builder</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1594181130407895" crossorigin="anonymous"></script>
@@ -307,6 +307,47 @@
       border-bottom: 1px dotted #666; transition: color 0.2s;
     }
     .remove-ads-link:hover { color: var(--accent); border-color: var(--accent); }
+
+    /* --- AGENT SKILLS POPUP --- */
+    .skills-modal-overlay {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(10px);
+      display: none; align-items: center; justify-content: center; z-index: 9999;
+      opacity: 0; transition: opacity 0.3s;
+    }
+    .skills-modal-overlay.active { display: flex; opacity: 1; }
+
+    .skills-modal {
+      background: #0f0f13; border: 1px solid var(--border); border-radius: 20px;
+      width: 480px; max-width: 90vw; padding: 40px; text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.8), 0 0 0 1px var(--accent-glow);
+      transform: translateY(20px) scale(0.95); transition: all 0.3s var(--ease-out);
+    }
+    .skills-modal-overlay.active .skills-modal { transform: translateY(0) scale(1); }
+
+    .skills-modal-icon {
+      width: 64px; height: 64px; background: rgba(59, 108, 255, 0.1);
+      border-radius: 16px; color: var(--accent); font-size: 32px;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px auto; border: 1px solid var(--accent-glow);
+    }
+
+    .skills-modal h2 { font-size: 24px; color: #fff; margin: 0 0 12px; font-weight: 500; }
+    .skills-modal p { color: var(--text-muted); font-size: 15px; line-height: 1.5; margin: 0 0 30px; }
+
+    .skills-modal-actions { display: flex; gap: 12px; }
+    
+    .btn-modal-primary {
+      flex: 1; background: var(--accent); color: #fff; border: none; padding: 12px;
+      border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer;
+      text-decoration: none; transition: 0.2s;
+    }
+    .btn-modal-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    
+    .btn-modal-secondary {
+      flex: 1; background: transparent; color: var(--text-muted); border: 1px solid var(--border);
+      padding: 12px; border-radius: 12px; font-size: 14px; cursor: pointer; transition: 0.2s;
+    }
+    .btn-modal-secondary:hover { background: rgba(255,255,255,0.05); color: #fff; }
   </style>
 </head>
 
@@ -326,6 +367,15 @@
       <a href="/dashboard" class="active">
         <i class="ph ph-squares-four"></i> Projects
       </a>
+      
+      <a href="/settings/skills" id="nav-agent-skills">
+        <i class="ph ph-brain"></i> Agent Skills
+      </a>
+
+      <a href="/settings">
+        <i class="ph ph-gear"></i> Settings
+      </a>
+
       <a href="/pricing">
         <i class="ph ph-lightning"></i> Upgrade
       </a>
@@ -492,20 +542,52 @@
 
   </main>
 
+  <div class="skills-modal-overlay" id="skillsModal">
+    <div class="skills-modal">
+      <div class="skills-modal-icon">
+        <i class="ph-bold ph-brain"></i>
+      </div>
+      <h2>Teach Your Agent</h2>
+      <p>Configure your default design frameworks, visual styles, and coding preferences so Gor://a builds exactly the way you like.</p>
+      
+      <div class="skills-modal-actions">
+        <button class="btn-modal-secondary" onclick="dismissSkillsModal()">Maybe Later</button>
+        <a href="/settings/skills" class="btn-modal-primary">Setup Skills Now</a>
+      </div>
+    </div>
+  </div>
+
   <script>
-    // Click Chip -> Fill Input
+    // --- Ideas Chip Logic ---
     const ideas = document.getElementById("ideas");
     const input = document.querySelector("input[name='prompt']");
     if (ideas && input && !input.disabled) {
       ideas.addEventListener("click", (e) => {
         const chip = e.target.closest(".chip");
         if (!chip) return;
-        
-        // Get text without the icon content
         const text = chip.textContent.trim();
         input.value = text;
         input.focus();
       });
+    }
+
+    // --- Agent Skills Popup Logic ---
+    // Inject the variable from backend. If it's a string/None, we convert it to boolean.
+    // NOTE: You must pass `has_skills: bool` from your dashboard route in app.py
+    const hasSkillsStr = "{{ 'true' if has_skills else 'false' }}";
+    const hasSkills = hasSkillsStr === "true";
+    const skillsModal = document.getElementById('skillsModal');
+    // Check if they dismissed it locally or if they already set it up
+    if (!hasSkills && localStorage.getItem('hideSkillsModal') !== 'true') {
+      // Small delay so it animates in smoothly after page load
+      setTimeout(() => {
+        skillsModal.classList.add('active');
+      }, 800);
+    }
+
+    function dismissSkillsModal() {
+      localStorage.setItem('hideSkillsModal', 'true');
+      skillsModal.classList.remove('active');
     }
   </script>
 

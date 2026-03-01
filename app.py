@@ -946,6 +946,8 @@ async def process_tokens(request: Request, amount: int = Form(...)):
     decrease_tokens_used(user["id"], amount)
     
     return RedirectResponse("/dashboard", status_code=303)
+from fastapi.responses import HTMLResponse, JSONResponse
+
 # ==========================================================================
 # DASHBOARD & WORKSPACE
 # ==========================================================================
@@ -953,11 +955,16 @@ async def process_tokens(request: Request, amount: int = Form(...)):
 async def dashboard(request: Request):
     user = get_current_user(request)
     
-    # Fetch latest Plan from DB
+    # Fetch latest Plan and Agent Skills from DB
+    has_skills = False
     try:
-        db_user = db_select_one("users", {"id": user["id"]}, "plan")
-        if db_user:
-            user["plan"] = db_user.get("plan", "free")
+        # Fetching both columns directly from supabase to avoid multiple queries
+        res = supabase.table("users").select("plan, agent_skills").eq("id", user["id"]).single().execute()
+        if res and res.data:
+            user["plan"] = res.data.get("plan", "free")
+            # If agent_skills is not null/empty, flag it as true
+            if res.data.get("agent_skills"):
+                has_skills = True
     except Exception:
         user["plan"] = "free"
     
@@ -984,7 +991,12 @@ async def dashboard(request: Request):
 
     return templates.TemplateResponse(
         "dashboard/dashboard.html", 
-        {"request": request, "projects": projects, "user": user}
+        {
+            "request": request, 
+            "projects": projects, 
+            "user": user,
+            "has_skills": has_skills # Now the popup knows whether to hide!
+        }
     )
 
 @app.get("/workspace", response_class=HTMLResponse)
@@ -1009,6 +1021,46 @@ async def workspace(request: Request):
         "dashboard/workspace.html",
         {"request": request, "projects": projects, "user": user}
     )
+
+# ==========================================================================
+# SETTINGS & AGENT SKILLS ROUTES
+# ==========================================================================
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    user = get_current_user(request)
+    try:
+        res = supabase.table("users").select("plan").eq("id", user["id"]).single().execute()
+        user["plan"] = res.data.get("plan", "free") if res.data else "free"
+    except Exception:
+        user["plan"] = "free"
+        
+    return templates.TemplateResponse("dashboard/settings.html", {"request": request, "user": user})
+
+@app.get("/settings/skills", response_class=HTMLResponse)
+async def agent_skills_page(request: Request):
+    user = get_current_user(request)
+    try:
+        res = supabase.table("users").select("plan").eq("id", user["id"]).single().execute()
+        user["plan"] = res.data.get("plan", "free") if res.data else "free"
+    except Exception:
+        user["plan"] = "free"
+        
+    return templates.TemplateResponse("dashboard/agentskills.html", {"request": request, "user": user})
+
+@app.post("/api/user/skills")
+async def save_agent_skills(request: Request):
+    user = get_current_user(request)
+    try:
+        payload = await request.json()
+        
+        # Save the JSON directly to the agent_skills column in Supabase
+        supabase.table("users").update({"agent_skills": payload}).eq("id", user["id"]).execute()
+        
+        return JSONResponse({"status": "success", "message": "Skills saved successfully"})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"detail": f"Failed to save skills: {str(e)}"}, status_code=500)
 
 
 # ==========================================================================
