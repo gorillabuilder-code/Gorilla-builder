@@ -8,7 +8,7 @@
     "client": "vite",
     "server": "tsx watch server/index.ts",
     "build": "tsc && vite build",
-    "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },
@@ -22,7 +22,7 @@
     "clsx": "^2.1.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "drizzle-orm": "^0.31.2",
+    "drizzle-orm": "^0.30.10",
     "express": "^4.19.2",
     "framer-motion": "^11.2.0",
     "lucide-react": "^0.378.0",

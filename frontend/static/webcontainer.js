@@ -2,7 +2,7 @@ import { WebContainer } from 'https://esm.sh/@webcontainer/api@1.1.8';
 
 /**
  * WebContainer Orchestrator
- * Handles the browser-based Node.js runtime.
+ * Handles the browser-based Node.js runtime and Auto-Healing loops.
  */
 export class WebRunner {
     constructor() {
@@ -66,15 +66,17 @@ export class WebRunner {
     }
 
     /**
-     * Helper to create a debounced error logger
+     * Helper to create a debounced error logger for Runtime errors
      */
-    _createDebouncedLogger(logger, contextName) {
+    _createDebouncedLogger(logger, contextName, projectId) {
         let buffer = "";
         let timeout = null;
 
         const flush = () => {
             if (buffer.trim() !== "") {
-                logger("coder", `❌ ${contextName} Errors:\n${buffer.trim()}\n\nPlease fix these issues.`);
+                const prompt = `SYSTEM ALERT: ❌ ${contextName} Runtime Errors:\n<logs>\n${buffer.trim()}\n</logs>\nPlease fix these issues in the codebase.`;
+                logger("coder", prompt); // Show in UI
+                this._notifyCoder(projectId, prompt); // Send to backend
                 buffer = "";
             }
         };
@@ -83,7 +85,7 @@ export class WebRunner {
             push: (data) => {
                 buffer += data + "\n";
                 if (timeout) clearTimeout(timeout);
-                timeout = setTimeout(flush, 3000);
+                timeout = setTimeout(flush, 4000); // Wait 4s for cascade of errors to finish
             },
             flushImmediate: () => {
                 if (timeout) clearTimeout(timeout);
@@ -93,24 +95,49 @@ export class WebRunner {
     }
 
     /**
-     * Run npm install (With Retry Loop & Error Debouncing)
+     * 🚨 NEW: Securely dispatch error logs to the AI Agent Backend
      */
-    async install(logger) {
+    async _notifyCoder(projectId, systemPrompt) {
+        // Fallback to extract projectId from URL if not explicitly passed
+        const pid = projectId || window.PROJECT_ID || window.location.pathname.split('/')[2];
+        
+        if (!pid) {
+            console.warn("No Project ID found. Cannot auto-notify coder.");
+            return;
+        }
+
+        try {
+            await fetch(`/api/project/${pid}/chat`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt: systemPrompt, isSystemMessage: true })
+            });
+            console.log("🤖 Logs successfully dispatched to AI Coder.");
+        } catch (err) {
+            console.error("Failed to reach AI Coder:", err);
+        }
+    }
+
+    /**
+     * Run npm install (With Retry Loop, Legacy Peer Deps & Auto-Heal)
+     */
+    async install(logger, projectId) {
         if (!this.instance) throw new Error("Container not booted");
         
         let success = false;
 
         while (!success) {
             logger("system", "Installing dependencies...");
-            const errorTracker = this._createDebouncedLogger(logger, "NPM Install");
+            let errorLogs = ""; 
 
-            const process = await this.instance.spawn('npm', ['install']);
+            // 🚨 Use legacy-peer-deps to ignore strict React versioning conflicts
+            const process = await this.instance.spawn('npm', ['install', '--legacy-peer-deps']);
             
             process.output.pipeTo(new WritableStream({
                 write(data) {
+                    errorLogs += data; // Capture full output for the AI
                     if(data.includes('ERR') || data.includes('warn')) {
                         console.warn("[NPM]", data);
-                        errorTracker.push(data);
                     }
                 }
             }));
@@ -118,8 +145,16 @@ export class WebRunner {
             const exitCode = await process.exit;
             
             if (exitCode !== 0) {
-                errorTracker.flushImmediate();
-                logger("system", `⚠️ npm install failed (code ${exitCode}). Coder notified. Retrying in 10s...`);
+                logger("system", `⚠️ npm install failed (code ${exitCode}). Notifying AI Coder...`);
+                
+                // Grab the last 1500 chars so we don't blow up the AI token context limit
+                const truncatedLogs = errorLogs.slice(-1500);
+                const autoPrompt = `SYSTEM ALERT: The WebContainer failed to boot. \`npm install --legacy-peer-deps\` exited with code ${exitCode}. \nHere are the logs:\n<logs>\n${truncatedLogs}\n</logs>\nPlease review the package.json. Fix any invalid package names, version conflicts, or missing dependencies, and rewrite the package.json file.`;
+
+                // Fire the API call!
+                await this._notifyCoder(projectId, autoPrompt);
+                
+                logger("system", "Coder notified! Waiting for fix before retrying in 10s...");
                 await new Promise(resolve => setTimeout(resolve, 10000));
             } else {
                 logger("system", "✅ Dependencies installed.");
@@ -129,40 +164,42 @@ export class WebRunner {
     }
 
     /**
-     * Start the Dev Server (AND Push DB First, with retry loops)
+     * Start the Dev Server & Push DB (With Auto-Heal loops)
      */
-    async start(onReady, logger) {
+    async start(onReady, logger, projectId) {
         if (!this.instance) throw new Error("Container not booted");
 
-        // 🚨 PHASE 4: Inject the Gorilla API Key into the environment
         const envVars = {
             GORILLA_API_KEY: window.GORILLA_API_KEY || "", 
         };
 
-        // 🚨 DATABASE PUSH WITH RETRY LOOP 🚨
+        // 🚨 DATABASE PUSH WITH AUTO-HEAL LOOP 🚨
         let dbSuccess = false;
         
         while (!dbSuccess) {
             logger("system", "🗄️ Provisioning local SQLite database...");
-            const dbErrorTracker = this._createDebouncedLogger(logger, "Database Push");
+            let dbErrorLogs = "";
 
-            // Pass envVars to the DB push in case any seed scripts need the AI
             const dbProcess = await this.instance.spawn('npm', ['run', 'db:push'], { env: envVars });
             
             dbProcess.output.pipeTo(new WritableStream({
                 write(data) {
+                    dbErrorLogs += data;
                     console.log("[DB PUSH]", data);
-                    if (data.toLowerCase().includes('error') || data.includes('ERR')) {
-                        dbErrorTracker.push(data);
-                    }
                 }
             }));
 
             const dbExitCode = await dbProcess.exit;
             
             if (dbExitCode !== 0) {
-                dbErrorTracker.flushImmediate();
-                logger("system", `⚠️ Database push failed (code ${dbExitCode}). Coder notified. Retrying in 10s...`);
+                logger("system", `⚠️ Database push failed (code ${dbExitCode}). Notifying AI Coder...`);
+                
+                const truncatedLogs = dbErrorLogs.slice(-1500);
+                const autoPrompt = `SYSTEM ALERT: \`npm run db:push\` failed with code ${dbExitCode}. \nHere are the logs:\n<logs>\n${truncatedLogs}\n</logs>\nPlease review the Drizzle schema and connection settings, fix the errors, and rewrite the files.`;
+
+                await this._notifyCoder(projectId, autoPrompt);
+
+                logger("system", "Coder notified! Retrying DB push in 10s...");
                 await new Promise(resolve => setTimeout(resolve, 10000));
             } else {
                 logger("system", "✅ Database created successfully!");
@@ -173,10 +210,9 @@ export class WebRunner {
         // 🚀 START SERVER AS NORMAL
         logger("system", "🚀 Starting Dev Server...");
 
-        // 🚨 PHASE 4: Pass envVars to the dev server so the deployed Node app has the key!
         this.shell = await this.instance.spawn('npm', ['run', 'dev'], { env: envVars });
 
-        const serverErrorTracker = this._createDebouncedLogger(logger, "Runtime/Server");
+        const serverErrorTracker = this._createDebouncedLogger(logger, "Runtime/Server", projectId);
 
         this.shell.output.pipeTo(new WritableStream({
             write(data) {
