@@ -219,7 +219,7 @@
             <div class="msg ai">I see you've selected your core preferences! Are there any specific 'Golden Rules' you want me to ALWAYS follow when writing code? Just tell me what you need, and I'll draft them up for you!</div>
           </div>
           <div class="chat-input-area">
-            <input type="text" class="chat-input" id="chatInput" placeholder="e.g. Always use Axios instead of fetch..." onkeypress="handleEnter(event)">
+            <input type="text" class="chat-input" id="chatInput" placeholder="e.g. Always use Dark mode toggles..." onkeypress="handleEnter(event)">
             <button class="chat-btn" id="sendBtn" onclick="sendMessage()"><i class="ph-bold ph-paper-plane-right"></i></button>
           </div>
         </div>
@@ -284,7 +284,7 @@
     // Force the AI to finish and output the JSON
     function forceComplete() {
       const input = document.getElementById('chatInput');
-      input.value = "I am completely done adding rules. Please output the final JSON block right now so my rules can be saved.";
+      input.value = "I am completely done adding rules. Please save them now.";
       sendMessage();
     }
 
