@@ -144,47 +144,9 @@ body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
   padding: 20px;
   margin-bottom: 32px;
 }
-.env-instructions h4 { margin: 0 0 8px 0; font-size: 14px; display: flex; align-items: center; gap: 8px; color: #fff; }
+.env-instructions h4 { margin: 0 0 8px 0; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; }
 .env-instructions h4 i { color: var(--accent); font-size: 18px; }
-.env-instructions p { margin: 0 0 16px 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
-
-.env-row {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.env-input-group {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.env-input-group label { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-.env-input-group input {
-  background: #000;
-  border: 1px solid var(--border);
-  color: #fff;
-  padding: 10px 12px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-family: monospace;
-}
-.env-input-group input:read-only { color: var(--accent); }
-
-.copy-btn {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid var(--border);
-  color: #fff;
-  border-radius: 8px;
-  padding: 0 16px;
-  cursor: pointer;
-  transition: 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 21px; /* aligns with inputs */
-}
-.copy-btn:hover { background: rgba(255,255,255,0.1); }
+.env-instructions p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
 
 .deploy-action { display: flex; justify-content: center; }
 </style>
@@ -246,7 +208,7 @@ body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
         <div class="status-badge">✓ Pushed</div>
       {% endif %}
     </div>
-    <div class="step-desc">Create a secure GitHub repository and commit your optimized Full-Stack application.</div>
+    <div class="step-desc">Create a secure private GitHub repository and commit your optimized Full-Stack application.</div>
     
     {% if not project.github_repo_url %}
       <button class="btn primary" id="btn-push" onclick="pushToGithub()">
@@ -263,26 +225,11 @@ body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
 
   <div class="vercel-box {{ 'hidden' if not project.github_repo_url else '' }}" id="vercel-box">
     <h3>Ready for Liftoff 🚀</h3>
-    <p class="subtitle">Your codebase is safely stored on GitHub and formatted perfectly for Vercel's serverless infrastructure.</p>
+    <p class="subtitle">Your codebase is safely stored in a private GitHub repository.</p>
     
-    <div class="env-instructions">
-      <h4><i class="ph-fill ph-key"></i> IMPORTANT: Secure API Key</h4>
-      <p>Your application uses the Gorilla AI Proxy to handle LLM chats, image generation, and background removal. You must inject your master key into Vercel during deployment.</p>
-      
-      <div class="env-row">
-        <div class="env-input-group" style="flex: 0.5;">
-          <label>Environment Variable Name</label>
-          <input type="text" id="envKey" value="GORILLA_API_KEY" readonly>
-        </div>
-        <div class="env-input-group">
-          <label>Value (Your Master Key)</label>
-          <input type="text" id="envValue" value="{{ gorilla_api_key }}" readonly>
-        </div>
-        <button class="copy-btn" onclick="copyEnv()" title="Copy Key">
-          <i class="ph-bold ph-copy" id="copyIcon"></i>
-        </button>
-      </div>
-      <p style="font-size: 11px; color: #fca5a5; margin: 8px 0 0 0;"><i class="ph-fill ph-warning-circle"></i> Never commit this key to GitHub. Only paste it directly into Vercel's Environment Variables section.</p>
+    <div class="env-instructions" style="text-align: center;">
+      <h4><i class="ph-fill ph-magic-wand"></i> Zero-Config Deployment</h4>
+      <p>We have securely injected your <strong>Gorilla API Key</strong> directly into the deployment configuration. You don't need to set up any environment variables. Just click deploy!</p>
     </div>
 
     <div class="deploy-action">
@@ -296,21 +243,6 @@ body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
 
 <script>
   const projectId = "{{ project_id }}";
-
-  function copyEnv() {
-    const key = document.getElementById("envValue").value;
-    navigator.clipboard.writeText(key).then(() => {
-      const icon = document.getElementById("copyIcon");
-      icon.classList.remove("ph-copy");
-      icon.classList.add("ph-check");
-      icon.style.color = "#10b981";
-      setTimeout(() => {
-        icon.classList.remove("ph-check");
-        icon.classList.add("ph-copy");
-        icon.style.color = "inherit";
-      }, 2000);
-    });
-  }
 
   async function runOptimization() {
     const btn = document.getElementById("btn-optimize");

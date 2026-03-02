@@ -1664,18 +1664,65 @@ async def project_deploy_page(request: Request, project_id: str):
     )
 
 # 3. Optimize Codebase for Vercel
+import json
+from fastapi import Request, HTTPException
+
 @app.post("/api/project/{project_id}/deploy-optimize")
 async def optimize_for_vercel(request: Request, project_id: str):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
-    optimization_prompt = """
-    We are deploying this full-stack application to Vercel Serverless. You MUST perform these exactly:
-    1. Create a `vercel.json` file in the root directory that routes API requests:
-       `{"rewrites": [{"source": "/api/(.*)", "destination": "/server.js"}, {"source": "/(.*)", "destination": "/index.html"}]}`
-    2. Overwrite `server.js` completely. Do NOT call `app.listen(...)` at the bottom. Vercel requires you to EXPORT the express app instead. End the file with `export default app;` or `module.exports = app;`.
-    """
     try:
+        # 1. Fetch user's Gorilla API Key
+        user_data = db_select_one("users", {"id": user["id"]}, "gorilla_api_key")
+        api_key = user_data.get("gorilla_api_key", "") if user_data else ""
+
+        # 2. Fetch the current project files
+        project = db_select_one("projects", {"id": project_id}, "files")
+        if not project:
+            raise HTTPException(404, "Project not found")
+        files = project.get("files", [])
+
+        # 3. Build the perfect vercel.json programmatically
+        vercel_json_content = {
+            "version": 2,
+            "builds": [
+                {"src": "server.js", "use": "@vercel/node"},
+                {"src": "package.json", "use": "@vercel/static-build"}
+            ],
+            "rewrites": [
+                {"source": "/api/(.*)", "destination": "/server.js"},
+                {"source": "/(.*)", "destination": "/index.html"}
+            ],
+            "env": {
+                "GORILLA_API_KEY": api_key
+            }
+        }
+        
+        # 4. Inject it into the file tree
+        has_vercel_json = False
+        for f in files:
+            if f["path"] == "vercel.json":
+                f["content"] = json.dumps(vercel_json_content, indent=2)
+                has_vercel_json = True
+                break
+        
+        if not has_vercel_json:
+            files.append({
+                "path": "vercel.json",
+                "content": json.dumps(vercel_json_content, indent=2)
+            })
+
+        # Save the updated file tree to the database immediately
+        supabase.table("projects").update({"files": files}).eq("id", project_id).execute()
+
+        # 5. Tell the AI ONLY to fix server.js (since we handled the JSON)
+        optimization_prompt = """
+        We are deploying this full-stack application to Vercel Serverless. You MUST perform this exactly:
+        Overwrite `server.js` completely. Do NOT call `app.listen(...)` at the bottom. Vercel requires you to EXPORT the express app instead. End the file with `export default app;` or `module.exports = app;`.
+        Do NOT create or modify `vercel.json` (it has already been handled).
+        """
+        
         # Await the agent directly so the frontend knows when it's done
         await run_agent_loop(
             project_id=project_id,
@@ -1684,8 +1731,11 @@ async def optimize_for_vercel(request: Request, project_id: str):
             is_xmode=True,
             skip_planner=True 
         )
+        
+        # Mark as optimized
         supabase.table("projects").update({"vercel_optimized": True}).eq("id", project_id).execute()
         return {"status": "ok", "detail": "Optimized for Vercel"}
+        
     except Exception as e:
         raise HTTPException(500, detail=str(e))
 
