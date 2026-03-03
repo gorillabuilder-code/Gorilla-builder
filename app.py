@@ -989,18 +989,23 @@ from fastapi.responses import HTMLResponse, JSONResponse
 # ==========================================================================
 # DASHBOARD & WORKSPACE
 # ==========================================================================
+import random
+from datetime import datetime, timezone
+from fastapi import Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
     user = get_current_user(request)
     
-    # Fetch latest Plan and Agent Skills from DB
+    # Fetch latest Plan, Agent Skills, and Last Spin Date from DB
     has_skills = False
+    last_spin_date = None
     try:
-        # Fetching both columns directly from supabase to avoid multiple queries
-        res = supabase.table("users").select("plan, agent_skills").eq("id", user["id"]).single().execute()
+        res = supabase.table("users").select("plan, agent_skills, last_spin_date").eq("id", user["id"]).single().execute()
         if res and res.data:
             user["plan"] = res.data.get("plan", "free")
-            # If agent_skills is not null/empty, flag it as true
+            last_spin_date = res.data.get("last_spin_date")
             if res.data.get("agent_skills"):
                 has_skills = True
     except Exception:
@@ -1033,9 +1038,70 @@ async def dashboard(request: Request):
             "request": request, 
             "projects": projects, 
             "user": user,
-            "has_skills": has_skills # Now the popup knows whether to hide!
+            "has_skills": has_skills,
+            "last_spin_date": last_spin_date
         }
     )
+
+@app.post("/api/tokens/spin")
+async def spin_wheel(request: Request):
+    user = get_current_user(request)
+    payload = await request.json()
+    
+    try:
+        wager = int(payload.get("wager", 0))
+    except ValueError:
+        raise HTTPException(400, "Invalid wager amount.")
+        
+    if wager < 0 or wager > 500000:
+        raise HTTPException(400, "Wager must be between 0 and 500,000.")
+
+    # 1. Fetch current token data & spin status securely from DB
+    user_data = supabase.table("users").select("last_spin_date").eq("id", user["id"]).single().execute().data
+    used, limit = get_token_usage_and_limit(user["id"])
+    remaining = max(0, limit - used)
+    
+    if wager > remaining:
+        raise HTTPException(400, "You do not have enough credits for this wager.")
+        
+    # 2. Check if they already spun today (Server-Side Enforcement)
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if user_data.get("last_spin_date") == today_str:
+        raise HTTPException(400, "You have already used your daily spin.")
+
+    # 3. The Secure Math
+    rand = random.random()
+    if rand < 0.50:
+        multiplier = 0.0  # Lose: 50% chance
+    elif rand < 0.80:
+        multiplier = 1.5  # Win 1.5x: 30% chance
+    else:
+        multiplier = 2.0  # Win 2x: 20% chance
+
+    # 4. Calculate Net Change
+    if multiplier == 0.0:
+        net_change = -wager
+    else:
+        net_change = int(wager * multiplier) - wager # E.g., Wager 100 * 2.0 = 200. Net change = +100
+
+    # 5. Apply the outcome to the DB (Adjust 'used' tokens to reflect the win/loss)
+    # If they win, we decrease their 'used' amount so their 'remaining' goes up.
+    # If they lose, we increase their 'used' amount so their 'remaining' goes down.
+    new_used = used - net_change 
+    
+    # Note: Replace this with your actual DB update logic for tokens
+    supabase.table("users").update({
+        "last_spin_date": today_str
+    }).eq("id", user["id"]).execute()
+    
+    # Example of updating token usage (adapt to your schema):
+    # supabase.table("token_usage").update({"used": new_used}).eq("user_id", user["id"]).execute()
+
+    return {
+        "status": "success",
+        "multiplier": multiplier,
+        "net_change": net_change
+    }
 
 @app.get("/workspace", response_class=HTMLResponse)
 async def workspace(request: Request):

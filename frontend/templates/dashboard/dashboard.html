@@ -193,6 +193,23 @@
     .input-box input::placeholder { color: rgba(255,255,255,0.25); transition: opacity 0.2s; }
     .input-box:focus-within input::placeholder { opacity: 0.5; }
 
+    /* BASE64 IMAGE UPLOAD STYLES */
+    .image-upload-wrapper {
+      position: relative; display: flex; align-items: center; justify-content: center;
+    }
+    .image-upload-wrapper input[type="file"] {
+      position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer;
+    }
+    .image-upload-btn {
+      color: var(--text-muted); font-size: 24px; transition: color 0.2s;
+      display: flex; align-items: center; padding: 0 10px;
+    }
+    .image-upload-btn:hover { color: var(--accent); }
+    .image-preview {
+      display: none; width: 36px; height: 36px; border-radius: 8px;
+      object-fit: cover; border: 1px solid var(--border);
+    }
+
     .action-btn {
       width: 48px; height: 48px; border-radius: 14px; border: none;
       background: var(--accent); color: #fff; cursor: pointer;
@@ -348,9 +365,58 @@
       padding: 12px; border-radius: 12px; font-size: 14px; cursor: pointer; transition: 0.2s;
     }
     .btn-modal-secondary:hover { background: rgba(255,255,255,0.05); color: #fff; }
+
+    /* --- SPIN THE WHEEL POPUP --- */
+    .spin-modal-overlay {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(12px);
+      display: none; align-items: center; justify-content: center; z-index: 10000;
+      opacity: 0; transition: opacity 0.3s;
+    }
+    .spin-modal-overlay.active { display: flex; opacity: 1; }
+
+    .spin-modal {
+      background: #111116; border: 1px solid rgba(255, 215, 0, 0.2); border-radius: 24px;
+      width: 440px; max-width: 90vw; padding: 40px; text-align: center;
+      box-shadow: 0 20px 80px rgba(0,0,0,0.9), 0 0 0 1px rgba(255, 215, 0, 0.4);
+      transform: translateY(20px) scale(0.95); transition: all 0.3s var(--ease-out);
+    }
+    .spin-modal-overlay.active .spin-modal { transform: translateY(0) scale(1); }
+
+    .spin-modal-icon {
+      width: 72px; height: 72px; background: rgba(255, 215, 0, 0.1);
+      border-radius: 50%; color: #ffd700; font-size: 36px;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 24px auto; border: 2px solid rgba(255, 215, 0, 0.3);
+      box-shadow: 0 0 30px rgba(255, 215, 0, 0.2);
+    }
+
+    .spin-modal h2 { font-size: 26px; color: #fff; margin: 0 0 8px; font-weight: 500; }
+    .spin-modal p { color: var(--text-muted); font-size: 14px; line-height: 1.5; margin: 0 0 24px; }
+    
+    .wager-group { margin-bottom: 30px; text-align: left; }
+    .wager-group label { display: block; color: #aaa; font-size: 12px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .wager-input {
+      width: 100%; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1);
+      color: #fff; padding: 14px 16px; border-radius: 12px; font-size: 18px;
+      transition: all 0.2s; font-family: monospace;
+    }
+    .wager-input:focus { border-color: #ffd700; box-shadow: 0 0 15px rgba(255,215,0,0.1); outline: none; }
+    
+    .spin-result-text { font-size: 15px; font-weight: 600; min-height: 22px; margin-bottom: 20px; color: #fff; }
+    .spin-result-text.win { color: #10b981; }
+    .spin-result-text.lose { color: #ef4444; }
+
+    .btn-spin-action {
+      width: 100%; background: linear-gradient(135deg, #ffd700, #f59e0b); color: #000;
+      border: none; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700;
+      cursor: pointer; transition: 0.2s; text-transform: uppercase; letter-spacing: 1px;
+      box-shadow: 0 10px 25px rgba(255, 215, 0, 0.3); margin-bottom: 12px;
+    }
+    .btn-spin-action:hover { transform: translateY(-2px); box-shadow: 0 15px 35px rgba(255, 215, 0, 0.4); }
+    .btn-spin-action:disabled { background: #333; color: #666; cursor: not-allowed; box-shadow: none; transform: none; }
+    
   </style>
 </head>
-
 <body class="{% if user.plan == 'premium' %}premium{% endif %}">
 
   <div class="noise-overlay"></div>
@@ -415,7 +481,7 @@
         <div class="token-widget">
           <div class="token-icon"><i class="ph-fill ph-coin"></i></div>
           <div class="token-text">
-            <span class="token-val">{{ "{:,}".format(user.tokens.remaining) }}</span>
+            <span class="token-val" id="headerTokenCount">{{ "{:,}".format(user.tokens.remaining) }}</span>
             <span class="token-lbl">Credits</span>
           </div>
         </div>
@@ -431,8 +497,17 @@
     <section class="builder-section animate-entry" style="animation-delay: 100ms;">
       {% set is_locked = (user.plan != 'premium' and projects|length >= 3) %}
 
-      <form class="input-box {% if is_locked %}disabled{% endif %}" method="POST" action="/projects/create">
+      <form class="input-box {% if is_locked %}disabled{% endif %}" method="POST" action="/projects/create" enctype="multipart/form-data">
         
+        {% if not is_locked %}
+        <div class="image-upload-wrapper">
+          <input type="file" id="imageInput" accept="image/png, image/jpeg, image/webp">
+          <i class="ph-bold ph-image image-upload-btn" id="imageUploadBtn"></i>
+          <img id="imagePreview" class="image-preview" src="" alt="Preview">
+          <input type="hidden" name="image_base64" id="imageBase64">
+        </div>
+        {% endif %}
+
         {% if is_locked %}
           <input type="text" disabled placeholder="Free limit reached (3/3). Upgrade to create more." style="cursor:not-allowed;">
           <button type="button" class="action-btn locked" onclick="window.location.href='/pricing'">
@@ -541,7 +616,6 @@
     {% endif %}
 
   </main>
-
   <div class="skills-modal-overlay" id="skillsModal">
     <div class="skills-modal">
       <div class="skills-modal-icon">
@@ -554,6 +628,26 @@
         <button class="btn-modal-secondary" onclick="dismissSkillsModal()">Maybe Later</button>
         <a href="/settings/skills" class="btn-modal-primary">Setup Skills Now</a>
       </div>
+    </div>
+  </div>
+
+  <div class="spin-modal-overlay" id="spinModal">
+    <div class="spin-modal">
+      <div class="spin-modal-icon">
+        <i class="ph-bold ph-aperture"></i>
+      </div>
+      <h2>Daily Free Credits</h2>
+      <p>Spin the wheel for a chance to multiply your credits! You can win 1.5x or 2x your wager, or lose it all.</p>
+      
+      <div class="wager-group">
+        <label for="wagerInput">Wager Amount (0 - 500,000)</label>
+        <input type="number" id="wagerInput" class="wager-input" min="0" max="500000" placeholder="e.g. 1000">
+      </div>
+
+      <div id="spinResultText" class="spin-result-text"></div>
+
+      <button class="btn-spin-action" id="spinBtn" onclick="spinWheel()">Spin the Wheel</button>
+      <button class="btn-modal-secondary" style="width: 100%;" onclick="dismissSpinModal()">Maybe Later</button>
     </div>
   </div>
 
@@ -571,15 +665,35 @@
       });
     }
 
+    // --- Image Upload Base64 Logic ---
+    const imageInput = document.getElementById('imageInput');
+    const imagePreview = document.getElementById('imagePreview');
+    const imageBase64 = document.getElementById('imageBase64');
+    const imageUploadBtn = document.getElementById('imageUploadBtn');
+
+    if (imageInput) {
+      imageInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(event) {
+          const base64String = event.target.result;
+          imageBase64.value = base64String;
+          imagePreview.src = base64String;
+          imagePreview.style.display = 'block';
+          imageUploadBtn.style.display = 'none'; // Hide icon, show image preview
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
     // --- Agent Skills Popup Logic ---
-    // Inject the variable from backend. If it's a string/None, we convert it to boolean.
-    // NOTE: You must pass `has_skills: bool` from your dashboard route in app.py
     const hasSkillsStr = "{{ 'true' if has_skills else 'false' }}";
     const hasSkills = hasSkillsStr === "true";
     const skillsModal = document.getElementById('skillsModal');
-    // Check if they dismissed it locally or if they already set it up
+    
     if (!hasSkills && localStorage.getItem('hideSkillsModal') !== 'true') {
-      // Small delay so it animates in smoothly after page load
       setTimeout(() => {
         skillsModal.classList.add('active');
       }, 800);
@@ -588,6 +702,83 @@
     function dismissSkillsModal() {
       localStorage.setItem('hideSkillsModal', 'true');
       skillsModal.classList.remove('active');
+    }
+
+    // --- Daily Spin Wheel Logic ---
+    const spinModal = document.getElementById('spinModal');
+    const wagerInput = document.getElementById('wagerInput');
+    const spinBtn = document.getElementById('spinBtn');
+    const spinResultText = document.getElementById('spinResultText');
+    
+    // Check if user has spun today based on backend date vs local UTC date
+    const lastSpinDateStr = "{{ last_spin_date or '' }}";
+    const todayStr = new Date().toISOString().split('T')[0];
+    
+    // Only show if they haven't spun today AND haven't clicked "Maybe Later" this session
+    if (lastSpinDateStr !== todayStr && sessionStorage.getItem('spinSkipped') !== 'true') {
+      // Delay slightly longer so it doesn't overlap the skills modal if both try to trigger
+      setTimeout(() => {
+        if (!skillsModal.classList.contains('active')) {
+           spinModal.classList.add('active');
+        }
+      }, 1500);
+    }
+
+    function dismissSpinModal() {
+      sessionStorage.setItem('spinSkipped', 'true');
+      spinModal.classList.remove('active');
+    }
+
+    async function spinWheel() {
+      const wager = parseInt(wagerInput.value) || 0;
+      
+      if (wager < 0 || wager > 500000) {
+        spinResultText.textContent = "Please enter a valid amount between 0 and 500,000.";
+        spinResultText.className = "spin-result-text lose";
+        return;
+      }
+
+      spinBtn.disabled = true;
+      spinResultText.textContent = "Spinning...";
+      spinResultText.className = "spin-result-text";
+
+      try {
+        const response = await fetch('/api/tokens/spin', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ wager: wager })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          spinResultText.textContent = data.detail || "Error spinning the wheel.";
+          spinResultText.className = "spin-result-text lose";
+          spinBtn.disabled = false;
+          return;
+        }
+
+        // Handle success response from app.py
+        if (data.multiplier === 0.0) {
+          spinResultText.textContent = `Aww... You lost ${wager} credits!`;
+          spinResultText.className = "spin-result-text lose";
+        } else {
+          spinResultText.textContent = `Congrats! You won ${data.net_change} credits! (${data.multiplier}x)`;
+          spinResultText.className = "spin-result-text win";
+        }
+
+        // Refresh the page after 2.5 seconds to update the token count and prevent re-spinning
+        setTimeout(() => {
+          window.location.reload();
+        }, 2500);
+
+      } catch (error) {
+        spinResultText.textContent = "Network error. Please try again.";
+        spinResultText.className = "spin-result-text lose";
+        spinBtn.disabled = false;
+      }
     }
   </script>
 
