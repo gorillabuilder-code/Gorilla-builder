@@ -357,19 +357,15 @@ def get_current_user(request: Request) -> Dict[str, Any]:
     raise HTTPException(status_code=401, detail="Not authenticated")
 
 def _require_project_owner(user: Dict[str, Any], project_id: str) -> None:
-    """Verifies that the current user owns the project."""
-    if DEV_MODE:
-        try:
-            res = db_select_one("projects", {"id": project_id}, "id")
-            if not res: raise Exception("Not found")
-            return
-        except Exception:
-            raise HTTPException(status_code=404, detail="Project not found")
+    """Verifies that the current user owns the project. STRICT ENFORCEMENT."""
+    res = db_select_one("projects", {"id": project_id}, "id, owner_id")
     
-    # Production check
-    res = db_select_one("projects", {"id": project_id, "owner_id": user["id"]}, "id")
     if not res:
-        raise HTTPException(status_code=404, detail="Project not found or access denied")
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    # STRICT CHECK: If the owner_id doesn't match the logged-in user, block them.
+    if res.get("owner_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Access denied. You do not own this project.")
 
 # --- RESEND EMAIL LOGIC ---
 
@@ -1458,16 +1454,27 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         planner = Planner()
         coder = XCoder() if (is_xmode and 'XCoder' in globals()) else Coder()
         
+        # Fetch user API key to pass to planner for image generation capabilities
+        user_api_data = db_select_one("users", {"id": user_id}, "gorilla_api_key")
+        api_key = user_api_data.get("gorilla_api_key", "") if user_api_data else ""
+        
         if not skip_planner:
             emit_phase(project_id, "planner")
             emit_progress(project_id, "Architecting solution...", 10)
             
-            plan_context = {"project_id": project_id, "files": list(file_tree.keys())}
+            plan_context = {
+                "project_id": project_id, 
+                "files": list(file_tree.keys()),
+                "api_key": api_key  # Pass key to the planner for external AI capabilities
+            }
+            
             if history:
                 plan_context["history"] = history
 
             if ".gorilla/prompt_image.b64" in file_tree:
                 plan_context["image_context"] = file_tree[".gorilla/prompt_image.b64"]
+                # Give planner strict awareness of the file name
+                plan_context["image_filename"] = ".gorilla/prompt_image.b64"
 
             plan_res = await asyncio.to_thread(
                 planner.generate_plan,
@@ -2085,9 +2092,6 @@ async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
 async def agent_start(
     request: Request, 
     project_id: str, 
-    prompt: str = Form(...),
-    xmode: bool = Form(False),
-    image_base64: Optional[str] = Form(None)
 ):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
@@ -2109,7 +2113,30 @@ async def agent_start(
             emit_log(project_id, "assistant", alert_html)
             return {"started": False}
         raise e
-    
+
+    # Use multi-part parsing to safely handle Base64 strings
+    form_data = await request.form()
+    prompt = str(form_data.get("prompt", ""))
+    xmode_str = str(form_data.get("xmode", "false")).lower()
+    xmode = xmode_str == "true"
+    image_base64 = form_data.get("image_base64")
+
+    # 🛑 THE FIX: Use db_upsert to guarantee the old image is overwritten!
+    if image_base64:
+        try:
+            db_upsert(
+                "files", 
+                {
+                    "project_id": project_id, 
+                    "path": ".gorilla/prompt_image.b64", 
+                    "content": image_base64
+                }, 
+                on_conflict="project_id,path"
+            )
+            print(f"📸 Mid-chat image successfully overwritten in DB for project {project_id}")
+        except Exception as err:
+            print(f"⚠️ Failed to save mid-chat image: {err}")
+
     emit_status(project_id, "Agent received prompt")
     emit_log(project_id, "user", prompt)
 

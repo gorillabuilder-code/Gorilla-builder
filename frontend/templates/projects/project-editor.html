@@ -506,16 +506,25 @@ body.xmode {
     
     <input type="file" id="editorImageInput" accept="image/png, image/jpeg, image/webp" hidden />
     
-    <label for="editorImageInput" title="Attach UI Reference" style="color: var(--text-muted); cursor: pointer; font-size: 24px; padding: 4px; transition: color 0.2s;">
-      <i class="ph-bold ph-image"></i>
+    <label for="editorImageInput" title="Attach UI Reference" style="
+        color: var(--text-muted); cursor: pointer; font-size: 20px; 
+        background: rgba(255,255,255,0.05); border: 1px solid var(--border); 
+        border-radius: 12px; width: 44px; height: 44px; 
+        display: flex; align-items: center; justify-content: center; 
+        transition: all 0.2s; flex-shrink: 0;
+    ">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="12" y1="5" x2="12" y2="19"></line>
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+      </svg>
     </label>
     
-    <img id="editorImagePreview" src="" alt="Attached" style="display: none; height: 44px; width: 44px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border);">
+    <img id="editorImagePreview" src="" alt="Attached" style="display: none; height: 44px; width: 44px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border); flex-shrink: 0;">
     
-    <textarea id="prompt" placeholder="What shall we build?" style="margin: 0; flex: 1;"></textarea>
+    <textarea id="prompt" placeholder="What shall we build?" style="margin: 0; flex: 1; height: 44px; min-height: 44px; padding-top: 12px;"></textarea>
     
-    <button id="runAgent" title="Run agent">
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+    <button id="runAgent" title="Run agent" style="height: 44px; width: 44px; flex-shrink: 0;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
         <path d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576zm6.787-8.201L1.591 6.602l4.339 2.76z"/>
       </svg>
     </button>
@@ -725,6 +734,8 @@ if (editorImageInput) {
             ctx.drawImage(img, 0, 0, width, height);
 
             currentAttachedImage = canvas.toDataURL("image/jpeg", 0.7);
+            
+            document.querySelector('label[for="editorImageInput"]').style.display = 'none';
             editorImagePreview.src = objectUrl; 
             editorImagePreview.style.display = "block";
         };
@@ -735,18 +746,14 @@ if (editorImageInput) {
 // --- CHAT LOGIC ---
 function loadChatHistory() {
   try {
-    const dbHistoryRaw = `{{ chat_history | safe }}`;
-    let history = [];
+    // RENDER RAW JS OBJECT DIRECTLY - FIXES JSON PARSE ERRORS
+    const dbHistory = {{ chat_history | safe }};
     
-    if (dbHistoryRaw && dbHistoryRaw.trim() !== "" && dbHistoryRaw !== "None") {
-        history = JSON.parse(dbHistoryRaw);
-    }
-    
-    if (Array.isArray(history) && history.length > 0) {
-      history.forEach(m => addMessage(m.role, m.content || m.text, false));
+    if (Array.isArray(dbHistory) && dbHistory.length > 0) {
+      dbHistory.forEach(m => addMessage(m.role, m.content || m.text, false));
       chat.scrollTop = chat.scrollHeight;
       
-      const localSync = history.map(h => ({ role: h.role, text: h.content || h.text }));
+      const localSync = dbHistory.map(h => ({ role: h.role, text: h.content || h.text }));
       localStorage.setItem(CHAT_KEY, JSON.stringify(localSync));
     } else {
       const raw = localStorage.getItem(CHAT_KEY);
@@ -764,7 +771,6 @@ function loadChatHistory() {
 }
 
 function saveChatHistory(role, text) {
-  // We do not save base64 images into local storage text logs to prevent blowing up the 5MB quota
   if (text.includes("data:image")) return;
   try {
     const raw = localStorage.getItem(CHAT_KEY);
@@ -1205,7 +1211,7 @@ function startStream(){
 async function triggerAgent(promptText) {
     if(!promptText && !currentAttachedImage) return;
     
-    // Render an attached image visually, without writing the massive base64 to localStorage chat history
+    // Render an attached image visually
     if (currentAttachedImage) {
         const refCard = document.createElement("div");
         refCard.style.cssText = "align-self: flex-end; margin: 10px 20px 5px 0; background: rgba(59, 130, 246, 0.1); border: 1px dashed rgba(59, 130, 246, 0.4); border-radius: 12px; padding: 12px; max-width: 60%; text-align: center;";
@@ -1220,15 +1226,14 @@ async function triggerAgent(promptText) {
     if (promptText) {
         addMessage("user", promptText);
     } else if (currentAttachedImage) {
-        // Just an image sent, log a placeholder user text so the chat makes sense
         addMessage("user", "Please update the UI to match the attached reference image.");
         promptText = "Please update the UI to match the attached reference image.";
     }
     
-    const formData = new URLSearchParams();
+    // 🛑 THE FIX: Use FormData instead of URLSearchParams!
+    const formData = new FormData();
     formData.append("prompt", promptText);
     
-    // Inject the new attached image into the form payload!
     if (currentAttachedImage) {
         formData.append("image_base64", currentAttachedImage);
     }
@@ -1239,11 +1244,12 @@ async function triggerAgent(promptText) {
         editorImagePreview.style.display = "none";
         editorImagePreview.src = "";
     }
+    document.querySelector('label[for="editorImageInput"]').style.display = 'flex';
     if(editorImageInput) editorImageInput.value = "";
     
+    // 🛑 THE FIX: Remove headers! The browser automatically sets the correct Multipart Boundary for FormData.
     await fetch(`/api/project/${PROJECT_ID}/agent/start`, {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: formData
     });
     
@@ -1252,7 +1258,7 @@ async function triggerAgent(promptText) {
 
 $("runAgent").onclick = () => {
   const p = $("prompt").value.trim();
-  if(!p && !currentAttachedImage) return; // Allow sending just an image
+  if(!p && !currentAttachedImage) return; 
   $("prompt").value = "";
   triggerAgent(p);
 };
@@ -1268,7 +1274,6 @@ $("prompt").addEventListener("keydown", (e) => {
 (async () => {
   const initialImage = `{{ project.prompt_image or '' }}`;
   
-  // 1. Render the initial project image ONCE visually at the top of the chat
   if (initialImage && initialImage.startsWith('data:image')) {
       const refCard = document.createElement("div");
       refCard.style.cssText = "align-self: center; margin: 10px 0 20px 0; background: rgba(59, 130, 246, 0.05); border: 1px dashed rgba(59, 130, 246, 0.3); border-radius: 12px; padding: 12px; max-width: 85%; text-align: center;";
@@ -1279,7 +1284,6 @@ $("prompt").addEventListener("keydown", (e) => {
       chat.appendChild(refCard);
   }
 
-  // 2. Load the rest of the text-based history
   loadChatHistory();
   await refreshFiles();
   try { await loadFile(currentFile); } catch(e) {}
@@ -1287,7 +1291,6 @@ $("prompt").addEventListener("keydown", (e) => {
   startStream();
   setProgress("Ready", 0);
   
-  // TRIGGER INITIAL PROMPT
   if (INITIAL_PROMPT && INITIAL_PROMPT.length > 0) {
       setTimeout(() => {
           triggerAgent(INITIAL_PROMPT);
