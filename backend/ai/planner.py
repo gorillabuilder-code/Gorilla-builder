@@ -17,7 +17,7 @@ import httpx
 # -------------------------------------------------
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "google/gemini-3.1-flash-lite-preview:online") 
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "moonshotai/kimi-k2.5:online") 
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # OpenRouter specific headers for rankings/stats
@@ -214,14 +214,31 @@ class Planner:
         )
         
         chat_history = _get_history(project_id)
-        user_msg_content = json.dumps({
+        
+        # 1. Clean the file list so the AI doesn't see the raw .b64 filename
+        raw_files = project_context.get("files", [])
+        clean_files = [f for f in raw_files if not f.endswith(".b64")]
+
+        text_payload = json.dumps({
             "request": user_request,
-            "current_files": project_context.get("files", [])
+            "current_files": clean_files
         })
+
+        image_b64 = project_context.get("image_context")
+
+        # 2. Build multi-modal Vision payload if image exists
+        if image_b64:
+            user_msg_content = [
+                {"type": "text", "text": text_payload},
+                {"type": "image_url", "image_url": {"url": image_b64}}
+            ]
+        else:
+            user_msg_content = text_payload
 
         messages = [{"role": "system", "content": system_prompt}]
         for h in chat_history:
              messages.append({"role": h["role"], "content": h["content"]})
+             
         messages.append({"role": "user", "content": user_msg_content})
 
         payload = {
@@ -231,15 +248,20 @@ class Planner:
             "presence_penalty": 0,
             "frequency_penalty": 0,
             "temperature": 0.6,
-            "messages": messages
+            "messages": messages,
+            "provider": {
+            "order": ["baseten/fp4", "fireworks"],
+            "allow_fallbacks": False,
+            "sort": "throughput"
+            }
         }
         
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "HTTP-Referer": SITE_URL, # OpenRouter Requirement
-            "X-Title": SITE_NAME,     # OpenRouter Requirement
+            "HTTP-Referer": SITE_URL, 
+            "X-Title": SITE_NAME,     
         }
 
         # --- RETRY LOGIC (503s AND Invalid JSON) ---

@@ -1066,7 +1066,7 @@ async def spin_wheel(request: Request):
         
     # 2. Check if they already spun today (Server-Side Enforcement)
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    if user_data.get("last_spin_date") == today_str:
+    if user_data and user_data.get("last_spin_date") == today_str:
         raise HTTPException(400, "You have already used your daily spin.")
 
     # 3. The Secure Math
@@ -1082,49 +1082,22 @@ async def spin_wheel(request: Request):
     if multiplier == 0.0:
         net_change = -wager
     else:
-        net_change = int(wager * multiplier) - wager # E.g., Wager 100 * 2.0 = 200. Net change = +100
+        net_change = int(wager * multiplier) - wager 
 
-    # 5. Apply the outcome to the DB (Adjust 'used' tokens to reflect the win/loss)
-    # If they win, we decrease their 'used' amount so their 'remaining' goes up.
-    # If they lose, we increase their 'used' amount so their 'remaining' goes down.
+    # 5. Apply the outcome to the DB 
     new_used = used - net_change 
     
-    # Note: Replace this with your actual DB update logic for tokens
+    # ACTUAL DB UPDATE
     supabase.table("users").update({
-        "last_spin_date": today_str
+        "last_spin_date": today_str,
+        "tokens_used": new_used
     }).eq("id", user["id"]).execute()
-    
-    # Example of updating token usage (adapt to your schema):
-    # supabase.table("token_usage").update({"used": new_used}).eq("user_id", user["id"]).execute()
 
     return {
         "status": "success",
         "multiplier": multiplier,
         "net_change": net_change
     }
-
-@app.get("/workspace", response_class=HTMLResponse)
-async def workspace(request: Request):
-    user = get_current_user(request)
-    used, limit = get_token_usage_and_limit(user["id"])
-    user["tokens"] = {"used": used, "limit": limit}
-
-    try:
-        res = (
-            supabase.table("projects")
-            .select("id,name,updated_at")
-            .eq("owner_id", user["id"])
-            .order("updated_at", desc=True)
-            .execute()
-        )
-        projects = res.data if res and res.data else []
-    except Exception:
-        projects = []
-        
-    return templates.TemplateResponse(
-        "dashboard/workspace.html",
-        {"request": request, "projects": projects, "user": user}
-    )
 
 # ==========================================================================
 # SETTINGS & AGENT SKILLS ROUTES
@@ -1145,7 +1118,6 @@ async def agent_skills_page(request: Request):
     user = get_current_user(request)
     api_key = ""
     try:
-        # Fetch both plan and api_key in one query
         res = supabase.table("users").select("plan, gorilla_api_key").eq("id", user["id"]).single().execute()
         if res and res.data:
             user["plan"] = res.data.get("plan", "free")
@@ -1160,7 +1132,7 @@ async def agent_skills_page(request: Request):
         {
             "request": request, 
             "user": user,
-            "gorilla_api_key": api_key # <--- Passing the key!
+            "gorilla_api_key": api_key 
         }
     )
 
@@ -1169,10 +1141,7 @@ async def save_agent_skills(request: Request):
     user = get_current_user(request)
     try:
         payload = await request.json()
-        
-        # Save the JSON directly to the agent_skills column in Supabase
         supabase.table("users").update({"agent_skills": payload}).eq("id", user["id"]).execute()
-        
         return JSONResponse({"status": "success", "message": "Skills saved successfully"})
     except Exception as e:
         import traceback
@@ -1218,57 +1187,54 @@ async def create_project(
     prompt: Optional[str] = Form(None), 
     name: Optional[str] = Form(None), 
     description: str = Form(""),
-    xmode: Optional[str] = Form(None)  # Capture xmode flag
+    xmode: Optional[str] = Form(None),
+    image_base64: Optional[str] = Form(None)
 ):
     user = get_current_user(request)
 
     # --- 1. FREE TIER LIMIT CHECK (Max 3 Projects) ---
     if user.get("plan") != "premium":
         try:
-            # Count existing projects for this user
-            res = supabase.table("projects") \
-                .select("id", count="exact") \
-                .eq("owner_id", user["id"]) \
-                .execute()
-            
-            # Robust count retrieval (handles different Supabase client versions)
+            res = supabase.table("projects").select("id", count="exact").eq("owner_id", user["id"]).execute()
             current_count = res.count if hasattr(res, 'count') and res.count is not None else len(res.data)
 
             if current_count >= 3:
-                # Limit Reached: Fetch existing projects to re-render the dashboard
-                p_res = supabase.table("projects") \
-                    .select("*") \
-                    .eq("owner_id", user["id"]) \
-                    .order("created_at", desc=True) \
-                    .execute()
-                
-                existing_projects = p_res.data if p_res.data else []
-
+                p_res = supabase.table("projects").select("*").eq("owner_id", user["id"]).order("created_at", desc=True).execute()
                 return templates.TemplateResponse("dashboard.html", {
                     "request": request, 
                     "user": user,
-                    "projects": existing_projects,
+                    "projects": p_res.data if p_res.data else [],
                     "error": "Free Limit Reached (3/3). Upgrade to Pro to create unlimited projects."
                 })
         except Exception as e:
             print(f"⚠️ Project limit check failed: {e}")
             pass
 
-    # --- 2. PROMPT STASHING & CONFIRMATION ---
+    # --- 2. PROMPT & IMAGE STASHING (Avoiding Session limits) ---
     if prompt and not name:
-        target = f"/projects/createit?prompt={urllib.parse.quote(prompt)}"
-        return RedirectResponse(target, status_code=303)
+        # Render the template directly to keep the massive image string safe
+        return templates.TemplateResponse(
+            "projects/project-create.html", 
+            {
+                "request": request, 
+                "user": user, 
+                "initial_prompt": prompt,
+                "stashed_image": image_base64
+            }
+        )
     
     final_prompt = prompt or request.session.pop("stashed_prompt", None)
     project_name = name or "Untitled Project"
+    final_image = image_base64
     
     # --- 3. HEAVY LIFTING (DB & Files) ---
     def _heavy_lift_create():
-        # A. Create Project Record
         res = supabase.table("projects").insert({
             "owner_id": user["id"], 
             "name": project_name, 
-            "description": description or (final_prompt[:200] if final_prompt else "")
+            "description": description or (final_prompt[:200] if final_prompt else ""),
+            "prompt_image": final_image, # Store in projects table
+            "chat_history": [] # Initialize empty history
         }).execute()
         
         if not res.data: 
@@ -1276,13 +1242,10 @@ async def create_project(
             
         pid = res.data[0]['id']
         
-        # B. Setup Subdomain
         clean_name = re.sub(r'[^a-z0-9-]', '-', project_name.lower()).strip('-') or "app"
         final_subdomain = f"{clean_name}-{pid}" 
-        
         supabase.table("projects").update({"subdomain": final_subdomain}).eq("id", pid).execute()
         
-        # C. Inject Boilerplate
         bp_dir = globals().get("BOILERPLATE_DIR")
         if not bp_dir or not os.path.isdir(bp_dir):
             bp_dir = os.path.join(ROOT_DIR, "backend", "boilerplate")
@@ -1291,36 +1254,39 @@ async def create_project(
 
         if os.path.isdir(bp_dir):
             files_to_insert = []
-            
             for root, dirs, files in os.walk(bp_dir):
                 dirs[:] = [d for d in dirs if d not in ["node_modules", ".git", "dist", "build"]]
-                
                 for file in files:
                     if file.startswith('.'): continue
-                    
                     abs_path = os.path.join(root, file)
                     rel_path = os.path.relpath(abs_path, bp_dir).replace("\\", "/")
-                    
                     try:
                         with open(abs_path, "r", encoding="utf-8") as f:
-                            content = f.read()
                             files_to_insert.append({
                                 "project_id": pid,
                                 "path": rel_path,
-                                "content": content
+                                "content": f.read()
                             })
-                    except Exception: 
-                        continue 
+                    except: continue 
 
             if files_to_insert:
                 try:
                     supabase.table("files").insert(files_to_insert).execute()
                 except Exception as e:
-                    print(f"Batch insert failed ({e}), falling back to single upserts...")
                     for f in files_to_insert:
-                        try: 
-                            supabase.table("files").upsert(f, on_conflict="project_id,path").execute()
+                        try: supabase.table("files").upsert(f, on_conflict="project_id,path").execute()
                         except: pass
+
+        # --- D. INJECT IMAGE TO VIRTUAL FS FOR AI PLANNER ---
+        if final_image:
+            try:
+                supabase.table("files").insert({
+                    "project_id": pid,
+                    "path": ".gorilla/prompt_image.b64",
+                    "content": final_image
+                }).execute()
+            except Exception as e:
+                print(f"⚠️ Failed to save image to virtual FS: {e}")
         
         return pid
 
@@ -1343,9 +1309,6 @@ async def create_project(
         return RedirectResponse("/dashboard?error=creation_failed_rls", status_code=303)
 
 # 3. EDITOR PAGE
-from fastapi.responses import JSONResponse, HTMLResponse
-from typing import Optional
-
 @app.get("/projects/{project_id}/editor", response_class=HTMLResponse)
 async def project_editor(request: Request, project_id: str, file: str = "index.html", prompt: Optional[str] = None):
     user = get_current_user(request)
@@ -1360,8 +1323,10 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
     
     used, limit = get_token_usage_and_limit(user["id"])
     user["tokens"] = {"used": used, "limit": limit}
+    
+    # Safely fetch chat history
+    chat_history = project.get("chat_history", []) if project else []
 
-    # --- 🚨 FIX: ALWAYS DEFINE has_github 🚨 ---
     has_github = False 
     try:
         user_data = db_select_one("users", {"id": user["id"]}, "github_access_token")
@@ -1381,7 +1346,8 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
             "user": user,
             "initial_prompt": prompt,
             "has_github": has_github,
-            "gorilla_api_key": api_key
+            "gorilla_api_key": api_key,
+            "chat_history": json.dumps(chat_history) # <--- PASSING HISTORY
         }
     )
 
@@ -1480,33 +1446,28 @@ import httpx
 import re
 
 async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: bool = False, history: List[Dict] = None, skip_planner: bool = False):
-    """
-    The core logic for the AI Agent. Can be called from the endpoint or the log-fixer.
-    If skip_planner is True, it directly sends the prompt to the Coder.
-    """
     try:
         await asyncio.sleep(0.5)
         file_tree = await _fetch_file_tree(project_id)
         
+        # --- DB CHAT HISTORY LOGIC ---
+        proj_data = db_select_one("projects", {"id": project_id}, "chat_history")
+        db_history = proj_data.get("chat_history", []) if proj_data and proj_data.get("chat_history") else []
+        db_history.append({"role": "user", "content": prompt})
+        
         planner = Planner()
-        # Fallback to Coder if XCoder isn't explicitly defined in context
         coder = XCoder() if (is_xmode and 'XCoder' in globals()) else Coder()
         
         if not skip_planner:
-            # --- PHASE 1: PLANNER ---
             emit_phase(project_id, "planner")
             emit_progress(project_id, "Architecting solution...", 10)
             
-            # Pass history to planner if available
             plan_context = {"project_id": project_id, "files": list(file_tree.keys())}
             if history:
                 plan_context["history"] = history
 
-            # Check for Base64 Image stash
-            image_b64 = None
             if ".gorilla/prompt_image.b64" in file_tree:
-                image_b64 = file_tree[".gorilla/prompt_image.b64"]
-                plan_context["image_context"] = image_b64
+                plan_context["image_context"] = file_tree[".gorilla/prompt_image.b64"]
 
             plan_res = await asyncio.to_thread(
                 planner.generate_plan,
@@ -1517,10 +1478,12 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             tk = plan_res.get("usage", {}).get("total_tokens", 0)
             if tk and user_id: add_monthly_tokens(user_id, tk)
             
-            # --- DISPLAY PLAN ---
             raw_plan = plan_res.get("plan", {})
             real_assistant_msg = plan_res.get("assistant_message")
             
+            if real_assistant_msg:
+                db_history.append({"role": "planner", "content": real_assistant_msg})
+                
             emit_log(project_id, "assistant", real_assistant_msg or "I have created a plan for your application.")
 
             tasks = raw_plan.get("todo", [])
@@ -1553,20 +1516,18 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                     f'  </div>'
                     f'</div>'
                 )
-                
                 emit_log(project_id, "planner", full_html)
 
             if not tasks:
+                supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
                 emit_status(project_id, "Response Complete")
                 emit_progress(project_id, "Done", 100)
                 return
         else:
-            # --- BYPASS PLANNER FOR LOG ERRORS & DEPLOY OPTIMIZATIONS ---
             emit_phase(project_id, "coder")
             emit_log(project_id, "system", "⚡ Bypassing Planner. Triggering Coder directly...")
             tasks = [prompt] 
 
-        # --- PHASE 2: CODER ---
         emit_phase(project_id, "coder")
         total = len(tasks)
         
@@ -1592,6 +1553,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             if tk and user_id: add_monthly_tokens(user_id, tk)
 
             if code_res.get("message"):
+                db_history.append({"role": "coder", "content": code_res.get("message")})
                 emit_log(project_id, "coder", code_res.get("message"))
 
             ops = code_res.get("operations", [])
@@ -1600,7 +1562,6 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             for op in ops:
                 path = op.get("path")
                 content = op.get("content")
-                
                 if path and content is not None:
                     if path.startswith("static/") and path.endswith(".js"):
                         try:
@@ -1609,15 +1570,14 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                                 emit_log(project_id, "system", f"❌ Syntax Error in {path}:\n{lint_err}")
                         except: pass
 
-                    db_upsert(
-                        "files", 
-                        {"project_id": project_id, "path": path, "content": content}, 
-                        on_conflict="project_id,path"
-                    )
+                    db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
                     emit_file_changed(project_id, path)
             
             file_tree = await _fetch_file_tree(project_id)
         
+        # Save History when done
+        supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
+
         emit_status(project_id, "Coding Complete.")
         emit_progress(project_id, "Ready", 100)
         
@@ -1630,14 +1590,12 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
 # ==========================================================================
 # AUTO-FIXING LOG ENDPOINT
 # ==========================================================================
-
 @app.post("/api/project/{project_id}/log")
 async def log_browser_event(project_id: str, request: Request, background_tasks: BackgroundTasks):
     try:
         form = await request.form()
         level = form.get("level", "INFO")
         message = form.get("message", "")
-        
         print(f"[{level}] Browser: {message}")
 
         if "error" in message.lower() or "failed" in message.lower() or "exception" in message.lower():
@@ -1645,17 +1603,12 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
             emit_log(project_id, "system", "🔧 Auto-Fixing...")
 
             chat_history = []
-            try:
-                rows = db_select("messages", {"project_id": project_id})
-                rows.sort(key=lambda x: x['created_at'])
-                for r in rows:
-                    chat_history.append({"role": r["role"], "content": r["content"]})
-            except: pass 
-
             owner_id = None
             try:
-                proj = db_select_one("projects", {"id": project_id}, "owner_id")
-                if proj: owner_id = proj["owner_id"]
+                proj = db_select_one("projects", {"id": project_id}, "chat_history, owner_id")
+                if proj: 
+                    owner_id = proj.get("owner_id")
+                    chat_history = proj.get("chat_history", [])
             except: pass
 
             if not owner_id:
@@ -1683,7 +1636,6 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
         print(f"Log Error: {e}")
         
     return JSONResponse({"status": "ok"})
-
 
 # ==========================================================================
 # DEPLOYMENT ROUTES (VERCEL & GITHUB)
@@ -1733,23 +1685,18 @@ async def project_deploy_page(request: Request, project_id: str):
 import json
 from fastapi import Request, HTTPException
 
+# ==========================================================================
+# DEPLOY OPTIMIZE FIX
+# ==========================================================================
 @app.post("/api/project/{project_id}/deploy-optimize")
 async def optimize_for_vercel(request: Request, project_id: str):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
     try:
-        # 1. Fetch user's Gorilla API Key
         user_data = db_select_one("users", {"id": user["id"]}, "gorilla_api_key")
         api_key = user_data.get("gorilla_api_key", "") if user_data else ""
 
-        # 2. Fetch the current project files
-        project = db_select_one("projects", {"id": project_id}, "files")
-        if not project:
-            raise HTTPException(404, "Project not found")
-        files = project.get("files", [])
-
-        # 3. Build the perfect vercel.json programmatically
         vercel_json_content = {
             "version": 2,
             "builds": [
@@ -1761,35 +1708,27 @@ async def optimize_for_vercel(request: Request, project_id: str):
                 {"source": "/(.*)", "destination": "/index.html"}
             ],
             "env": {
-                "GORILLA_API_KEY": api_key
+                "GORILLA_API_KEY": api_key 
             }
         }
         
-        # 4. Inject it into the file tree
-        has_vercel_json = False
-        for f in files:
-            if f["path"] == "vercel.json":
-                f["content"] = json.dumps(vercel_json_content, indent=2)
-                has_vercel_json = True
-                break
-        
-        if not has_vercel_json:
-            files.append({
-                "path": "vercel.json",
+        # PROPERLY UPSERT INTO THE FILES TABLE
+        db_upsert(
+            "files", 
+            {
+                "project_id": project_id, 
+                "path": "vercel.json", 
                 "content": json.dumps(vercel_json_content, indent=2)
-            })
+            }, 
+            on_conflict="project_id,path"
+        )
 
-        # Save the updated file tree to the database immediately
-        supabase.table("projects").update({"files": files}).eq("id", project_id).execute()
-
-        # 5. Tell the AI ONLY to fix server.js (since we handled the JSON)
         optimization_prompt = """
         We are deploying this full-stack application to Vercel Serverless. You MUST perform this exactly:
         Overwrite `server.js` completely. Do NOT call `app.listen(...)` at the bottom. Vercel requires you to EXPORT the express app instead. End the file with `export default app;` or `module.exports = app;`.
         Do NOT create or modify `vercel.json` (it has already been handled).
         """
         
-        # Await the agent directly so the frontend knows when it's done
         await run_agent_loop(
             project_id=project_id,
             prompt=optimization_prompt,
@@ -1798,11 +1737,16 @@ async def optimize_for_vercel(request: Request, project_id: str):
             skip_planner=True 
         )
         
-        # Mark as optimized
-        supabase.table("projects").update({"vercel_optimized": True}).eq("id", project_id).execute()
+        try:
+            supabase.table("projects").update({"vercel_optimized": True}).eq("id", project_id).execute()
+        except Exception:
+            pass
+
         return {"status": "ok", "detail": "Optimized for Vercel"}
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(500, detail=str(e))
 
 # 4. Push to GitHub
@@ -2142,7 +2086,8 @@ async def agent_start(
     request: Request, 
     project_id: str, 
     prompt: str = Form(...),
-    xmode: bool = Form(False)
+    xmode: bool = Form(False),
+    image_base64: Optional[str] = Form(None)
 ):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
