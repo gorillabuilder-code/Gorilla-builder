@@ -155,6 +155,10 @@ if os.path.isdir(FRONTEND_STYLES_DIR):
 
 templates = Jinja2Templates(directory=FRONTEND_TEMPLATES_DIR)
 
+@app.exception_handler(403)
+async def custom_403_handler(request: Request, __):
+    # If the user isn't authorized, just send them home
+    return RedirectResponse(url="/", status_code=303)
 
 # --- BACKGROUND TASK: CLEANUP INACTIVE SANDBOXES ---
 @app.on_event("startup")
@@ -357,15 +361,16 @@ def get_current_user(request: Request) -> Dict[str, Any]:
     raise HTTPException(status_code=401, detail="Not authenticated")
 
 def _require_project_owner(user: Dict[str, Any], project_id: str) -> None:
-    """Verifies that the current user owns the project. STRICT ENFORCEMENT."""
+    """Verifies that the current user owns the project."""
     res = db_select_one("projects", {"id": project_id}, "id, owner_id")
     
     if not res:
         raise HTTPException(status_code=404, detail="Project not found")
         
-    # STRICT CHECK: If the owner_id doesn't match the logged-in user, block them.
     if res.get("owner_id") != user["id"]:
-        raise HTTPException(status_code=403, detail="Access denied. You do not own this project.")
+        # We use 403 to signal "You aren't allowed here" 
+        # JavaScript will catch this and trigger the redirect.
+        raise HTTPException(status_code=403, detail="Unauthorized Access")
 
 # --- RESEND EMAIL LOGIC ---
 
@@ -378,7 +383,7 @@ def send_otp_email(to_email: str, code: str):
         params = {
             "from": "Gor://a Auth Verification <auth@gorillabuilder.dev>", # Use your verified domain
             "to": [to_email],
-            "subject": "Your Verification Code for Gor://a Builder",
+            "subject": "{code}, your Verification Code for Gor://a Builder",
             "html": f"""
             <!DOCTYPE html>
             <html>
@@ -2270,7 +2275,7 @@ async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_k
     payload = await request.json()
     
     # Force the model to OpenRouter's massive 120b model as requested
-    payload["model"] = "xiaomi/mimo-v2-flash" # Replace with your exact OpenRouter model string
+    payload["model"] = "xiaomi/mimo-v2-flash:online" # Replace with your exact OpenRouter model string
     
     # Ask OpenRouter to send usage stats back even if it's a stream
     if "stream_options" not in payload:
