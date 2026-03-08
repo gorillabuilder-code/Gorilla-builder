@@ -225,16 +225,38 @@ def db_select_one(table: str, match: dict, select="*"):
         return res.data if res else None
     except Exception: return None
 
-def db_upsert(table: str, data: dict, on_conflict=None):
-    """Safe wrapper to upsert data."""
-    if not supabase: return None
+# ==========================================================================
+# DB UPSERT (Integrity Guard)
+# ==========================================================================
+def db_upsert(table: str, data: Dict[str, Any], on_conflict: str = "id"):
+    """
+    Enhanced upsert that blocks binary/giant files from entering the DB.
+    """
+    path = data.get("path", "")
+    content = data.get("content", "")
+
+    # 1. 🛑 THE LOCKFILE BLOCKER
+    # Blocks the Agent or Boilerplate from saving giant lockfiles
+    if path and any(x in path for x in ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"]):
+        print(f"⏩ Skipping {path} (Handled by WebContainer runtime)")
+        return None
+
+    # 2. 🛑 BINARY FILTER
+    # Prevents binary data from being stored in the text column
+    if path and path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.ico', '.pdf', '.zip')):
+        print(f"⏩ Skipping binary file: {path}")
+        return None
+
+    # 3. 🛑 INTEGRITY CHECK
+    # Ensure we aren't saving empty strings as files
+    if table == "files" and not content:
+        print(f"⚠️ Warning: Attempting to save empty file content for {path}")
+
     try:
-        q = supabase.table(table).upsert(data, on_conflict=on_conflict)
-        res = q.execute()
-        return res.data
+        return supabase.table(table).upsert(data, on_conflict=on_conflict).execute()
     except Exception as e:
-        # Re-raise so specific error handling (like FK checks) can work
-        raise e
+        print(f"❌ DB Upsert Error for {path}: {e}")
+        return None
 
 
 # ==========================================================================
@@ -2076,6 +2098,10 @@ def lint_code_with_esbuild(content: str, filename: str) -> str | None:
 # AI AGENT WORKFLOW (TRIGGER)
 # ==========================================================================
 async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
+    """
+    Fetches the project files but strictly filters out massive lockfiles 
+    to prevent AI context bloat and truncation errors.
+    """
     try:
         query = supabase.table("files").select("path,content").eq("project_id", project_id)
         res = query.execute()
@@ -2087,7 +2113,19 @@ async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
         if not rows and isinstance(res, list):
             rows = res
             
-        return {r["path"]: (r.get("content") or "") for r in rows if r.get("path")}
+        # 🛑 SHARK FILTER: Exclude files that cause 'Expected , or }' errors
+        filtered_tree = {}
+        for r in rows:
+            path = r.get("path", "")
+            if not path: continue
+            
+            # Skip giant cloggers that the AI doesn't need to read
+            if any(x in path for x in ["package-lock.json", "yarn.lock", "node_modules", ".git"]):
+                continue
+                
+            filtered_tree[path] = (r.get("content") or "")
+            
+        return filtered_tree
         
     except Exception as e:
         print(f"⚠️ Fetch Error: {e}")
