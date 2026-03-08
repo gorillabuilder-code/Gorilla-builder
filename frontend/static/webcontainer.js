@@ -95,11 +95,11 @@ export class WebRunner {
     }
 
     /**
-     * 🚨 NEW: Securely dispatch error logs to the AI Agent Backend
+     * 🚨 UPDATED: Securely dispatch error logs to the AI Agent Backend
      */
     async _notifyCoder(projectId, systemPrompt) {
-        // Fallback to extract projectId from URL if not explicitly passed
-        const pid = projectId || window.PROJECT_ID || window.location.pathname.split('/')[2];
+        // 1. Try to get ID from window variables first, then fallback to URL
+        const pid = projectId || window.PROJECT_ID || (window.location.pathname.match(/\/projects\/([^\/]+)/) || [])[1];
         
         if (!pid) {
             console.warn("No Project ID found. Cannot auto-notify coder.");
@@ -107,14 +107,22 @@ export class WebRunner {
         }
 
         try {
-            await fetch(`/api/project/${pid}/chat`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prompt: systemPrompt, isSystemMessage: true })
+            console.log("🤖 Dispatching log to AI Coder...");
+            
+            // 2. The backend /log route strictly expects FormData
+            const formData = new FormData();
+            formData.append("level", "ERROR");
+            formData.append("message", systemPrompt);
+
+            // 3. MUST hit /log endpoint, NOT /chat!
+            await fetch(`/api/project/${pid}/log`, {
+                method: 'POST',
+                body: formData
             });
-            console.log("🤖 Logs successfully dispatched to AI Coder.");
+            
+            console.log("✅ Logs successfully dispatched.");
         } catch (err) {
-            console.error("Failed to reach AI Coder:", err);
+            console.error("❌ Failed to reach AI Auto-Fixer:", err);
         }
     }
 

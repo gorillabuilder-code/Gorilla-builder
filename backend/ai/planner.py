@@ -192,7 +192,7 @@ class Planner:
     "   - NEVER generate an `.env` file.\n"
     "   - Frontend Imports: Use `@/` aliases.\n"
     "   - Backend Imports: Use relative paths with `.js` extension.\n"
-    "   - Always instruct to the coder to build a `vercel.json` file in the root of the project according to the project's requirements.\n"
+    "   - Never instruct to the coder to build a `vercel.json` file in the root of the project according to the project's requirements.\n"
     
     # --- 🚨 PHASE 5: THE AI PROXY INJECTION 🚨 ---
     "2. **AI Integration Specs (USE THESE EXACTLY):**\n"
