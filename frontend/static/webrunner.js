@@ -140,8 +140,9 @@ export class WebRunner {
                 '--no-progress',
                 '--loglevel=error',
                 '--no-cache',
+                '--maxsockets=3',
                 '--fetch-retries=5',      
-                '--fetch-timeout=60000'
+                '--fetch-timeout=120000'
             ]);
             
             process.output.pipeTo(new WritableStream({
@@ -154,8 +155,8 @@ export class WebRunner {
             const exitCode = await process.exit;
             
             if (exitCode !== 0) {
-                logger("system", `⚠️ npm install failed (network drop). Retrying in 5s...`);
-                await new Promise(resolve => setTimeout(resolve, 5000));
+                logger("system", `⚠️ npm install failed (network drop). Retrying in 30s...`);
+                await new Promise(resolve => setTimeout(resolve, 30000));
             } else {
                 logger("system", "✅ Dependencies installed.");
                 success = true;
