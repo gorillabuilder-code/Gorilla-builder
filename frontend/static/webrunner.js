@@ -137,7 +137,9 @@ export class WebRunner {
                 '--no-package-lock',
                 '--no-progress',
                 '--loglevel=error',
-                '--no-cache'
+                '--no-cache',
+                '--fetch-retries=5',      
+                '--fetch-timeout=60000'
             ]);
             
             process.output.pipeTo(new WritableStream({
