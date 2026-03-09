@@ -1624,46 +1624,59 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
 # ==========================================================================
 # AUTO-FIXING LOG ENDPOINT
 # ==========================================================================
-# Add this at the top of app.py to track active fixes
-active_fixes = set()
+# Add this near your other global variables in app.py
+active_ai_fixes = set()
 
+# ==========================================================================
+# AUTO-FIXING LOG ENDPOINT
+# ==========================================================================
 @app.post("/api/project/{project_id}/log")
 async def log_browser_event(project_id: str, request: Request, background_tasks: BackgroundTasks):
-    global active_fixes
-    
+    global active_ai_fixes
     try:
         form = await request.form()
         message = form.get("message", "")
-        
-        # If the browser sends an error...
+        level = form.get("level", "INFO")
+        print(f"[{level}] Browser Event: {message[:100]}...")
+
         if "error" in message.lower() or "failed" in message.lower() or "syntax error" in message.lower():
             
-            # 🛑 BACKEND LOCK: Check if we are already fixing this project
-            if project_id in active_fixes:
-                print(f"[{project_id}] AI is already fixing this. Ignoring duplicate log.")
-                return JSONResponse({"status": "ignored", "detail": "Fix in progress"})
-                
-            # Lock the project
-            active_fixes.add(project_id)
+            # 🛑 THE BACKEND MUTEX: Block duplicate AI agents
+            if project_id in active_ai_fixes:
+                print(f"[{project_id}] AI is already fixing this. Ignoring duplicate request.")
+                return JSONResponse({"status": "ignored", "detail": "Fix already in progress"})
             
-            emit_log(project_id, "system", f"⚠️ Browser Error Detected...")
+            active_ai_fixes.add(project_id)
             
-            # --- Your existing logic to get chat history, etc ---
-            # ...
-            
-            # We need a wrapper function to remove the lock when the AI finishes
+            emit_log(project_id, "system", f"⚠️ Browser Error Detected. Analyzing...")
+            emit_log(project_id, "system", "🔧 AI Agent is spinning up to apply an Auto-Fix...")
+
+            chat_history = []
+            owner_id = None
+            try:
+                proj = db_select_one("projects", {"id": project_id}, "chat_history, owner_id")
+                if proj: 
+                    owner_id = proj.get("owner_id")
+                    chat_history = proj.get("chat_history", [])
+            except Exception as db_err:
+                print(f"DB Fetch Error in Log Route: {db_err}")
+
+            if not owner_id:
+                active_ai_fixes.remove(project_id)
+                return JSONResponse({"status": "error", "detail": "Owner not found"}, status_code=404)
+
+            # Wrapper to ensure the lock is always removed when the AI finishes or crashes
             async def run_and_unlock(*args, **kwargs):
                 try:
                     await run_agent_loop(*args, **kwargs)
                 finally:
-                    if project_id in active_fixes:
-                        active_fixes.remove(project_id)
-            
-            # Fire the wrapper instead of the raw function
+                    if project_id in active_ai_fixes:
+                        active_ai_fixes.remove(project_id)
+
             background_tasks.add_task(
-                run_and_unlock,
+                run_and_unlock, 
                 project_id=project_id, 
-                prompt=error_prompt, 
+                prompt=message, # Give it the exact error message
                 user_id=owner_id,
                 history=chat_history,
                 is_xmode=True, 
@@ -1672,6 +1685,10 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
             
     except Exception as e:
         print(f"Logging Error: {e}")
+        if project_id in active_ai_fixes:
+            active_ai_fixes.remove(project_id)
+        import traceback
+        traceback.print_exc()
         
     return JSONResponse({"status": "ok"})
 

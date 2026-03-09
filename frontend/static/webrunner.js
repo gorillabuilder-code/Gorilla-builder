@@ -54,7 +54,6 @@ export class WebRunner {
         let timeout = null;
 
         const flush = () => {
-            // Only flush if we have errors AND we aren't already fixing something
             if (buffer.trim() !== "" && !this.isFixing) {
                 const prompt = `SYSTEM ALERT: ❌ ${contextName} Runtime Errors:\n<logs>\n${buffer.trim()}\n</logs>\nPlease fix these issues in the codebase.`;
                 logger("coder", prompt); 
@@ -77,20 +76,17 @@ export class WebRunner {
     }
 
     async _notifyCoder(projectId, systemPrompt) {
-        // 🛑 LOCK CHECK: If AI is already working, ignore this trigger entirely.
         if (this.isFixing) {
             console.info("⏳ AI is already working on a fix. Ignoring duplicate error.");
             return;
         }
 
-        // 🔒 LOCK THE DOORS
         this.isFixing = true;
-
         const pid = projectId || window.PROJECT_ID || (window.location.pathname.match(/\/projects\/([^\/]+)/) || [])[1];
         
         if (!pid) {
             console.info("No Project ID found. Cannot auto-notify coder.");
-            this.isFixing = false; // unlock
+            this.isFixing = false; 
             return;
         }
 
@@ -108,7 +104,6 @@ export class WebRunner {
         } catch (err) {
             console.info("❌ Failed to reach AI Auto-Fixer:", err);
         } finally {
-            // 🔓 UNLOCK THE DOORS AFTER 30 SECONDS (Gives AI time to write the DB)
             if (this.fixUnlockTimer) clearTimeout(this.fixUnlockTimer);
             this.fixUnlockTimer = setTimeout(() => { 
                 this.isFixing = false; 
@@ -125,10 +120,17 @@ export class WebRunner {
 
         while (!success && attempts < 3) {
             attempts++;
-            logger("system", `Installing dependencies... (Attempt ${attempts} - Stealth Mode)`);
+            logger("system", `🧹 Cleaning VM cache & Installing... (Attempt ${attempts})`);
             let errorLogs = ""; 
 
-            // Stealth mode flags + no cache
+            // 🛑 THE FIX: We MUST await the .exit so the cleanup finishes before install starts!
+            const rmProcess = await this.instance.spawn('rm', ['-rf', 'node_modules', 'package-lock.json']);
+            await rmProcess.exit; 
+
+            const cacheProcess = await this.instance.spawn('npm', ['cache', 'clean', '--force']);
+            await cacheProcess.exit; 
+
+            // Stealth mode flags + no cache + high retry limit
             const process = await this.instance.spawn('npm', [
                 'install', 
                 '--legacy-peer-deps',
@@ -145,7 +147,6 @@ export class WebRunner {
             process.output.pipeTo(new WritableStream({
                 write(data) {
                     errorLogs += data; 
-                    // 🛑 CHANGED: console.warn to console.info so global listeners ignore it
                     console.info("[NPM]", data); 
                 }
             }));
@@ -153,15 +154,8 @@ export class WebRunner {
             const exitCode = await process.exit;
             
             if (exitCode !== 0) {
-                logger("system", `⚠️ npm install failed (code ${exitCode}). Notifying AI Coder...`);
-                
-                const truncatedLogs = errorLogs.slice(-1500);
-                const autoPrompt = `SYSTEM ALERT: The WebContainer failed to boot. \`npm install\` exited with code ${exitCode}. \nHere are the logs:\n<logs>\n${truncatedLogs}\n</logs>\nPlease review the package.json. Fix any invalid package names, version conflicts, or missing dependencies, and rewrite the package.json file.`;
-
-                await this._notifyCoder(projectId, autoPrompt);
-                
-                logger("system", "Coder notified! Waiting for fix before retrying in 25s...");
-                await new Promise(resolve => setTimeout(resolve, 25000));
+                logger("system", `⚠️ npm install failed (network drop). Retrying in 5s...`);
+                await new Promise(resolve => setTimeout(resolve, 5000));
             } else {
                 logger("system", "✅ Dependencies installed.");
                 success = true;
@@ -169,7 +163,9 @@ export class WebRunner {
         }
         
         if (!success) {
-            logger("system", "❌ Critical Failure: Could not install dependencies after 3 attempts.");
+            logger("system", "❌ Critical Failure: Notifying AI Coder to check package.json...");
+            const autoPrompt = `SYSTEM ALERT: npm install failed 3 times. Please carefully review package.json for invalid package names or missing brackets and rewrite it.`;
+            await this._notifyCoder(projectId, autoPrompt);
         }
     }
 
@@ -193,7 +189,6 @@ export class WebRunner {
             dbProcess.output.pipeTo(new WritableStream({
                 write(data) {
                     dbErrorLogs += data;
-                    // 🛑 CHANGED to console.info
                     console.info("[DB PUSH]", data);
                 }
             }));
@@ -231,7 +226,6 @@ export class WebRunner {
                     
                     serverErrorTracker.push(data);
                 }
-                // 🛑 CHANGED to console.info
                 console.info("[VM]", data);
             }
         }));
