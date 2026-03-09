@@ -236,7 +236,7 @@ class Coder:
             "4. There is no read file action, to find a file please look into the conversation history\n"
             "5. When you get instructions to finalize the server.js, ALWAYS update the WHOLE SERVER.JS and use overwrite_file action, never leave it as is.\n\n"
             "SPECIFIC RULES:\n"
-            "1. **Frontend (React)**: Use Functional Components. Tailwind ONLY for styling. No CSS files.\n"
+            "1. **Frontend (React)**: Use Functional Components. MAKE EVERYTHING LOOK VERY GOOD! WITH EYECANDY FOR THE USER.\n"
             "2. **Backend (Node)**: Use `async/await`. Return JSON (`res.json`). Handle errors with `try/catch`.\n"
             "3. **Self-Correction**: If the user prompt reports a crash, analyze the stack trace and fix the specific file causing it.\n"
         )

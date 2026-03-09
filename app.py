@@ -1928,11 +1928,26 @@ async def get_project_files(request: Request, project_id: str):
     rows = getattr(res, "data", [])
     if not rows and isinstance(res, list): rows = res
         
-    return {"files": rows}
+    # 🛑 FRONTEND SHARK FILTER: 
+    # Stop the WebContainer from downloading corrupted lockfiles or useless bloat
+    clean_rows = []
+    for r in rows:
+        path = r.get("path", "")
+        # If it's a lockfile, git dir, or node_modules, do NOT send it to the browser VM
+        if any(x in path for x in ["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "node_modules", ".git"]):
+            continue
+        clean_rows.append(r)
+        
+    return {"files": clean_rows}
 
 
 @app.get("/api/project/{project_id}/file")
 async def get_file_content(request: Request, project_id: str, path: str):
+    # 🛑 SHARK FILTER FOR DIRECT FETCH:
+    # Prevent the editor from manually requesting giant lockfiles and crashing
+    if any(x in path for x in ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"]):
+        return JSONResponse({"content": "// Lockfiles are hidden by the system to prevent network truncation."})
+
     try:
         res = supabase.table("files").select("content").eq("project_id", project_id).eq("path", path).execute()
         if asyncio.iscoroutine(res): res = await res
@@ -1944,7 +1959,6 @@ async def get_file_content(request: Request, project_id: str, path: str):
         return JSONResponse({"content": content})
     except Exception as e:
         return JSONResponse({"content": f"// Error loading file: {e}"})
-
 
 @app.post("/api/project/{project_id}/save")
 async def save_file(
