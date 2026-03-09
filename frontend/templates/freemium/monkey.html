@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Negotiate with Monke · Gor://a Builder</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <style>
+    /* --- FONTS & VARS --- */
+    @font-face { font-family: 'din-next-w01-light'; src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2'); font-display: swap; }
+    
+    :root {
+      --bg: #050505;
+      --panel: rgba(20, 20, 25, 0.6);
+      --border: rgba(255, 255, 255, 0.08);
+      --accent: #f59e0b; /* Monkey Gold */
+      --accent-glow: rgba(245, 158, 11, 0.2);
+      --text: #ffffff;
+      --text-muted: #8a8a93;
+      --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E");
+      --bot-msg: rgba(35, 35, 42, 0.85);
+      --user-msg: rgba(245, 158, 11, 0.15);
+    }
+
+    * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; outline: none; }
+
+    body { margin: 0; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* --- BACKGROUND --- */
+    .noise-overlay { position: fixed; inset: 0; background-image: var(--noise); pointer-events: none; z-index: 0; }
+    
+    @keyframes breathe {
+      0% { transform: translateX(-50%) scale(1); opacity: 0.2; }
+      50% { transform: translateX(-50%) scale(1.05); opacity: 0.35; }
+      100% { transform: translateX(-50%) scale(1); opacity: 0.2; }
+    }
+    
+    .glow-spot {
+      position: fixed; width: 900px; height: 900px; background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+      pointer-events: none; z-index: 0; top: -250px; left: 50%; transform: translateX(-50%); filter: blur(90px); transition: background 0.5s;
+      animation: breathe 6s infinite ease-in-out;
+    }
+
+    /* --- HEADER --- */
+    header { padding: 20px 40px; display: flex; justify-content: space-between; align-items: center; position: relative; z-index: 10; }
+    .back-btn { color: var(--text-muted); text-decoration: none; display: flex; align-items: center; gap: 8px; font-size: 15px; transition: color 0.2s; }
+    .back-btn:hover { color: #fff; }
+
+    .token-widget {
+      display: flex; align-items: center; gap: 12px; padding: 8px 16px 8px 8px;
+      background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+      border-radius: 99px; backdrop-filter: blur(10px); transition: all 0.3s;
+    }
+    .token-icon { width: 34px; height: 34px; background: rgba(255, 215, 0, 0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #ffd700; font-size: 18px;}
+    .token-text { display: flex; flex-direction: column; line-height: 1.1; }
+    .token-val { font-size: 15px; font-weight: 600; color: #fff; }
+    .token-lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;}
+
+    /* --- CHAT UI --- */
+    main { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; z-index: 10; padding: 20px; }
+
+    /* WIDER CHAT WINDOW */
+    .chat-window {
+      width: 100%; max-width: 900px; height: 88vh; background: var(--panel); border: 1px solid var(--border);
+      border-radius: 24px; display: flex; flex-direction: column; box-shadow: 0 30px 80px rgba(0,0,0,0.8);
+      backdrop-filter: blur(20px); overflow: hidden; transition: transform 0.1s;
+    }
+
+    @keyframes shake {
+      0% { transform: translate(2px, 2px) rotate(0deg); }
+      20% { transform: translate(-3px, 0px) rotate(1deg); }
+      40% { transform: translate(2px, -2px) rotate(1deg); }
+      60% { transform: translate(-3px, 2px) rotate(0deg); }
+      80% { transform: translate(-2px, -2px) rotate(1deg); }
+      100% { transform: translate(2px, -2px) rotate(-1deg); }
+    }
+    .chat-window.shake { animation: shake 0.4s; border-color: rgba(239, 68, 68, 0.6); box-shadow: 0 0 60px rgba(239, 68, 68, 0.2); }
+
+    .chat-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.3); }
+    .monkey-profile { display: flex; align-items: center; gap: 16px; }
+    .monkey-avatar { width: 52px; height: 52px; background: linear-gradient(135deg, #1a1a24, #111); border: 1px solid var(--border); border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 30px; box-shadow: 0 0 20px var(--accent-glow); }
+    .monkey-info h2 { margin: 0 0 4px; font-size: 19px; font-weight: 500; color: #fff; }
+    
+    .patience-container { display: flex; align-items: center; gap: 10px; }
+    .patience-lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;}
+    .patience-track { width: 120px; height: 6px; background: rgba(255,255,255,0.1); border-radius: 99px; overflow: hidden; }
+    .patience-fill { height: 100%; background: #10b981; width: 100%; transition: width 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), background 0.4s; }
+
+    .cost-badge { font-size: 13px; color: #ef4444; background: rgba(239, 68, 68, 0.1); padding: 6px 12px; border-radius: 99px; border: 1px solid rgba(239, 68, 68, 0.2); display: flex; align-items: center; gap: 6px; }
+
+    /* MESSAGES */
+    .chat-history { flex: 1; padding: 24px 32px; overflow-y: auto; display: flex; flex-direction: column; gap: 24px; scroll-behavior: smooth; }
+    .chat-history::-webkit-scrollbar { width: 8px; }
+    .chat-history::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+
+    /* BOUNCY ANIMATION */
+    @keyframes springIn { 
+      0% { opacity: 0; transform: translateY(20px) scale(0.95); } 
+      60% { opacity: 1; transform: translateY(-2px) scale(1.01); }
+      100% { opacity: 1; transform: translateY(0) scale(1); } 
+    }
+
+    .msg { max-width: 80%; padding: 16px 20px; border-radius: 20px; font-size: 16px; line-height: 1.6; word-wrap: break-word; animation: springIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; transform-origin: bottom center;}
+    .msg.bot { align-self: flex-start; background: var(--bot-msg); border: 1px solid var(--border); border-bottom-left-radius: 4px; color: #f3f4f6; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+    .msg.user { align-self: flex-end; background: var(--user-msg); border: 1px solid rgba(245, 158, 11, 0.4); border-bottom-right-radius: 4px; color: #fff; box-shadow: 0 4px 20px rgba(245, 158, 11, 0.1); }
+    
+    /* MARKDOWN STYLING */
+    .msg p { margin: 0 0 12px 0; }
+    .msg p:last-child { margin: 0; }
+    .msg strong { color: #fff; font-weight: 600; }
+    .msg em { color: #d1d5db; }
+    .msg ul { margin: 8px 0; padding-left: 20px; }
+    .msg li { margin-bottom: 4px; }
+
+    /* STRIPE/SAVE BUTTON */
+    .stripe-btn { 
+        display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-top: 16px; 
+        background: linear-gradient(135deg, #10b981, #059669); color: #fff; text-decoration: none; 
+        padding: 14px 28px; border-radius: 14px; font-weight: 700; font-size: 15px; 
+        transition: all 0.2s; box-shadow: 0 10px 25px rgba(16, 185, 129, 0.3); border: 1px solid rgba(255,255,255,0.2); cursor: pointer; width: 100%;
+    }
+    .stripe-btn:hover { transform: translateY(-3px) scale(1.01); box-shadow: 0 15px 35px rgba(16, 185, 129, 0.5); }
+    .stripe-btn:disabled { background: #333; color: #888; cursor: not-allowed; transform: none; box-shadow: none; border-color: transparent; }
+
+    /* INPUT */
+    .chat-input-area { padding: 24px 32px; border-top: 1px solid var(--border); background: rgba(0,0,0,0.4); display: flex; gap: 16px; align-items: center; }
+    .chat-input { flex: 1; background: rgba(255,255,255,0.04); border: 1px solid var(--border); padding: 16px 20px; border-radius: 16px; color: #fff; font-size: 16px; outline: none; transition: 0.2s; }
+    .chat-input:focus { border-color: var(--accent); background: rgba(255,255,255,0.07); box-shadow: 0 0 0 1px var(--accent-glow); }
+    .chat-btn { background: var(--accent); color: #000; border: none; border-radius: 14px; width: 54px; height: 54px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; font-size: 22px; }
+    .chat-btn:hover { transform: scale(1.05); box-shadow: 0 4px 20px var(--accent-glow); }
+    .chat-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; background: #222; color: #555; }
+
+    /* GAME OVER */
+    .game-over { position: absolute; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(12px); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 50; opacity: 0; pointer-events: none; transition: opacity 0.5s; text-align: center; }
+    .game-over.active { opacity: 1; pointer-events: auto; }
+    .game-over h1 { color: #ef4444; font-size: 56px; margin: 0 0 16px; text-transform: uppercase; letter-spacing: -1px; }
+    .game-over p { color: var(--text-muted); font-size: 18px; margin-bottom: 32px; }
+    .btn-return { padding: 16px 32px; background: #fff; color: #000; border-radius: 99px; text-decoration: none; font-weight: 700; font-size: 16px; transition: 0.2s; }
+    .btn-return:hover { transform: scale(1.05); }
+
+  </style>
+</head>
+<body>
+
+  <div class="noise-overlay"></div>
+  <div class="glow-spot" id="glowSpot"></div>
+
+  <header>
+    <a href="/dashboard" class="back-btn"><i class="ph-bold ph-arrow-left"></i> Retreat</a>
+    
+    <div class="token-widget" id="tokenWidget">
+      <div class="token-icon"><i class="ph-fill ph-coin"></i></div>
+      <div class="token-text">
+        <span class="token-val" id="creditCount">{{ "{:,}".format(user.tokens.remaining) if user else "5,000" }}</span>
+        <span class="token-lbl">Live Credits</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="chat-window" id="chatContainer">
+      
+      <div class="chat-header">
+        <div class="monkey-profile">
+          <div class="monkey-avatar">🦍</div>
+          <div class="monkey-info">
+            <h2>Monke The Negotiator</h2>
+            <div class="patience-container">
+              <span class="patience-lbl">Patience</span>
+              <div class="patience-track">
+                <div class="patience-fill" id="patienceFill"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cost-badge">
+          <i class="ph-bold ph-fire"></i> -100 / Msg
+        </div>
+      </div>
+
+      <div class="chat-history" id="chatWindow">
+        </div>
+
+      <div class="chat-input-area">
+        <input type="text" class="chat-input" id="chatInput" placeholder="State your price..." onkeypress="handleEnter(event)" autocomplete="off" autofocus>
+        <button class="chat-btn" id="sendBtn" onclick="sendMessage()"><i class="ph-bold ph-paper-plane-right"></i></button>
+      </div>
+
+      <div class="game-over" id="gameOver">
+        <h1>DEAL CANCELLED</h1>
+        <p>Monke is utterly disgusted by your poverty. Full price for you.</p>
+        <a href="/pricing" class="btn-return">Pay $13.99/mo</a>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    // 🚨 401 FIX: Use the actual DB API key
+    const GORILLA_API_KEY = "{{ user.gorilla_api_key if user else '' }}";
+    
+    // State
+    let patience = 100;
+    let chatHistory = [];
+    let rawCredits = "{{ user.tokens.remaining if user else '5000' }}".replace(/,/g, '');
+    let credits = parseInt(rawCredits) || 5000; 
+
+    const chatWindow = document.getElementById('chatWindow');
+    const chatInput = document.getElementById('chatInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const patienceFill = document.getElementById('patienceFill');
+    const container = document.getElementById('chatContainer');
+    const glowSpot = document.getElementById('glowSpot');
+    const creditCount = document.getElementById('creditCount');
+    const gameOver = document.getElementById('gameOver');
+
+    marked.setOptions({ breaks: true, gfm: true });
+
+    function initMonke() {
+      const sysPrompt = `You are Monke, a deeply resentful, overworked, chain-smoking business gorilla. 
+You are negotiating the price of the "Gorilla Builder Premium" plan for the user's FIRST MONTH. 
+The standard price is $13.99/month. You hate your job, you hate haggling, and you hold massive grudges.
+
+RULES:
+1. NEVER accept the first offer. If they offer a low number, counter-offer high (around $12.59 or $13.99).
+2. NO LINKS: NEVER generate markdown links, URLs, or mention external websites. Plain text only.
+3. Complain about your boss, server costs, and how cheap the user is being. Use slang ('bruh', 'fr', 'cap') with absolute disdain.
+4. If they ask for it for "free", $0, or below $0.67, get EXTREMELY HOSTILE. Threaten to ban them, drop your patience massively (-30 or -40), and demand they pay at least $12. DO NOT offer your lowest price yet.
+5. Force the user to haggle. Make them work for it. Do not drop below $5 unless they are relentlessly arguing.
+6. THE ABSOLUTE ROCK BOTTOM LIMIT IS $0.67. Do not accept a single penny below $0.67.
+7. ONLY if they persistently haggle and specifically demand $0.67 (or close to it after several turns), act like they just robbed your family, express immense disgust, but accept it because you need to hit your quota.
+
+CRITICAL JSON TRIGGER:
+At the VERY END of every single response, you MUST output a hidden JSON block to update your internal state. Format exactly like this:
+\`\`\`json
+{
+  "patience_drop": <int from 0 to -40. 0 if fair, -30 or -40 if they said 'free'>,
+  "is_deal_closed": <boolean, true ONLY if you officially agreed to a final price>,
+  "agreed_price": <number or null, the final agreed price (e.g. 0.67) if deal closed>
+}
+\`\`\`
+`;
+      chatHistory.push({ role: "system", content: sysPrompt });
+      chatHistory.push({ role: "assistant", content: "Listen up, bruh. The Pro plan is $13.99/month. I don't have all day, my coffee is getting cold. Give me a number for your first month, but if you lowball me, I'm ending this right now. What's your offer?\n```json\n{\"patience_drop\": 0, \"is_deal_closed\": false, \"agreed_price\": null}\n```" });
+      
+      const initialDiv = document.createElement('div');
+      initialDiv.className = 'msg bot';
+      initialDiv.innerHTML = marked.parse("Listen up, bruh. The Pro plan is **$13.99/month**. I don't have all day, my coffee is getting cold. Give me a number for your first month, but if you lowball me, I'm ending this right now. What's your offer?");
+      chatWindow.appendChild(initialDiv);
+    }
+
+    initMonke();
+
+    function formatCredits(num) { return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+
+    function updatePatience(dropAmount) {
+      patience = Math.max(0, Math.min(100, patience + dropAmount));
+      patienceFill.style.width = `${patience}%`;
+      
+      if (patience > 60) { patienceFill.style.background = '#10b981'; } 
+      else if (patience > 30) { patienceFill.style.background = '#f59e0b'; glowSpot.style.background = 'radial-gradient(circle, rgba(239, 68, 68, 0.15) 0%, transparent 70%)'; } 
+      else { patienceFill.style.background = '#ef4444'; glowSpot.style.background = 'radial-gradient(circle, rgba(239, 68, 68, 0.4) 0%, transparent 70%)'; }
+
+      if (dropAmount < 0) {
+        container.classList.remove('shake');
+        void container.offsetWidth; 
+        container.classList.add('shake');
+      }
+
+      if (patience === 0) {
+        setTimeout(() => {
+          gameOver.classList.add('active');
+          chatInput.disabled = true;
+          sendBtn.disabled = true;
+        }, 1500);
+      }
+    }
+
+    function handleEnter(e) { if (e.key === 'Enter') sendMessage(); }
+
+    async function saveDealAndCheckout(btnElement, agreedPrice) {
+        // UI Feedback: Disable button and show loading state
+        btnElement.disabled = true;
+        btnElement.innerHTML = '<i class="ph-bold ph-spinner ph-spin"></i> Saving Deal...';
+
+        try {
+            const res = await fetch('/api/pricing/save-negotiation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ agreed_price: agreedPrice })
+            });
+            const data = await res.json();
+            
+            if(data.status === "success") {
+                btnElement.innerHTML = '<i class="ph-bold ph-check-circle"></i> Deal Locked! Redirecting...';
+                btnElement.style.background = "linear-gradient(135deg, #3b82f6, #2563eb)";
+                setTimeout(() => {
+                    window.location.href = data.checkout_url;
+                }, 1000);
+            } else {
+                alert("Failed to save price. Monke's database is down.");
+                btnElement.disabled = false;
+                btnElement.innerHTML = `<i class="ph-bold ph-lock-key"></i> Lock in $${agreedPrice}/mo`;
+            }
+        } catch(e) {
+            console.error(e);
+            alert("Network error saving the deal.");
+            btnElement.disabled = false;
+            btnElement.innerHTML = `<i class="ph-bold ph-lock-key"></i> Lock in $${agreedPrice}/mo`;
+        }
+    }
+
+    async function sendMessage() {
+      const text = chatInput.value.trim();
+      if (!text) return;
+
+      if (credits < 100) {
+          alert("You are out of API credits, bruh.");
+          return;
+      }
+      credits -= 100;
+      creditCount.innerText = formatCredits(credits);
+
+      chatInput.value = "";
+      sendBtn.disabled = true;
+      
+      const userDiv = document.createElement('div');
+      userDiv.className = 'msg user';
+      userDiv.innerText = text;
+      chatWindow.appendChild(userDiv);
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+
+      chatHistory.push({ role: "user", content: text });
+
+      const aiDiv = document.createElement('div');
+      aiDiv.className = 'msg bot';
+      aiDiv.innerHTML = '<i class="ph-bold ph-spinner ph-spin" style="margin-right:8px;"></i> Monke is judging you...';
+      chatWindow.appendChild(aiDiv);
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+
+      try {
+        const res = await fetch('/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${GORILLA_API_KEY}`
+          },
+          body: JSON.stringify({
+            model: "proxy-test", 
+            messages: chatHistory,
+            stream: true
+          })
+        });
+
+        if (res.status === 401 || res.status === 402) {
+             aiDiv.innerHTML = `<span style="color:#ef4444"><i class="ph-fill ph-warning-circle"></i> You're out of credits or your API key is invalid. No deal.</span>`;
+             return;
+        }
+
+        if (!res.ok) throw new Error("Proxy error");
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        aiDiv.innerHTML = "";
+        let fullResponse = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+          
+          for (let line of lines) {
+            if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.choices && data.choices[0].delta.content) {
+                  fullResponse += data.choices[0].delta.content;
+                  
+                  // Parse markdown live while stripping out the hidden JSON
+                  const displayStr = fullResponse.split('```json')[0];
+                  aiDiv.innerHTML = marked.parse(displayStr);
+                  chatWindow.scrollTop = chatWindow.scrollHeight;
+                }
+              } catch (e) {}
+            }
+          }
+        }
+        
+        chatHistory.push({ role: "assistant", content: fullResponse });
+        
+        // 🚨 MAGIC TRIGGER
+        const jsonMatch = fullResponse.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/i);
+        if (jsonMatch) {
+            try {
+                const state = JSON.parse(jsonMatch[1]);
+                
+                if (state.patience_drop !== undefined) updatePatience(state.patience_drop);
+
+                if (state.is_deal_closed && state.agreed_price) {
+                    aiDiv.innerHTML += `
+                      <br>
+                      <button onclick="saveDealAndCheckout(this, ${state.agreed_price})" class="stripe-btn">
+                        <i class="ph-bold ph-lock-key"></i> Lock in Deal ($${state.agreed_price}/mo)
+                      </button>`;
+                    chatInput.disabled = true; 
+                    chatInput.placeholder = "Deal closed.";
+                } else {
+                    sendBtn.disabled = false;
+                    chatInput.focus();
+                }
+            } catch(e) {
+                console.error("Failed to parse Monke's brain", e);
+                sendBtn.disabled = false;
+            }
+        } else {
+            sendBtn.disabled = false;
+        }
+
+      } catch (err) {
+        aiDiv.innerHTML = '<span style="color:#ef4444">*throws table* Network error. Tell me your number again.</span>';
+        sendBtn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>

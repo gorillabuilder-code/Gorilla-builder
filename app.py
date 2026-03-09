@@ -2270,6 +2270,84 @@ import time
 async def health():
     return {"ok": True, "ts": int(time.time()), "dev_mode": DEV_MODE}
 
+from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from pydantic import BaseModel
+
+from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from pydantic import BaseModel
+
+# ==========================================================================
+# THE MONKE NEGOTIATOR ROUTES
+# ==========================================================================
+
+class NegotiationResult(BaseModel):
+    agreed_price: float
+
+@app.get("/pricing/negotiate", response_class=HTMLResponse)
+async def serve_negotiator(request: Request):
+    """Serves the monkey.html UI with FULL user data fetched from the DB."""
+    session_user = get_current_user(request) 
+    if not session_user:
+        return RedirectResponse(url="/auth/login")
+        
+    user_id = session_user["id"]
+    
+    # 🛑 THE FIX: We MUST fetch the API key and live stats from the database!
+    try:
+        res = supabase.table("users").select("*").eq("id", user_id).single().execute()
+        if not res or not res.data:
+            return RedirectResponse(url="/auth/login")
+            
+        db_user = res.data
+        
+        # Calculate live tokens for the UI
+        used, limit = get_token_usage_and_limit(user_id) 
+        db_user["tokens"] = {"remaining": max(0, limit - used)}
+        
+    except Exception as e:
+        print(f"Error fetching user for negotiation: {e}")
+        return RedirectResponse(url="/dashboard")
+
+    # Now db_user absolutely contains 'gorilla_api_key' and 'tokens'
+    return templates.TemplateResponse("freemium/monkey.html", {
+        "request": request, 
+        "user": db_user
+    })
+
+@app.post("/api/pricing/save-negotiation")
+async def save_negotiation(request: Request, data: NegotiationResult):
+    """
+    Saves the final agreed price to the users table.
+    Includes anti-cheat to ensure they don't spoof below $0.67.
+    """
+    session_user = get_current_user(request)
+    if not session_user:
+        raise HTTPException(status_code=401, detail="Not logged in")
+        
+    final_price = data.agreed_price
+    
+    # 🛑 ANTI-CHEAT: The absolute floor is $0.67. 
+    if final_price < 0.67:
+        final_price = 0.67
+        
+    try:
+        # Save as TEXT to the first_month_price column
+        supabase.table("users").update({
+            "first_month_price": str(final_price)
+        }).eq("id", session_user["id"]).execute()
+        
+        print(f"💰 User {session_user['id']} successfully negotiated first month to ${final_price}")
+        
+        return JSONResponse({
+            "status": "success", 
+            "checkout_url": f"/checkout/premium" # Redirects to Stripe logic
+        })
+    except Exception as e:
+        print(f"Error saving negotiated price: {e}")
+        raise HTTPException(status_code=500, detail="Database error while saving price.")
+
 # ==========================================================================
 # THE GORILLA AI PROXY GATEWAY
 # ==========================================================================
@@ -2348,7 +2426,7 @@ async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_k
     payload = await request.json()
     
     # Force the model to OpenRouter's massive 120b model as requested
-    payload["model"] = "xiaomi/mimo-v2-flash:online" # Replace with your exact OpenRouter model string
+    payload["model"] = "xiaomi/mimo-v2-flash" # Replace with your exact OpenRouter model string
     
     # Ask OpenRouter to send usage stats back even if it's a stream
     if "stream_options" not in payload:
