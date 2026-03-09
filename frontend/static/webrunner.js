@@ -120,52 +120,42 @@ export class WebRunner {
 
         while (!success && attempts < 3) {
             attempts++;
-            logger("system", `🧹 Cleaning VM cache & Installing... (Attempt ${attempts})`);
+            logger("system", `🚀 Firing NPM, Hiring PNPM... (Attempt ${attempts})`);
             let errorLogs = ""; 
 
-            // 🛑 THE FIX: We MUST await the .exit so the cleanup finishes before install starts!
-            const rmProcess = await this.instance.spawn('rm', ['-rf', 'node_modules', 'package-lock.json']);
+            // 🛑 Clear the board completely (Added pnpm-lock.yaml)
+            const rmProcess = await this.instance.spawn('rm', ['-rf', 'node_modules', 'package-lock.json', 'pnpm-lock.yaml']);
             await rmProcess.exit; 
 
-            const cacheProcess = await this.instance.spawn('npm', ['cache', 'clean', '--force']);
-            await cacheProcess.exit; 
-
-            // Stealth mode flags + no cache + high retry limit
-            const process = await this.instance.spawn('npm', [
+            // 🛑 THE ULTIMATE BYPASS: Use pnpm instead of npm.
+            // --shamefully-hoist ensures standard npm run scripts still work natively.
+            const process = await this.instance.spawn('npx', [
+                'pnpm', 
                 'install', 
-                '--legacy-peer-deps',
-                '--no-audit',
-                '--no-fund',
-                '--no-package-lock',
-                '--no-progress',
-                '--loglevel=error',
-                '--no-cache',
-                '--maxsockets=3',
-                '--fetch-retries=5',      
-                '--fetch-timeout=120000'
+                '--shamefully-hoist'
             ]);
             
             process.output.pipeTo(new WritableStream({
                 write(data) {
                     errorLogs += data; 
-                    console.info("[NPM]", data); 
+                    console.info("[PNPM]", data); 
                 }
             }));
 
             const exitCode = await process.exit;
             
             if (exitCode !== 0) {
-                logger("system", `⚠️ npm install failed (network drop). Retrying in 30s...`);
-                await new Promise(resolve => setTimeout(resolve, 30000));
+                logger("system", `⚠️ pnpm install failed. Retrying in 5s...`);
+                await new Promise(resolve => setTimeout(resolve, 5000));
             } else {
-                logger("system", "✅ Dependencies installed.");
+                logger("system", "✅ Dependencies installed beautifully.");
                 success = true;
             }
         }
         
         if (!success) {
             logger("system", "❌ Critical Failure: Notifying AI Coder to check package.json...");
-            const autoPrompt = `SYSTEM ALERT: npm install failed 3 times. Please carefully review package.json for invalid package names or missing brackets and rewrite it.`;
+            const autoPrompt = `SYSTEM ALERT: package installation failed 3 times. Please carefully review package.json for invalid package names or missing brackets and rewrite it.`;
             await this._notifyCoder(projectId, autoPrompt);
         }
     }
