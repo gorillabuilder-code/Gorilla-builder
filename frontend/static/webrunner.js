@@ -123,12 +123,11 @@ export class WebRunner {
             logger("system", `🚀 Firing NPM, Hiring PNPM... (Attempt ${attempts})`);
             let errorLogs = ""; 
 
-            // 🛑 Clear the board completely (Added pnpm-lock.yaml)
+            // Clear the board completely
             const rmProcess = await this.instance.spawn('rm', ['-rf', 'node_modules', 'package-lock.json', 'pnpm-lock.yaml']);
             await rmProcess.exit; 
 
-            // 🛑 THE ULTIMATE BYPASS: Use pnpm instead of npm.
-            // --shamefully-hoist ensures standard npm run scripts still work natively.
+            // Use pnpm instead of npm
             const process = await this.instance.spawn('npx', [
                 'pnpm', 
                 'install', 
@@ -174,6 +173,9 @@ export class WebRunner {
             dbAttempts++;
             logger("system", `🗄️ Provisioning local SQLite database... (Attempt ${dbAttempts})`);
             let dbErrorLogs = "";
+            
+            // 🛑 ADDED: Live tracker specifically for the DB push sequence
+            const dbErrorTracker = this._createDebouncedLogger(logger, "Database Setup", projectId);
 
             const dbProcess = await this.instance.spawn('npm', ['run', 'db:push'], { env: envVars });
             
@@ -181,18 +183,29 @@ export class WebRunner {
                 write(data) {
                     dbErrorLogs += data;
                     console.info("[DB PUSH]", data);
+                    
+                    // 🛑 ADDED: Stream DB logs directly to the user's UI terminal
+                    logger("system", data.trim());
+
+                    // 🛑 ADDED: Catch errors in real-time before process exits
+                    if (data.includes('Error:') || data.includes('TypeError:') || data.includes('Exception') || data.includes('code:')) {
+                        dbErrorTracker.push(data);
+                    }
                 }
             }));
 
             const dbExitCode = await dbProcess.exit;
+            dbErrorTracker.flushImmediate();
             
             if (dbExitCode !== 0) {
                 logger("system", `⚠️ Database push failed (code ${dbExitCode}). Notifying AI Coder...`);
                 
-                const truncatedLogs = dbErrorLogs.slice(-1500);
-                const autoPrompt = `SYSTEM ALERT: \`npm run db:push\` failed with code ${dbExitCode}. \nHere are the logs:\n<logs>\n${truncatedLogs}\n</logs>\nPlease review the Drizzle schema and connection settings, fix the errors, and rewrite the files.`;
-
-                await this._notifyCoder(projectId, autoPrompt);
+                if (!this.isFixing) {
+                    // 🛑 CHANGED: Expanded to 8000 characters to catch deep stack traces
+                    const truncatedLogs = dbErrorLogs.slice(-8000);
+                    const autoPrompt = `SYSTEM ALERT: \`npm run db:push\` failed with code ${dbExitCode}. \nHere are the logs:\n<logs>\n${truncatedLogs}\n</logs>\nPlease review the Drizzle schema and connection settings, fix the errors, and rewrite the files.`;
+                    await this._notifyCoder(projectId, autoPrompt);
+                }
 
                 logger("system", "Coder notified! Retrying DB push in 25s...");
                 await new Promise(resolve => setTimeout(resolve, 25000));

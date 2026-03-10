@@ -1467,6 +1467,8 @@ async def project_export(request: Request, project_id: str):
 # ==========================================================================
 import httpx
 import re
+import asyncio
+from typing import List, Dict
 
 async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: bool = False, history: List[Dict] = None, skip_planner: bool = False):
     try:
@@ -1492,7 +1494,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             plan_context = {
                 "project_id": project_id, 
                 "files": list(file_tree.keys()),
-                "api_key": api_key  # Pass key to the planner for external AI capabilities
+                "api_key": api_key  
             }
             
             if history:
@@ -1500,7 +1502,6 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
 
             if ".gorilla/prompt_image.b64" in file_tree:
                 plan_context["image_context"] = file_tree[".gorilla/prompt_image.b64"]
-                # Give planner strict awareness of the file name
                 plan_context["image_filename"] = ".gorilla/prompt_image.b64"
 
             plan_res = await asyncio.to_thread(
@@ -1565,6 +1566,9 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         emit_phase(project_id, "coder")
         total = len(tasks)
         
+        # 🛑 ADDED: A dictionary to hold all file changes in memory until the very end
+        batch_files = {}
+
         for i, task in enumerate(tasks, 1):
             if user_id:
                 try: enforce_token_limit_or_raise(user_id)
@@ -1572,14 +1576,14 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                     emit_log(project_id, "system", "⚠️ Token limit reached. Stopping.")
                     return
 
-            pct = 10 + (90 * (i / total))
+            pct = 10 + (80 * (i / total)) # Adjusted progress bar math slightly
             emit_progress(project_id, f"Building step {i}/{total}...", pct)
             emit_status(project_id, f"Implementing task {i}/{total}...")
             
             code_res = await coder.generate_code(
-                plan_section="Direct Execution" if skip_planner else "Implementation",
+                plan_section="Direct Execution" if skip_planner else f"Step {i}",
                 plan_text=task,
-                file_tree=file_tree,
+                file_tree=file_tree, # File tree is still passed for context
                 project_name=project_id
             )
             
@@ -1591,24 +1595,34 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                 emit_log(project_id, "coder", code_res.get("message"))
 
             ops = code_res.get("operations", [])
-            emit_phase(project_id, "files")
             
             for op in ops:
                 path = op.get("path")
                 content = op.get("content")
                 if path and content is not None:
-                    if path.startswith("static/") and path.endswith(".js"):
-                        try:
-                            lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
-                            if lint_err:
-                                emit_log(project_id, "system", f"❌ Syntax Error in {path}:\n{lint_err}")
-                        except: pass
+                    # 🛑 CHANGED: Write to memory instead of the database immediately
+                    batch_files[path] = content
+                    
+                    # Update the local file_tree so the next iteration of the Coder 
+                    # knows about the newly generated code without needing a DB fetch.
+                    file_tree[path] = content
 
-                    db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
-                    emit_file_changed(project_id, path)
-            
-            file_tree = await _fetch_file_tree(project_id)
+        # 🛑 ADDED: The Batch Release Step
+        emit_phase(project_id, "files")
+        emit_status(project_id, "Releasing atomic update to WebContainer...")
+        emit_progress(project_id, "Committing files...", 95)
         
+        for path, content in batch_files.items():
+            if path.startswith("static/") and path.endswith(".js"):
+                try:
+                    lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
+                    if lint_err:
+                        emit_log(project_id, "system", f"❌ Syntax Error in {path}:\n{lint_err}")
+                except: pass
+
+            db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
+            emit_file_changed(project_id, path)
+
         # Save History when done
         supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
 
