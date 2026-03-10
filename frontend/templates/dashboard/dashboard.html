@@ -193,6 +193,23 @@
     .input-box input::placeholder { color: rgba(255,255,255,0.25); transition: opacity 0.2s; }
     .input-box:focus-within input::placeholder { opacity: 0.5; }
 
+    /* BASE64 IMAGE UPLOAD STYLES */
+    .image-upload-wrapper {
+      position: relative; display: flex; align-items: center; justify-content: center;
+    }
+    .image-upload-wrapper input[type="file"] {
+      position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer;
+    }
+    .image-upload-btn {
+      color: var(--text-muted); font-size: 24px; transition: color 0.2s;
+      display: flex; align-items: center; padding: 0 10px;
+    }
+    .image-upload-btn:hover { color: var(--accent); }
+    .image-preview {
+      display: none; width: 36px; height: 36px; border-radius: 8px;
+      object-fit: cover; border: 1px solid var(--border);
+    }
+
     .action-btn {
       width: 48px; height: 48px; border-radius: 14px; border: none;
       background: var(--accent); color: #fff; cursor: pointer;
@@ -348,9 +365,105 @@
       padding: 12px; border-radius: 12px; font-size: 14px; cursor: pointer; transition: 0.2s;
     }
     .btn-modal-secondary:hover { background: rgba(255,255,255,0.05); color: #fff; }
+
+    /* --- SPIN THE WHEEL POPUP & ANIMATIONS --- */
+    .spin-modal-overlay {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(12px);
+      display: none; align-items: center; justify-content: center; z-index: 10000;
+      opacity: 0; transition: opacity 0.3s;
+    }
+    .spin-modal-overlay.active { display: flex; opacity: 1; }
+
+    .spin-modal {
+      background: #111116; border: 1px solid rgba(255, 215, 0, 0.2); border-radius: 24px;
+      width: 440px; max-width: 90vw; padding: 40px; text-align: center;
+      box-shadow: 0 20px 80px rgba(0,0,0,0.9), 0 0 0 1px rgba(255, 215, 0, 0.4);
+      transform: translateY(20px) scale(0.95); transition: all 0.3s var(--ease-out);
+    }
+    .spin-modal-overlay.active .spin-modal { transform: translateY(0) scale(1); }
+
+    /* The new CSS Animated Wheel (EQUAL SECTIONS) */
+    .wheel-wrapper {
+      position: relative;
+      width: 140px;
+      height: 140px;
+      margin: 0 auto 16px auto;
+    }
+    .wheel {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      /* Equal 33.33% sections */
+      background: conic-gradient(
+        #ef4444 0% 33.33%, 
+        #3b82f6 33.33% 66.66%, 
+        #10b981 66.66% 100%
+      );
+      border: 4px solid #2a2a30;
+      box-shadow: 0 0 25px rgba(0,0,0,0.8), inset 0 0 15px rgba(0,0,0,0.5);
+      transition: transform 3.5s cubic-bezier(0.15, 0.9, 0.25, 1); 
+      transform: rotate(0deg);
+    }
+    .wheel-pointer {
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 12px solid transparent;
+      border-right: 12px solid transparent;
+      border-top: 18px solid #fff;
+      z-index: 10;
+      filter: drop-shadow(0 4px 6px rgba(0,0,0,0.6));
+    }
+    .wheel-center {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 24px;
+      height: 24px;
+      background: #111;
+      border-radius: 50%;
+      border: 3px solid #fff;
+      z-index: 5;
+    }
+    
+    /* Probabilities Hidden */
+    .wheel-legend {
+      display: flex; justify-content: center; gap: 16px; 
+      font-size: 11px; font-weight: 600; color: #aaa;
+      margin-bottom: 24px; text-transform: uppercase;
+    }
+
+    .spin-modal h2 { font-size: 26px; color: #fff; margin: 0 0 8px; font-weight: 500; }
+    .spin-modal p { color: var(--text-muted); font-size: 14px; line-height: 1.5; margin: 0 0 24px; }
+    
+    .wager-group { margin-bottom: 30px; text-align: left; }
+    .wager-group label { display: block; color: #aaa; font-size: 12px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .wager-input {
+      width: 100%; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1);
+      color: #fff; padding: 14px 16px; border-radius: 12px; font-size: 18px;
+      transition: all 0.2s; font-family: monospace;
+    }
+    .wager-input:focus { border-color: #ffd700; box-shadow: 0 0 15px rgba(255,215,0,0.1); outline: none; }
+    
+    .spin-result-text { font-size: 15px; font-weight: 600; min-height: 22px; margin-bottom: 20px; color: #fff; }
+    .spin-result-text.win { color: #10b981; }
+    .spin-result-text.lose { color: #ef4444; }
+
+    .btn-spin-action {
+      width: 100%; background: linear-gradient(135deg, #ffd700, #f59e0b); color: #000;
+      border: none; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700;
+      cursor: pointer; transition: 0.2s; text-transform: uppercase; letter-spacing: 1px;
+      box-shadow: 0 10px 25px rgba(255, 215, 0, 0.3); margin-bottom: 12px;
+    }
+    .btn-spin-action:hover { transform: translateY(-2px); box-shadow: 0 15px 35px rgba(255, 215, 0, 0.4); }
+    .btn-spin-action:disabled { background: #333; color: #666; cursor: not-allowed; box-shadow: none; transform: none; }
+    
   </style>
 </head>
-
 <body class="{% if user.plan == 'premium' %}premium{% endif %}">
 
   <div class="noise-overlay"></div>
@@ -381,6 +494,9 @@
       </a>
       <a href="/docs/intro">
         <i class="ph ph-book"></i> Docs
+      </a>
+      <a href="/pricing/negotiate">
+        <i class="ph ph-monkey"></i> Get the first month free by negotiating with our AI!
       </a>
     </nav>
 
@@ -415,7 +531,7 @@
         <div class="token-widget">
           <div class="token-icon"><i class="ph-fill ph-coin"></i></div>
           <div class="token-text">
-            <span class="token-val">{{ "{:,}".format(user.tokens.remaining) }}</span>
+            <span class="token-val" id="headerTokenCount">{{ "{:,}".format(user.tokens.remaining) }}</span>
             <span class="token-lbl">Credits</span>
           </div>
         </div>
@@ -431,8 +547,17 @@
     <section class="builder-section animate-entry" style="animation-delay: 100ms;">
       {% set is_locked = (user.plan != 'premium' and projects|length >= 3) %}
 
-      <form class="input-box {% if is_locked %}disabled{% endif %}" method="POST" action="/projects/create">
+      <form class="input-box {% if is_locked %}disabled{% endif %}" method="POST" action="/projects/create" enctype="multipart/form-data">
         
+        {% if not is_locked %}
+        <div class="image-upload-wrapper">
+          <input type="file" name="image_file" id="imageInput" accept="image/png, image/jpeg, image/webp">
+          <i class="ph-bold ph-image image-upload-btn" id="imageUploadBtn"></i>
+          <img id="imagePreview" class="image-preview" src="" alt="Preview">
+          <input type="hidden" name="image_base64" id="imageBase64">
+        </div>
+        {% endif %}
+
         {% if is_locked %}
           <input type="text" disabled placeholder="Free limit reached (3/3). Upgrade to create more." style="cursor:not-allowed;">
           <button type="button" class="action-btn locked" onclick="window.location.href='/pricing'">
@@ -541,7 +666,7 @@
     {% endif %}
 
   </main>
-
+  
   <div class="skills-modal-overlay" id="skillsModal">
     <div class="skills-modal">
       <div class="skills-modal-icon">
@@ -554,6 +679,36 @@
         <button class="btn-modal-secondary" onclick="dismissSkillsModal()">Maybe Later</button>
         <a href="/settings/skills" class="btn-modal-primary">Setup Skills Now</a>
       </div>
+    </div>
+  </div>
+
+  <div class="spin-modal-overlay" id="spinModal">
+    <div class="spin-modal">
+      
+      <div class="wheel-wrapper">
+        <div class="wheel-pointer"></div>
+        <div class="wheel" id="spinWheelElement"></div>
+        <div class="wheel-center"></div>
+      </div>
+      
+      <div class="wheel-legend">
+        <span style="color:#ef4444">■ Lose</span>
+        <span style="color:#3b82f6">■ 1.5x</span>
+        <span style="color:#10b981">■ 2x</span>
+      </div>
+
+      <h2>Daily Free Credits</h2>
+      <p>Spin the wheel for a chance to multiply your credits!</p>
+      
+      <div class="wager-group">
+        <label for="wagerInput">Wager Amount (0 - 500,000)</label>
+        <input type="number" id="wagerInput" class="wager-input" min="0" max="500000" placeholder="e.g. 1000">
+      </div>
+
+      <div id="spinResultText" class="spin-result-text"></div>
+
+      <button class="btn-spin-action" id="spinBtn" onclick="spinWheel()">Spin the Wheel</button>
+      <button class="btn-modal-secondary" style="width: 100%;" onclick="dismissSpinModal()">Maybe Later</button>
     </div>
   </div>
 
@@ -571,15 +726,58 @@
       });
     }
 
+    // --- Image Upload & Canvas Compression Logic ---
+    const imageInput = document.getElementById('imageInput');
+    const imagePreview = document.getElementById('imagePreview');
+    const imageBase64 = document.getElementById('imageBase64');
+    const imageUploadBtn = document.getElementById('imageUploadBtn');
+
+    if (imageInput) {
+      imageInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        // 1. Instantly show the image in the UI
+        const objectUrl = URL.createObjectURL(file);
+        imagePreview.src = objectUrl;
+        imagePreview.style.display = 'block';
+        imageUploadBtn.style.display = 'none';
+
+        // 2. Compress the image using Canvas
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement('canvas');
+          const MAX_SIZE = 1024; // Perfect max dimension for Vision AI
+          let width = img.width;
+          let height = img.height;
+
+          // Calculate new dimensions while keeping aspect ratio
+          if (width > height && width > MAX_SIZE) {
+            height *= MAX_SIZE / width;
+            width = MAX_SIZE;
+          } else if (height > MAX_SIZE) {
+            width *= MAX_SIZE / height;
+            height = MAX_SIZE;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // 3. Export as compressed JPEG and inject into hidden input
+          imageBase64.value = canvas.toDataURL('image/jpeg', 0.7);
+        };
+        img.src = objectUrl;
+      });
+    }
+
     // --- Agent Skills Popup Logic ---
-    // Inject the variable from backend. If it's a string/None, we convert it to boolean.
-    // NOTE: You must pass `has_skills: bool` from your dashboard route in app.py
     const hasSkillsStr = "{{ 'true' if has_skills else 'false' }}";
     const hasSkills = hasSkillsStr === "true";
     const skillsModal = document.getElementById('skillsModal');
-    // Check if they dismissed it locally or if they already set it up
+    
     if (!hasSkills && localStorage.getItem('hideSkillsModal') !== 'true') {
-      // Small delay so it animates in smoothly after page load
       setTimeout(() => {
         skillsModal.classList.add('active');
       }, 800);
@@ -588,6 +786,108 @@
     function dismissSkillsModal() {
       localStorage.setItem('hideSkillsModal', 'true');
       skillsModal.classList.remove('active');
+    }
+
+    // --- Daily Spin Wheel Logic with ANIMATION ---
+    const spinModal = document.getElementById('spinModal');
+    const wagerInput = document.getElementById('wagerInput');
+    const spinBtn = document.getElementById('spinBtn');
+    const spinResultText = document.getElementById('spinResultText');
+    const wheelElement = document.getElementById('spinWheelElement');
+    
+    // Check if user has spun today based on backend date vs local UTC date
+    const lastSpinDateStr = "{{ last_spin_date or '' }}";
+    const todayStr = new Date().toISOString().split('T')[0];
+    
+    // Only show if they haven't spun today AND haven't clicked "Maybe Later" this session
+    if (lastSpinDateStr !== todayStr && sessionStorage.getItem('spinSkipped') !== 'true') {
+      setTimeout(() => {
+        if (!skillsModal.classList.contains('active')) {
+           spinModal.classList.add('active');
+        }
+      }, 1500);
+    }
+
+    function dismissSpinModal() {
+      sessionStorage.setItem('spinSkipped', 'true');
+      spinModal.classList.remove('active');
+    }
+
+    async function spinWheel() {
+      const wager = parseInt(wagerInput.value) || 0;
+      
+      if (wager < 0 || wager > 500000) {
+        spinResultText.textContent = "Please enter a valid amount between 0 and 500,000.";
+        spinResultText.className = "spin-result-text lose";
+        return;
+      }
+
+      spinBtn.disabled = true;
+      spinResultText.textContent = "Good luck...";
+      spinResultText.className = "spin-result-text";
+
+      try {
+        const response = await fetch('/api/tokens/spin', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ wager: wager })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          spinResultText.textContent = data.detail || "Error spinning the wheel.";
+          spinResultText.className = "spin-result-text lose";
+          spinBtn.disabled = false;
+          return;
+        }
+
+        // --- Calculate Target Angle for Animation ---
+        const baseSpins = 5 * 360; 
+        let targetDegree = 0;
+
+        /*
+          Because the pointer is at 0° (Top), and we spin clockwise:
+          Red is drawn from 0° - 120° (Middle is 60°). To bring 60° to the top, rotate 300°.
+          Blue is drawn from 120° - 240° (Middle is 180°). To bring 180° to the top, rotate 180°.
+          Green is drawn from 240° - 360° (Middle is 300°). To bring 300° to the top, rotate 60°.
+        */
+        if (data.multiplier === 0.0) {
+          targetDegree = baseSpins + 300; 
+        } else if (data.multiplier === 1.5) {
+          targetDegree = baseSpins + 180; 
+        } else {
+          targetDegree = baseSpins + 60;  
+        }
+
+        // Add slight visual randomness so it doesn't land in the exact same pixel every time
+        const randomOffset = Math.floor(Math.random() * 20) - 10; 
+        wheelElement.style.transform = `rotate(${targetDegree + randomOffset}deg)`;
+
+        // Wait 3.5 seconds (matching the CSS transition time) before showing the text
+        setTimeout(() => {
+          if (data.multiplier === 0.0) {
+            spinResultText.textContent = `Aww... You lost ${wager} credits!`;
+            spinResultText.className = "spin-result-text lose";
+          } else {
+            spinResultText.textContent = `Congrats! You won ${data.net_change} credits! (${data.multiplier}x)`;
+            spinResultText.className = "spin-result-text win";
+          }
+
+          // Reload after displaying the winning/losing text
+          setTimeout(() => {
+            window.location.reload();
+          }, 3000);
+
+        }, 3500); 
+
+      } catch (error) {
+        spinResultText.textContent = "Network error. Please try again.";
+        spinResultText.className = "spin-result-text lose";
+        spinBtn.disabled = false;
+      }
     }
   </script>
 

@@ -206,6 +206,20 @@ class Coder:
             "5. **Express.js**: Server is configured with CORS and Dotenv.\n\n"
             "**IMPORTANT** even though these are already in place, please try to make the UI less bootstrappy and more fun and polished, try to make the components yourself instead of always using shadcn UI, but when feel the need to use shadcn UI, do it, in a not very obivious way. .\n\n"
 
+            "CRITICAL ENVIRONMENT CONSTRAINTS (WebContainers):\n"
+            "- You are writing code that will execute inside a browser-based WebContainer.\n"
+            "- WebContainers DO NOT support native C++ bindings or WASM for certain database drivers.\n"
+            "- 🚨 NEVER use `@libsql/client`. It will crash with a WASM execution error.\n"
+            "- ✅ ALWAYS use `better-sqlite3` and `drizzle-orm/better-sqlite3` for local databases.\n"
+            "- When generating `drizzle.config.ts`, you MUST use `dialect: 'sqlite'` and `dbCredentials: { url: 'sqlite.db' }`.\n\n"
+
+            "UI/UX & DESIGN ENCOURAGEMENT:\n"
+            "- Go all out on the frontend! We want a sleek, modern, and highly polished user interface.\n"
+            "- Liberally use Tailwind CSS for beautiful styling, spacing, and typography.\n"
+            "- Use `framer-motion` for buttery smooth micro-interactions, page transitions, and element reveals.\n"
+            "- Use `lucide-react` for crisp, consistent iconography.\n"
+            "- Make it look like a premium, production-ready SaaS product right out of the gate. Don't settle for basic layouts!\n\n"
+
             "STRICT IMPORT RULES:\n"
             "- **FRONTEND (`src/` files)**:\n"
             "  - Use `@/` alias (e.g., `import { Button } from '@/components/ui/button'`).\n"
@@ -236,7 +250,7 @@ class Coder:
             "4. There is no read file action, to find a file please look into the conversation history\n"
             "5. When you get instructions to finalize the server.js, ALWAYS update the WHOLE SERVER.JS and use overwrite_file action, never leave it as is.\n\n"
             "SPECIFIC RULES:\n"
-            "1. **Frontend (React)**: Use Functional Components. Tailwind ONLY for styling. No CSS files.\n"
+            "1. **Frontend (React)**: Use Functional Components. MAKE EVERYTHING LOOK VERY GOOD! WITH EYECANDY FOR THE USER.\n"
             "2. **Backend (Node)**: Use `async/await`. Return JSON (`res.json`). Handle errors with `try/catch`.\n"
             "3. **Self-Correction**: If the user prompt reports a crash, analyze the stack trace and fix the specific file causing it.\n"
         )

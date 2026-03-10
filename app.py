@@ -140,11 +140,25 @@ app.add_middleware(
     secret_key=os.getenv("AUTH_SECRET_KEY", secrets.token_hex(32)),
 )
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Allows apps hosted anywhere to use the API
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 if os.path.isdir(FRONTEND_STYLES_DIR):
     app.mount("/styles", StaticFiles(directory=FRONTEND_STYLES_DIR), name="styles")
 
 templates = Jinja2Templates(directory=FRONTEND_TEMPLATES_DIR)
 
+@app.exception_handler(403)
+async def custom_403_handler(request: Request, __):
+    # If the user isn't authorized, just send them home
+    return RedirectResponse(url="/", status_code=303)
 
 # --- BACKGROUND TASK: CLEANUP INACTIVE SANDBOXES ---
 @app.on_event("startup")
@@ -211,16 +225,38 @@ def db_select_one(table: str, match: dict, select="*"):
         return res.data if res else None
     except Exception: return None
 
-def db_upsert(table: str, data: dict, on_conflict=None):
-    """Safe wrapper to upsert data."""
-    if not supabase: return None
+# ==========================================================================
+# DB UPSERT (Integrity Guard)
+# ==========================================================================
+def db_upsert(table: str, data: Dict[str, Any], on_conflict: str = "id"):
+    """
+    Enhanced upsert that blocks binary/giant files from entering the DB.
+    """
+    path = data.get("path", "")
+    content = data.get("content", "")
+
+    # 1. 🛑 THE LOCKFILE BLOCKER
+    # Blocks the Agent or Boilerplate from saving giant lockfiles
+    if path and any(x in path for x in ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"]):
+        print(f"⏩ Skipping {path} (Handled by WebContainer runtime)")
+        return None
+
+    # 2. 🛑 BINARY FILTER
+    # Prevents binary data from being stored in the text column
+    if path and path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.ico', '.pdf', '.zip')):
+        print(f"⏩ Skipping binary file: {path}")
+        return None
+
+    # 3. 🛑 INTEGRITY CHECK
+    # Ensure we aren't saving empty strings as files
+    if table == "files" and not content:
+        print(f"⚠️ Warning: Attempting to save empty file content for {path}")
+
     try:
-        q = supabase.table(table).upsert(data, on_conflict=on_conflict)
-        res = q.execute()
-        return res.data
+        return supabase.table(table).upsert(data, on_conflict=on_conflict).execute()
     except Exception as e:
-        # Re-raise so specific error handling (like FK checks) can work
-        raise e
+        print(f"❌ DB Upsert Error for {path}: {e}")
+        return None
 
 
 # ==========================================================================
@@ -348,18 +384,15 @@ def get_current_user(request: Request) -> Dict[str, Any]:
 
 def _require_project_owner(user: Dict[str, Any], project_id: str) -> None:
     """Verifies that the current user owns the project."""
-    if DEV_MODE:
-        try:
-            res = db_select_one("projects", {"id": project_id}, "id")
-            if not res: raise Exception("Not found")
-            return
-        except Exception:
-            raise HTTPException(status_code=404, detail="Project not found")
+    res = db_select_one("projects", {"id": project_id}, "id, owner_id")
     
-    # Production check
-    res = db_select_one("projects", {"id": project_id, "owner_id": user["id"]}, "id")
     if not res:
-        raise HTTPException(status_code=404, detail="Project not found or access denied")
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    if res.get("owner_id") != user["id"]:
+        # We use 403 to signal "You aren't allowed here" 
+        # JavaScript will catch this and trigger the redirect.
+        raise HTTPException(status_code=403, detail="Unauthorized Access")
 
 # --- RESEND EMAIL LOGIC ---
 
@@ -372,7 +405,7 @@ def send_otp_email(to_email: str, code: str):
         params = {
             "from": "Gor://a Auth Verification <auth@gorillabuilder.dev>", # Use your verified domain
             "to": [to_email],
-            "subject": "Your Verification Code for Gor://a Builder",
+            "subject": "{code}, your Verification Code for Gor://a Builder",
             "html": f"""
             <!DOCTYPE html>
             <html>
@@ -523,6 +556,7 @@ import os
 import random
 import string
 import time
+import secrets
 import httpx
 from fastapi import APIRouter, Request, Form, BackgroundTasks, HTTPException, Response
 from fastapi.responses import RedirectResponse
@@ -548,8 +582,8 @@ def get_current_user_safe(request: Request):
         # Check Supabase cookie first
         token = request.cookies.get("sb_access_token")
         if token:
-              user = supabase.auth.get_user(token)
-              if user: return user
+             user = supabase.auth.get_user(token)
+             if user: return user
         
         # Fallback to session (for dev/google/github auth) if used
         if "user" in request.session:
@@ -558,6 +592,21 @@ def get_current_user_safe(request: Request):
     except:
         pass
     return None
+
+def _ensure_gorilla_api_key(user_id: str):
+    """
+    PHASE 1: AI PROXY GATEWAY
+    Checks if a user has a gb_live_ API key. If not, generates and saves one.
+    """
+    try:
+        user_data = db_select_one("users", {"id": user_id}, "gorilla_api_key")
+        if not user_data or not user_data.get("gorilla_api_key"):
+            # Generate a secure 48-character hex string (total key length ~56 chars)
+            new_key = f"gb_live_{secrets.token_hex(24)}"
+            supabase.table("users").update({"gorilla_api_key": new_key}).eq("id", user_id).execute()
+            print(f"🔑 Generated new Gorilla API Key for user: {user_id}")
+    except Exception as e:
+        print(f"⚠️ Failed to generate gorilla_api_key for {user_id}: {e}")
 
 # --------------------------------------------------------------------------
 # 1. SIGNUP FLOW (Secure)
@@ -656,6 +705,9 @@ async def auth_verify_otp(
         # 5. Sync Public DB
         ensure_public_user(res.user.id, email)
         
+        # 🚨 AI PROXY: Generate their Master Key
+        _ensure_gorilla_api_key(res.user.id)
+        
         # 6. Cleanup & Response
         if email in PENDING_SIGNUPS:
             del PENDING_SIGNUPS[email]
@@ -698,6 +750,9 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
         request.session["user"] = {"id": res.user.id, "email": email}
         # FIX: Ensure user is synced
         ensure_public_user(res.user.id, email)
+        
+        # 🚨 AI PROXY: Ensure they have a Master Key
+        _ensure_gorilla_api_key(res.user.id)
 
         # 2. Success: Set Cookie & Redirect
         response = RedirectResponse("/dashboard", status_code=303)
@@ -815,6 +870,9 @@ async def auth_google_callback(request: Request, code: str):
         user_id = _stable_user_id_for_email(email)
         ensure_public_user(user_id, email)
         
+        # 🚨 AI PROXY: Ensure they have a Master Key
+        _ensure_gorilla_api_key(user_id)
+        
         request.session["user"] = {"id": user_id, "email": email}
         
         return RedirectResponse("/dashboard", status_code=303)
@@ -912,6 +970,9 @@ async def auth_github_callback(request: Request, code: str):
         user_id = _stable_user_id_for_email(email)
         ensure_public_user(user_id, email)
         
+        # 🚨 AI PROXY: Ensure they have a Master Key
+        _ensure_gorilla_api_key(user_id)
+        
         # 6. Store the GitHub access token so we can push code later
         try:
             supabase.table("users").update({"github_access_token": access_token}).eq("id", user_id).execute()
@@ -951,18 +1012,23 @@ from fastapi.responses import HTMLResponse, JSONResponse
 # ==========================================================================
 # DASHBOARD & WORKSPACE
 # ==========================================================================
+import random
+from datetime import datetime, timezone
+from fastapi import Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
     user = get_current_user(request)
     
-    # Fetch latest Plan and Agent Skills from DB
+    # Fetch latest Plan, Agent Skills, and Last Spin Date from DB
     has_skills = False
+    last_spin_date = None
     try:
-        # Fetching both columns directly from supabase to avoid multiple queries
-        res = supabase.table("users").select("plan, agent_skills").eq("id", user["id"]).single().execute()
+        res = supabase.table("users").select("plan, agent_skills, last_spin_date").eq("id", user["id"]).single().execute()
         if res and res.data:
             user["plan"] = res.data.get("plan", "free")
-            # If agent_skills is not null/empty, flag it as true
+            last_spin_date = res.data.get("last_spin_date")
             if res.data.get("agent_skills"):
                 has_skills = True
     except Exception:
@@ -995,32 +1061,66 @@ async def dashboard(request: Request):
             "request": request, 
             "projects": projects, 
             "user": user,
-            "has_skills": has_skills # Now the popup knows whether to hide!
+            "has_skills": has_skills,
+            "last_spin_date": last_spin_date
         }
     )
 
-@app.get("/workspace", response_class=HTMLResponse)
-async def workspace(request: Request):
+@app.post("/api/tokens/spin")
+async def spin_wheel(request: Request):
     user = get_current_user(request)
-    used, limit = get_token_usage_and_limit(user["id"])
-    user["tokens"] = {"used": used, "limit": limit}
-
+    payload = await request.json()
+    
     try:
-        res = (
-            supabase.table("projects")
-            .select("id,name,updated_at")
-            .eq("owner_id", user["id"])
-            .order("updated_at", desc=True)
-            .execute()
-        )
-        projects = res.data if res and res.data else []
-    except Exception:
-        projects = []
+        wager = int(payload.get("wager", 0))
+    except ValueError:
+        raise HTTPException(400, "Invalid wager amount.")
         
-    return templates.TemplateResponse(
-        "dashboard/workspace.html",
-        {"request": request, "projects": projects, "user": user}
-    )
+    if wager < 0 or wager > 500000:
+        raise HTTPException(400, "Wager must be between 0 and 500,000.")
+
+    # 1. Fetch current token data & spin status securely from DB
+    user_data = supabase.table("users").select("last_spin_date").eq("id", user["id"]).single().execute().data
+    used, limit = get_token_usage_and_limit(user["id"])
+    remaining = max(0, limit - used)
+    
+    if wager > remaining:
+        raise HTTPException(400, "You do not have enough credits for this wager.")
+        
+    # 2. Check if they already spun today (Server-Side Enforcement)
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if user_data and user_data.get("last_spin_date") == today_str:
+        raise HTTPException(400, "You have already used your daily spin.")
+
+    # 3. The Secure Math
+    rand = random.random()
+    if rand < 0.50:
+        multiplier = 0.0  # Lose: 50% chance
+    elif rand < 0.80:
+        multiplier = 1.5  # Win 1.5x: 30% chance
+    else:
+        multiplier = 2.0  # Win 2x: 20% chance
+
+    # 4. Calculate Net Change
+    if multiplier == 0.0:
+        net_change = -wager
+    else:
+        net_change = int(wager * multiplier) - wager 
+
+    # 5. Apply the outcome to the DB 
+    new_used = used - net_change 
+    
+    # ACTUAL DB UPDATE
+    supabase.table("users").update({
+        "last_spin_date": today_str,
+        "tokens_used": new_used
+    }).eq("id", user["id"]).execute()
+
+    return {
+        "status": "success",
+        "multiplier": multiplier,
+        "net_change": net_change
+    }
 
 # ==========================================================================
 # SETTINGS & AGENT SKILLS ROUTES
@@ -1039,23 +1139,32 @@ async def settings_page(request: Request):
 @app.get("/settings/skills", response_class=HTMLResponse)
 async def agent_skills_page(request: Request):
     user = get_current_user(request)
+    api_key = ""
     try:
-        res = supabase.table("users").select("plan").eq("id", user["id"]).single().execute()
-        user["plan"] = res.data.get("plan", "free") if res.data else "free"
+        res = supabase.table("users").select("plan, gorilla_api_key").eq("id", user["id"]).single().execute()
+        if res and res.data:
+            user["plan"] = res.data.get("plan", "free")
+            api_key = res.data.get("gorilla_api_key", "")
+        else:
+            user["plan"] = "free"
     except Exception:
         user["plan"] = "free"
         
-    return templates.TemplateResponse("dashboard/agentskills.html", {"request": request, "user": user})
+    return templates.TemplateResponse(
+        "dashboard/agentskills.html", 
+        {
+            "request": request, 
+            "user": user,
+            "gorilla_api_key": api_key 
+        }
+    )
 
 @app.post("/api/user/skills")
 async def save_agent_skills(request: Request):
     user = get_current_user(request)
     try:
         payload = await request.json()
-        
-        # Save the JSON directly to the agent_skills column in Supabase
         supabase.table("users").update({"agent_skills": payload}).eq("id", user["id"]).execute()
-        
         return JSONResponse({"status": "success", "message": "Skills saved successfully"})
     except Exception as e:
         import traceback
@@ -1101,57 +1210,54 @@ async def create_project(
     prompt: Optional[str] = Form(None), 
     name: Optional[str] = Form(None), 
     description: str = Form(""),
-    xmode: Optional[str] = Form(None)  # Capture xmode flag
+    xmode: Optional[str] = Form(None),
+    image_base64: Optional[str] = Form(None)
 ):
     user = get_current_user(request)
 
     # --- 1. FREE TIER LIMIT CHECK (Max 3 Projects) ---
     if user.get("plan") != "premium":
         try:
-            # Count existing projects for this user
-            res = supabase.table("projects") \
-                .select("id", count="exact") \
-                .eq("owner_id", user["id"]) \
-                .execute()
-            
-            # Robust count retrieval (handles different Supabase client versions)
+            res = supabase.table("projects").select("id", count="exact").eq("owner_id", user["id"]).execute()
             current_count = res.count if hasattr(res, 'count') and res.count is not None else len(res.data)
 
             if current_count >= 3:
-                # Limit Reached: Fetch existing projects to re-render the dashboard
-                p_res = supabase.table("projects") \
-                    .select("*") \
-                    .eq("owner_id", user["id"]) \
-                    .order("created_at", desc=True) \
-                    .execute()
-                
-                existing_projects = p_res.data if p_res.data else []
-
+                p_res = supabase.table("projects").select("*").eq("owner_id", user["id"]).order("created_at", desc=True).execute()
                 return templates.TemplateResponse("dashboard.html", {
                     "request": request, 
                     "user": user,
-                    "projects": existing_projects,
+                    "projects": p_res.data if p_res.data else [],
                     "error": "Free Limit Reached (3/3). Upgrade to Pro to create unlimited projects."
                 })
         except Exception as e:
             print(f"⚠️ Project limit check failed: {e}")
             pass
 
-    # --- 2. PROMPT STASHING & CONFIRMATION ---
+    # --- 2. PROMPT & IMAGE STASHING (Avoiding Session limits) ---
     if prompt and not name:
-        target = f"/projects/createit?prompt={urllib.parse.quote(prompt)}"
-        return RedirectResponse(target, status_code=303)
+        # Render the template directly to keep the massive image string safe
+        return templates.TemplateResponse(
+            "projects/project-create.html", 
+            {
+                "request": request, 
+                "user": user, 
+                "initial_prompt": prompt,
+                "stashed_image": image_base64
+            }
+        )
     
     final_prompt = prompt or request.session.pop("stashed_prompt", None)
     project_name = name or "Untitled Project"
+    final_image = image_base64
     
     # --- 3. HEAVY LIFTING (DB & Files) ---
     def _heavy_lift_create():
-        # A. Create Project Record
         res = supabase.table("projects").insert({
             "owner_id": user["id"], 
             "name": project_name, 
-            "description": description or (final_prompt[:200] if final_prompt else "")
+            "description": description or (final_prompt[:200] if final_prompt else ""),
+            "prompt_image": final_image, # Store in projects table
+            "chat_history": [] # Initialize empty history
         }).execute()
         
         if not res.data: 
@@ -1159,13 +1265,10 @@ async def create_project(
             
         pid = res.data[0]['id']
         
-        # B. Setup Subdomain
         clean_name = re.sub(r'[^a-z0-9-]', '-', project_name.lower()).strip('-') or "app"
         final_subdomain = f"{clean_name}-{pid}" 
-        
         supabase.table("projects").update({"subdomain": final_subdomain}).eq("id", pid).execute()
         
-        # C. Inject Boilerplate
         bp_dir = globals().get("BOILERPLATE_DIR")
         if not bp_dir or not os.path.isdir(bp_dir):
             bp_dir = os.path.join(ROOT_DIR, "backend", "boilerplate")
@@ -1174,36 +1277,39 @@ async def create_project(
 
         if os.path.isdir(bp_dir):
             files_to_insert = []
-            
             for root, dirs, files in os.walk(bp_dir):
                 dirs[:] = [d for d in dirs if d not in ["node_modules", ".git", "dist", "build"]]
-                
                 for file in files:
                     if file.startswith('.'): continue
-                    
                     abs_path = os.path.join(root, file)
                     rel_path = os.path.relpath(abs_path, bp_dir).replace("\\", "/")
-                    
                     try:
                         with open(abs_path, "r", encoding="utf-8") as f:
-                            content = f.read()
                             files_to_insert.append({
                                 "project_id": pid,
                                 "path": rel_path,
-                                "content": content
+                                "content": f.read()
                             })
-                    except Exception: 
-                        continue 
+                    except: continue 
 
             if files_to_insert:
                 try:
                     supabase.table("files").insert(files_to_insert).execute()
                 except Exception as e:
-                    print(f"Batch insert failed ({e}), falling back to single upserts...")
                     for f in files_to_insert:
-                        try: 
-                            supabase.table("files").upsert(f, on_conflict="project_id,path").execute()
+                        try: supabase.table("files").upsert(f, on_conflict="project_id,path").execute()
                         except: pass
+
+        # --- D. INJECT IMAGE TO VIRTUAL FS FOR AI PLANNER ---
+        if final_image:
+            try:
+                supabase.table("files").insert({
+                    "project_id": pid,
+                    "path": ".gorilla/prompt_image.b64",
+                    "content": final_image
+                }).execute()
+            except Exception as e:
+                print(f"⚠️ Failed to save image to virtual FS: {e}")
         
         return pid
 
@@ -1226,14 +1332,12 @@ async def create_project(
         return RedirectResponse("/dashboard?error=creation_failed_rls", status_code=303)
 
 # 3. EDITOR PAGE
-from fastapi.responses import JSONResponse, HTMLResponse
-from typing import Optional
-
 @app.get("/projects/{project_id}/editor", response_class=HTMLResponse)
 async def project_editor(request: Request, project_id: str, file: str = "index.html", prompt: Optional[str] = None):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
-    
+    user_data_for_api = db_select_one("users", {"id": user["id"]}, "gorilla_api_key")
+    api_key = user_data_for_api.get("gorilla_api_key", "") if user_data_for_api else ""
     try:
         res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
         project = res.data
@@ -1242,8 +1346,10 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
     
     used, limit = get_token_usage_and_limit(user["id"])
     user["tokens"] = {"used": used, "limit": limit}
+    
+    # Safely fetch chat history
+    chat_history = project.get("chat_history", []) if project else []
 
-    # --- 🚨 FIX: ALWAYS DEFINE has_github 🚨 ---
     has_github = False 
     try:
         user_data = db_select_one("users", {"id": user["id"]}, "github_access_token")
@@ -1262,7 +1368,9 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
             "file": file, 
             "user": user,
             "initial_prompt": prompt,
-            "has_github": has_github  # Safely defined no matter what!
+            "has_github": has_github,
+            "gorilla_api_key": api_key,
+            "chat_history": json.dumps(chat_history) # <--- PASSING HISTORY
         }
     )
 
@@ -1361,33 +1469,39 @@ import httpx
 import re
 
 async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: bool = False, history: List[Dict] = None, skip_planner: bool = False):
-    """
-    The core logic for the AI Agent. Can be called from the endpoint or the log-fixer.
-    If skip_planner is True, it directly sends the prompt to the Coder.
-    """
     try:
         await asyncio.sleep(0.5)
         file_tree = await _fetch_file_tree(project_id)
         
+        # --- DB CHAT HISTORY LOGIC ---
+        proj_data = db_select_one("projects", {"id": project_id}, "chat_history")
+        db_history = proj_data.get("chat_history", []) if proj_data and proj_data.get("chat_history") else []
+        db_history.append({"role": "user", "content": prompt})
+        
         planner = Planner()
-        # Fallback to Coder if XCoder isn't explicitly defined in context
         coder = XCoder() if (is_xmode and 'XCoder' in globals()) else Coder()
         
+        # Fetch user API key to pass to planner for image generation capabilities
+        user_api_data = db_select_one("users", {"id": user_id}, "gorilla_api_key")
+        api_key = user_api_data.get("gorilla_api_key", "") if user_api_data else ""
+        
         if not skip_planner:
-            # --- PHASE 1: PLANNER ---
             emit_phase(project_id, "planner")
             emit_progress(project_id, "Architecting solution...", 10)
             
-            # Pass history to planner if available
-            plan_context = {"project_id": project_id, "files": list(file_tree.keys())}
+            plan_context = {
+                "project_id": project_id, 
+                "files": list(file_tree.keys()),
+                "api_key": api_key  # Pass key to the planner for external AI capabilities
+            }
+            
             if history:
                 plan_context["history"] = history
 
-            # Check for Base64 Image stash
-            image_b64 = None
             if ".gorilla/prompt_image.b64" in file_tree:
-                image_b64 = file_tree[".gorilla/prompt_image.b64"]
-                plan_context["image_context"] = image_b64
+                plan_context["image_context"] = file_tree[".gorilla/prompt_image.b64"]
+                # Give planner strict awareness of the file name
+                plan_context["image_filename"] = ".gorilla/prompt_image.b64"
 
             plan_res = await asyncio.to_thread(
                 planner.generate_plan,
@@ -1398,10 +1512,12 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             tk = plan_res.get("usage", {}).get("total_tokens", 0)
             if tk and user_id: add_monthly_tokens(user_id, tk)
             
-            # --- DISPLAY PLAN ---
             raw_plan = plan_res.get("plan", {})
             real_assistant_msg = plan_res.get("assistant_message")
             
+            if real_assistant_msg:
+                db_history.append({"role": "planner", "content": real_assistant_msg})
+                
             emit_log(project_id, "assistant", real_assistant_msg or "I have created a plan for your application.")
 
             tasks = raw_plan.get("todo", [])
@@ -1434,20 +1550,18 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                     f'  </div>'
                     f'</div>'
                 )
-                
                 emit_log(project_id, "planner", full_html)
 
             if not tasks:
+                supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
                 emit_status(project_id, "Response Complete")
                 emit_progress(project_id, "Done", 100)
                 return
         else:
-            # --- BYPASS PLANNER FOR LOG ERRORS & DEPLOY OPTIMIZATIONS ---
             emit_phase(project_id, "coder")
             emit_log(project_id, "system", "⚡ Bypassing Planner. Triggering Coder directly...")
             tasks = [prompt] 
 
-        # --- PHASE 2: CODER ---
         emit_phase(project_id, "coder")
         total = len(tasks)
         
@@ -1473,6 +1587,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             if tk and user_id: add_monthly_tokens(user_id, tk)
 
             if code_res.get("message"):
+                db_history.append({"role": "coder", "content": code_res.get("message")})
                 emit_log(project_id, "coder", code_res.get("message"))
 
             ops = code_res.get("operations", [])
@@ -1481,7 +1596,6 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             for op in ops:
                 path = op.get("path")
                 content = op.get("content")
-                
                 if path and content is not None:
                     if path.startswith("static/") and path.endswith(".js"):
                         try:
@@ -1490,15 +1604,14 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                                 emit_log(project_id, "system", f"❌ Syntax Error in {path}:\n{lint_err}")
                         except: pass
 
-                    db_upsert(
-                        "files", 
-                        {"project_id": project_id, "path": path, "content": content}, 
-                        on_conflict="project_id,path"
-                    )
+                    db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
                     emit_file_changed(project_id, path)
             
             file_tree = await _fetch_file_tree(project_id)
         
+        # Save History when done
+        supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
+
         emit_status(project_id, "Coding Complete.")
         emit_progress(project_id, "Ready", 100)
         
@@ -1511,49 +1624,59 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
 # ==========================================================================
 # AUTO-FIXING LOG ENDPOINT
 # ==========================================================================
+# Add this near your other global variables in app.py
+active_ai_fixes = set()
 
+# ==========================================================================
+# AUTO-FIXING LOG ENDPOINT
+# ==========================================================================
 @app.post("/api/project/{project_id}/log")
 async def log_browser_event(project_id: str, request: Request, background_tasks: BackgroundTasks):
+    global active_ai_fixes
     try:
         form = await request.form()
-        level = form.get("level", "INFO")
         message = form.get("message", "")
-        
-        print(f"[{level}] Browser: {message}")
+        level = form.get("level", "INFO")
+        print(f"[{level}] Browser Event: {message[:100]}...")
 
-        if "error" in message.lower() or "failed" in message.lower() or "exception" in message.lower():
-            emit_log(project_id, "system", f"⚠️ Browser Error Detected: {message}")
-            emit_log(project_id, "system", "🔧 Auto-Fixing...")
+        if "error" in message.lower() or "failed" in message.lower() or "syntax error" in message.lower():
+            
+            # 🛑 THE BACKEND MUTEX: Block duplicate AI agents
+            if project_id in active_ai_fixes:
+                print(f"[{project_id}] AI is already fixing this. Ignoring duplicate request.")
+                return JSONResponse({"status": "ignored", "detail": "Fix already in progress"})
+            
+            active_ai_fixes.add(project_id)
+            
+            emit_log(project_id, "system", f"⚠️ Browser Error Detected. Analyzing...")
+            emit_log(project_id, "system", "🔧 AI Agent is spinning up to apply an Auto-Fix...")
 
             chat_history = []
-            try:
-                rows = db_select("messages", {"project_id": project_id})
-                rows.sort(key=lambda x: x['created_at'])
-                for r in rows:
-                    chat_history.append({"role": r["role"], "content": r["content"]})
-            except: pass 
-
             owner_id = None
             try:
-                proj = db_select_one("projects", {"id": project_id}, "owner_id")
-                if proj: owner_id = proj["owner_id"]
-            except: pass
+                proj = db_select_one("projects", {"id": project_id}, "chat_history, owner_id")
+                if proj: 
+                    owner_id = proj.get("owner_id")
+                    chat_history = proj.get("chat_history", [])
+            except Exception as db_err:
+                print(f"DB Fetch Error in Log Route: {db_err}")
 
             if not owner_id:
-                return JSONResponse({"status": "error", "detail": "Owner not found"})
+                active_ai_fixes.remove(project_id)
+                return JSONResponse({"status": "error", "detail": "Owner not found"}, status_code=404)
 
-            error_prompt = f"""
-            CRITICAL RUNTIME ERROR REPORTED BY BROWSER:
-            {message}
-
-            analyze the previous code and this error message.
-            Fix the specific file causing this crash immediately.
-            """
+            # Wrapper to ensure the lock is always removed when the AI finishes or crashes
+            async def run_and_unlock(*args, **kwargs):
+                try:
+                    await run_agent_loop(*args, **kwargs)
+                finally:
+                    if project_id in active_ai_fixes:
+                        active_ai_fixes.remove(project_id)
 
             background_tasks.add_task(
-                run_agent_loop, 
+                run_and_unlock, 
                 project_id=project_id, 
-                prompt=error_prompt, 
+                prompt=message, # Give it the exact error message
                 user_id=owner_id,
                 history=chat_history,
                 is_xmode=True, 
@@ -1561,10 +1684,13 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
             )
             
     except Exception as e:
-        print(f"Log Error: {e}")
+        print(f"Logging Error: {e}")
+        if project_id in active_ai_fixes:
+            active_ai_fixes.remove(project_id)
+        import traceback
+        traceback.print_exc()
         
     return JSONResponse({"status": "ok"})
-
 
 # ==========================================================================
 # DEPLOYMENT ROUTES (VERCEL & GITHUB)
@@ -1594,8 +1720,9 @@ async def project_deploy_page(request: Request, project_id: str):
     except Exception:
         project = {}
         
-    user_data = db_select_one("users", {"id": user["id"]}, "github_access_token")
+    user_data = db_select_one("users", {"id": user["id"]}, "github_access_token, gorilla_api_key")
     has_github = bool(user_data and user_data.get("github_access_token"))
+    api_key = user_data.get("gorilla_api_key", "")
 
     return templates.TemplateResponse(
         "projects/deploy.html",
@@ -1604,24 +1731,59 @@ async def project_deploy_page(request: Request, project_id: str):
             "project_id": project_id,
             "project": project,
             "has_github": has_github,
+            "gorilla_api_key": api_key, # <--- Passing the key to the template
             "user": user
         }
     )
 
 # 3. Optimize Codebase for Vercel
+import json
+from fastapi import Request, HTTPException
+
+# ==========================================================================
+# DEPLOY OPTIMIZE FIX
+# ==========================================================================
 @app.post("/api/project/{project_id}/deploy-optimize")
 async def optimize_for_vercel(request: Request, project_id: str):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
-    optimization_prompt = """
-    We are deploying this full-stack application to Vercel Serverless. You MUST perform these exactly:
-    1. Create a `vercel.json` file in the root directory that routes API requests:
-       `{"rewrites": [{"source": "/api/(.*)", "destination": "/server.js"}, {"source": "/(.*)", "destination": "/index.html"}]}`
-    2. Overwrite `server.js` completely. Do NOT call `app.listen(...)` at the bottom. Vercel requires you to EXPORT the express app instead. End the file with `export default app;` or `module.exports = app;`.
-    """
     try:
-        # Await the agent directly so the frontend knows when it's done
+        user_data = db_select_one("users", {"id": user["id"]}, "gorilla_api_key")
+        api_key = user_data.get("gorilla_api_key", "") if user_data else ""
+
+        vercel_json_content = {
+            "version": 2,
+            "builds": [
+                {"src": "server.js", "use": "@vercel/node"},
+                {"src": "package.json", "use": "@vercel/static-build"}
+            ],
+            "rewrites": [
+                {"source": "/api/(.*)", "destination": "/server.js"},
+                {"source": "/(.*)", "destination": "/index.html"}
+            ],
+            "env": {
+                "GORILLA_API_KEY": api_key 
+            }
+        }
+        
+        # PROPERLY UPSERT INTO THE FILES TABLE
+        db_upsert(
+            "files", 
+            {
+                "project_id": project_id, 
+                "path": "vercel.json", 
+                "content": json.dumps(vercel_json_content, indent=2)
+            }, 
+            on_conflict="project_id,path"
+        )
+
+        optimization_prompt = """
+        We are deploying this full-stack application to Vercel Serverless. You MUST perform this exactly:
+        Overwrite `server.js` completely. Do NOT call `app.listen(...)` at the bottom. Vercel requires you to EXPORT the express app instead. End the file with `export default app;` or `module.exports = app;`.
+        Do NOT create or modify `vercel.json` (it has already been handled).
+        """
+        
         await run_agent_loop(
             project_id=project_id,
             prompt=optimization_prompt,
@@ -1629,9 +1791,17 @@ async def optimize_for_vercel(request: Request, project_id: str):
             is_xmode=True,
             skip_planner=True 
         )
-        supabase.table("projects").update({"vercel_optimized": True}).eq("id", project_id).execute()
+        
+        try:
+            supabase.table("projects").update({"vercel_optimized": True}).eq("id", project_id).execute()
+        except Exception:
+            pass
+
         return {"status": "ok", "detail": "Optimized for Vercel"}
+        
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(500, detail=str(e))
 
 # 4. Push to GitHub
@@ -1779,11 +1949,26 @@ async def get_project_files(request: Request, project_id: str):
     rows = getattr(res, "data", [])
     if not rows and isinstance(res, list): rows = res
         
-    return {"files": rows}
+    # 🛑 FRONTEND SHARK FILTER: 
+    # Stop the WebContainer from downloading corrupted lockfiles or useless bloat
+    clean_rows = []
+    for r in rows:
+        path = r.get("path", "")
+        # If it's a lockfile, git dir, or node_modules, do NOT send it to the browser VM
+        if any(x in path for x in ["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "node_modules", ".git"]):
+            continue
+        clean_rows.append(r)
+        
+    return {"files": clean_rows}
 
 
 @app.get("/api/project/{project_id}/file")
 async def get_file_content(request: Request, project_id: str, path: str):
+    # 🛑 SHARK FILTER FOR DIRECT FETCH:
+    # Prevent the editor from manually requesting giant lockfiles and crashing
+    if any(x in path for x in ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"]):
+        return JSONResponse({"content": "// Lockfiles are hidden by the system to prevent network truncation."})
+
     try:
         res = supabase.table("files").select("content").eq("project_id", project_id).eq("path", path).execute()
         if asyncio.iscoroutine(res): res = await res
@@ -1795,7 +1980,6 @@ async def get_file_content(request: Request, project_id: str, path: str):
         return JSONResponse({"content": content})
     except Exception as e:
         return JSONResponse({"content": f"// Error loading file: {e}"})
-
 
 @app.post("/api/project/{project_id}/save")
 async def save_file(
@@ -1949,6 +2133,10 @@ def lint_code_with_esbuild(content: str, filename: str) -> str | None:
 # AI AGENT WORKFLOW (TRIGGER)
 # ==========================================================================
 async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
+    """
+    Fetches the project files but strictly filters out massive lockfiles 
+    to prevent AI context bloat and truncation errors.
+    """
     try:
         query = supabase.table("files").select("path,content").eq("project_id", project_id)
         res = query.execute()
@@ -1960,7 +2148,19 @@ async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
         if not rows and isinstance(res, list):
             rows = res
             
-        return {r["path"]: (r.get("content") or "") for r in rows if r.get("path")}
+        # 🛑 SHARK FILTER: Exclude files that cause 'Expected , or }' errors
+        filtered_tree = {}
+        for r in rows:
+            path = r.get("path", "")
+            if not path: continue
+            
+            # Skip giant cloggers that the AI doesn't need to read
+            if any(x in path for x in ["package-lock.json", "yarn.lock", "node_modules", ".git"]):
+                continue
+                
+            filtered_tree[path] = (r.get("content") or "")
+            
+        return filtered_tree
         
     except Exception as e:
         print(f"⚠️ Fetch Error: {e}")
@@ -1970,8 +2170,6 @@ async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
 async def agent_start(
     request: Request, 
     project_id: str, 
-    prompt: str = Form(...),
-    xmode: bool = Form(False)
 ):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
@@ -1993,7 +2191,30 @@ async def agent_start(
             emit_log(project_id, "assistant", alert_html)
             return {"started": False}
         raise e
-    
+
+    # Use multi-part parsing to safely handle Base64 strings
+    form_data = await request.form()
+    prompt = str(form_data.get("prompt", ""))
+    xmode_str = str(form_data.get("xmode", "false")).lower()
+    xmode = xmode_str == "true"
+    image_base64 = form_data.get("image_base64")
+
+    # 🛑 THE FIX: Use db_upsert to guarantee the old image is overwritten!
+    if image_base64:
+        try:
+            db_upsert(
+                "files", 
+                {
+                    "project_id": project_id, 
+                    "path": ".gorilla/prompt_image.b64", 
+                    "content": image_base64
+                }, 
+                on_conflict="project_id,path"
+            )
+            print(f"📸 Mid-chat image successfully overwritten in DB for project {project_id}")
+        except Exception as err:
+            print(f"⚠️ Failed to save mid-chat image: {err}")
+
     emit_status(project_id, "Agent received prompt")
     emit_log(project_id, "user", prompt)
 
@@ -2048,6 +2269,376 @@ import time
 @app.get("/health")
 async def health():
     return {"ok": True, "ts": int(time.time()), "dev_mode": DEV_MODE}
+
+from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from pydantic import BaseModel
+
+from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from pydantic import BaseModel
+
+# ==========================================================================
+# THE MONKE NEGOTIATOR ROUTES
+# ==========================================================================
+
+class NegotiationResult(BaseModel):
+    agreed_price: float
+
+@app.get("/pricing/negotiate", response_class=HTMLResponse)
+async def serve_negotiator(request: Request):
+    """Serves the monkey.html UI with FULL user data fetched from the DB."""
+    session_user = get_current_user(request) 
+    if not session_user:
+        return RedirectResponse(url="/auth/login")
+        
+    user_id = session_user["id"]
+    
+    # 🛑 THE FIX: We MUST fetch the API key and live stats from the database!
+    try:
+        res = supabase.table("users").select("*").eq("id", user_id).single().execute()
+        if not res or not res.data:
+            return RedirectResponse(url="/auth/login")
+            
+        db_user = res.data
+        
+        # Calculate live tokens for the UI
+        used, limit = get_token_usage_and_limit(user_id) 
+        db_user["tokens"] = {"remaining": max(0, limit - used)}
+        
+    except Exception as e:
+        print(f"Error fetching user for negotiation: {e}")
+        return RedirectResponse(url="/dashboard")
+
+    # Now db_user absolutely contains 'gorilla_api_key' and 'tokens'
+    return templates.TemplateResponse("freemium/monkey.html", {
+        "request": request, 
+        "user": db_user
+    })
+
+@app.post("/api/pricing/save-negotiation")
+async def save_negotiation(request: Request, data: NegotiationResult):
+    """
+    Saves the final agreed price to the users table.
+    Includes anti-cheat to ensure they don't spoof below $0.67.
+    """
+    session_user = get_current_user(request)
+    if not session_user:
+        raise HTTPException(status_code=401, detail="Not logged in")
+        
+    final_price = data.agreed_price
+    
+    # 🛑 ANTI-CHEAT: The absolute floor is $0.67. 
+    if final_price < 0.67:
+        final_price = 0.67
+        
+    try:
+        # Save as TEXT to the first_month_price column
+        supabase.table("users").update({
+            "first_month_price": str(final_price)
+        }).eq("id", session_user["id"]).execute()
+        
+        print(f"💰 User {session_user['id']} successfully negotiated first month to ${final_price}")
+        
+        return JSONResponse({
+            "status": "success", 
+            "checkout_url": f"/checkout/premium" # Redirects to Stripe logic
+        })
+    except Exception as e:
+        print(f"Error saving negotiated price: {e}")
+        raise HTTPException(status_code=500, detail="Database error while saving price.")
+
+# ==========================================================================
+# THE GORILLA AI PROXY GATEWAY
+# ==========================================================================
+
+# --- Proxy Environment Variables ---
+FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
+REMBG_API_KEY = os.getenv("REMBG_API_KEY", "") 
+REMBG_API_URL = os.getenv("REMBG_API_URL", "http://localhost:5000/api/remove")
+
+# Add these missing OpenRouter variables!
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
+SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev")
+SITE_NAME = os.getenv("SITE_NAME", "Gorilla Builder")
+
+import math
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+
+security = HTTPBearer()
+
+# --- Proxy Environment Variables ---
+FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
+REMBG_API_KEY = os.getenv("REMBG_API_KEY", "") # If your RemBG has a key
+REMBG_API_URL = os.getenv("REMBG_API_URL", "http://localhost:5000/api/remove")
+
+def _deduct_proxy_tokens(user_id: str, cost: float, feature: str):
+    """Helper to safely deduct tokens for API Gateway usage."""
+    if cost <= 0: return
+    try:
+        tokens_to_add = math.ceil(cost) # Round up fractional tokens
+        
+        # 1. Fetch current tokens_used from the users table
+        res = supabase.table("users").select("tokens_used").eq("id", user_id).single().execute()
+        current_used = res.data.get("tokens_used", 0) if res.data and res.data.get("tokens_used") else 0
+        
+        # 2. Add the cost and update the database
+        new_total = current_used + tokens_to_add
+        supabase.table("users").update({"tokens_used": new_total}).eq("id", user_id).execute()
+        
+        print(f"💰 Deducted {tokens_to_add} tokens for {feature} (User: {user_id})")
+    except Exception as e:
+        print(f"⚠️ Failed to deduct {cost} tokens for {user_id}: {e}")
+
+async def verify_gorilla_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """
+    THE BOUNCER: Intercepts all /api/v1 requests, verifies the gb_live_ key,
+    and checks if the user has enough Gorilla Credits.
+    """
+    api_key = credentials.credentials
+    if not api_key.startswith("gb_live_"):
+        raise HTTPException(status_code=401, detail="Invalid API Key format. Must start with 'gb_live_'")
+    
+    # 1. Look up user by key
+    res = supabase.table("users").select("id, plan").eq("gorilla_api_key", api_key).single().execute()
+    if not res or not res.data:
+        raise HTTPException(status_code=401, detail="Invalid API Key. Unauthorized.")
+    
+    user = res.data
+    user_id = user["id"]
+    
+    # 2. Check Token Balance
+    used, limit = get_token_usage_and_limit(user_id)
+    if used >= limit:
+        # 402 Payment Required perfectly matches OpenAI's out-of-credits error!
+        raise HTTPException(status_code=402, detail="Payment Required: Gorilla Credits limit reached. Top up to continue.")
+        
+    return {"user_id": user_id, "plan": user.get("plan")}
+
+
+# --- 1. LLM CHAT (OpenRouter / 0.5 tokens per 1 API token) ---
+@app.post("/api/v1/chat/completions")
+async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_key)):
+    user_id = auth["user_id"]
+    payload = await request.json()
+    
+    # Force the model to OpenRouter's massive 120b model as requested
+    payload["model"] = "xiaomi/mimo-v2-flash" # Replace with your exact OpenRouter model string
+    
+    # Ask OpenRouter to send usage stats back even if it's a stream
+    if "stream_options" not in payload:
+        payload["stream_options"] = {"include_usage": True}
+        
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": SITE_URL,
+        "X-Title": SITE_NAME
+    }
+    
+    # Handle Streaming Responses
+    is_stream = payload.get("stream", False)
+    
+    if is_stream:
+        async def stream_generator():
+            total_tokens = 0
+            async with httpx.AsyncClient() as client:
+                async with client.stream("POST", OPENROUTER_URL, json=payload, headers=headers) as resp:
+                    if resp.status_code != 200:
+                        yield f"data: {json.dumps({'error': 'Upstream provider error'})}\n\n"
+                        return
+                    
+                    async for chunk in resp.aiter_text():
+                        yield chunk
+                        # OpenRouter includes {"usage": {"total_tokens": X}} in the final SSE chunk
+                        if '"usage":' in chunk and '"total_tokens":' in chunk:
+                            try:
+                                # Quick and dirty parse of the usage chunk
+                                parts = chunk.split('"total_tokens":')
+                                if len(parts) > 1:
+                                    token_val = parts[1].split(',')[0].split('}')[0].strip()
+                                    total_tokens = int(token_val)
+                            except: pass
+            
+            # Bill the user after the stream closes (0.5 tokens per 1 API token)
+            if total_tokens > 0:
+                _deduct_proxy_tokens(user_id, total_tokens * 0.3, "chat_stream")
+                
+        return StreamingResponse(stream_generator(), media_type="text/event-stream")
+    
+    # Handle Standard Non-Streaming Responses
+    else:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(OPENROUTER_URL, json=payload, headers=headers)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail=resp.text)
+            
+            data = resp.json()
+            total_tokens = data.get("usage", {}).get("total_tokens", 0)
+            
+            # Bill the user (0.5 tokens per 1 API token)
+            _deduct_proxy_tokens(user_id, total_tokens * 0.3, "chat")
+            
+            return JSONResponse(data)
+
+
+# --- 2. IMAGE GENERATION (Fireworks / 250 tokens per image) ---
+@app.post("/api/v1/images/generations")
+async def proxy_image_generations(request: Request, auth=Depends(verify_gorilla_key)):
+    user_id = auth["user_id"]
+    payload = await request.json()
+    
+    num_images = int(payload.get("n", 1))
+    
+    fireworks_payload = {
+        "model": "accounts/fireworks/models/playground-v2-5-1024px-aesthetic",
+        "prompt": payload.get("prompt", ""),
+        "n": num_images,
+        "size": payload.get("size", "1024x1024"),
+        "response_format": payload.get("response_format", "url")
+    }
+    
+    headers = {
+        "Authorization": f"Bearer {FIREWORKS_API_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+    
+    async with httpx.AsyncClient() as client:
+        resp = await client.post("https://api.fireworks.ai/inference/v1/image_generation", json=fireworks_payload, headers=headers)
+        
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        
+        # Bill 250 tokens per image generated
+        _deduct_proxy_tokens(user_id, 250 * num_images, "image_gen")
+        
+        return JSONResponse(resp.json())
+
+
+# --- 3. SPEECH TO TEXT (Fireworks Whisper / 100 tokens per min) ---
+@app.post("/api/v1/audio/transcriptions")
+async def proxy_audio_transcriptions(
+    file: UploadFile = File(...),
+    model: str = Form("accounts/fireworks/models/whisper-v3-turbo"),
+    auth=Depends(verify_gorilla_key)
+):
+    user_id = auth["user_id"]
+    file_bytes = await file.read()
+    
+    # Heuristic Duration Calculation:
+    # A standard mp3/m4a voice memo is roughly 1MB per minute.
+    # We use file size to estimate minutes (minimum 1 minute)
+    file_size_mb = len(file_bytes) / (1024 * 1024)
+    estimated_minutes = max(1, math.ceil(file_size_mb)) 
+    cost = estimated_minutes * 100
+    
+    headers = {"Authorization": f"Bearer {FIREWORKS_API_KEY}"}
+    files_payload = {"file": (file.filename, file_bytes, file.content_type)}
+    data_payload = {"model": "accounts/fireworks/models/whisper-v3-turbo"}
+    
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://api.fireworks.ai/inference/v1/audio/transcriptions", 
+            files=files_payload, 
+            data=data_payload, 
+            headers=headers
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        
+        # Bill 100 tokens per estimated minute
+        _deduct_proxy_tokens(user_id, cost, "stt_whisper")
+        
+        return JSONResponse(resp.json())
+
+
+# --- 4. BACKGROUND REMOVAL (RemBG / 0 tokens / Free Forever) ---
+@app.post("/api/v1/images/remove-background")
+async def proxy_remove_background(file: UploadFile = File(...), auth=Depends(verify_gorilla_key)):
+    # Verify key, but we don't bill them for this!
+    file_bytes = await file.read()
+    
+    headers = {}
+    if REMBG_API_KEY:
+        headers["x-api-key"] = REMBG_API_KEY
+        
+    files_payload = {"file": (file.filename, file_bytes, file.content_type)}
+    
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(REMBG_API_URL, files=files_payload, headers=headers)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=f"RemBG Error: {resp.text}")
+        
+        # Returns the raw PNG image file directly to the frontend
+        return Response(content=resp.content, media_type="image/png")
+
+@app.post("/api/v1/chat/completions/bargain")
+async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_key)):
+    user_id = auth["user_id"]
+    payload = await request.json()
+    
+    # Force the model to OpenRouter's massive 120b model as requested
+    payload["model"] = "deepseek/deepseek-v3.2" # Replace with your exact OpenRouter model string
+    
+    # Ask OpenRouter to send usage stats back even if it's a stream
+    if "stream_options" not in payload:
+        payload["stream_options"] = {"include_usage": True}
+        
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": SITE_URL,
+        "X-Title": SITE_NAME
+    }
+    
+    # Handle Streaming Responses
+    is_stream = payload.get("stream", False)
+    
+    if is_stream:
+        async def stream_generator():
+            total_tokens = 0
+            async with httpx.AsyncClient() as client:
+                async with client.stream("POST", OPENROUTER_URL, json=payload, headers=headers) as resp:
+                    if resp.status_code != 200:
+                        yield f"data: {json.dumps({'error': 'Upstream provider error'})}\n\n"
+                        return
+                    
+                    async for chunk in resp.aiter_text():
+                        yield chunk
+                        # OpenRouter includes {"usage": {"total_tokens": X}} in the final SSE chunk
+                        if '"usage":' in chunk and '"total_tokens":' in chunk:
+                            try:
+                                # Quick and dirty parse of the usage chunk
+                                parts = chunk.split('"total_tokens":')
+                                if len(parts) > 1:
+                                    token_val = parts[1].split(',')[0].split('}')[0].strip()
+                                    total_tokens = int(token_val)
+                            except: pass
+            
+            # Bill the user after the stream closes (0.5 tokens per 1 API token)
+            if total_tokens > 0:
+                _deduct_proxy_tokens(user_id, total_tokens * 0.3, "chat_stream")
+                
+        return StreamingResponse(stream_generator(), media_type="text/event-stream")
+    
+    # Handle Standard Non-Streaming Responses
+    else:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(OPENROUTER_URL, json=payload, headers=headers)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail=resp.text)
+            
+            data = resp.json()
+            total_tokens = data.get("usage", {}).get("total_tokens", 0)
+            
+            # Bill the user (0.5 tokens per 1 API token)
+            _deduct_proxy_tokens(user_id, total_tokens * 0.3, "chat")
+            
+            return JSONResponse(data)
 
 
 if __name__ == "__main__":

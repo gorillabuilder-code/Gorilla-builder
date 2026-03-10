@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Create Project · gor://a</title>
+  <title>Create Project · Gor://a Builder</title>
   
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
 
@@ -100,8 +100,16 @@
       display: flex; gap: 12px; align-items: start;
     }
     .prompt-icon { color: var(--accent); font-size: 18px; margin-top: 2px; }
+    .prompt-content { flex: 1; }
     .prompt-content strong { color: #fff; display: block; font-size: 13px; margin-bottom: 2px; }
     .prompt-content span { color: var(--text-muted); font-size: 13px; line-height: 1.4; display: block; }
+    
+    /* Thumbnail preview for the stashed image */
+    .stashed-thumbnail {
+      width: 40px; height: 40px; border-radius: 8px;
+      object-fit: cover; border: 1px solid var(--border);
+      flex-shrink: 0;
+    }
 
     /* --- BUTTONS --- */
     .btn-group { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
@@ -149,18 +157,30 @@
     <h1>Initialize Project</h1>
     <p>Review details before the AI begins construction.</p>
 
-    {% if initial_prompt %}
+    {% if initial_prompt or stashed_image %}
     <div class="prompt-preview">
       <i class="ph-fill ph-sparkle prompt-icon"></i>
       <div class="prompt-content">
         <strong>Prompt Loaded</strong>
-        <span>"{{ initial_prompt[:80] }}..."</span>
+        {% if initial_prompt %}
+          <span>"{{ initial_prompt[:80] }}..."</span>
+        {% else %}
+          <span>Image layout detected.</span>
+        {% endif %}
       </div>
+      
+      {% if stashed_image %}
+        <img src="{{ stashed_image }}" class="stashed-thumbnail" alt="Uploaded UI Mockup" title="Design attached successfully">
+      {% endif %}
     </div>
     {% endif %}
 
-    <form method="post" action="/projects/create">
+    <form method="post" action="/projects/create" enctype="multipart/form-data">
+      
       <input type="hidden" name="prompt" value="{{ initial_prompt or '' }}">
+      {% if stashed_image %}
+        <input type="hidden" name="image_base64" value="{{ stashed_image }}">
+      {% endif %}
 
       <div class="form-group">
         <label>Project Name</label>

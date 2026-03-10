@@ -192,16 +192,19 @@ class Planner:
     "   - NEVER generate an `.env` file.\n"
     "   - Frontend Imports: Use `@/` aliases.\n"
     "   - Backend Imports: Use relative paths with `.js` extension.\n"
-    "   - Always instruct to the coder to build a `vercel.json` file in the root of the project according to the project's requirements.\n"
+    "   - Never instruct to the coder to build a `vercel.json` file in the root of the project according to the project's requirements.\n"
+    
+    # --- 🚨 PHASE 5: THE AI PROXY INJECTION 🚨 ---
     "2. **AI Integration Specs (USE THESE EXACTLY):**\n"
-    "   - **High-Performance Logic**: Use `process.env.OPENROUTER_API_KEY` and 'openai/gpt-oss-20b:free'.\n"
-    "   - **Vision**: Use 'accounts/fireworks/models/qwen3-8b'.\n"
-    "   - **Voice (STT)**: 'accounts/fireworks/models/whisper-v3-turbo'.\n"
-    "   - **Voice (TTS)**: 'openai/gpt-audio-mini'.\n"
-    "   - **Image Gen**: 'accounts/fireworks/models/playground-v2-5-1024px-aesthetic'.\n"
-    "   - **BG Removal**: Use `process.env.REM_BG_API_KEY`.\n"
+    "   - **Core Rule**: You MUST route all AI API calls through the Gorilla Proxy using `process.env.GORILLA_API_KEY`.\n"
+    "   - **High-Performance Logic (LLM)**: Set baseURL to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1` and use model `openai/gpt-oss-20b:free`.\n"
+    "   - **Image Generation**: Send POST request to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/generations` with standard OpenAI payload.\n"
+    "   - **Voice (STT)**: Send POST to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/audio/transcriptions` (OpenAI format).\n"
+    "   - **Voice (TTS)**: DO NOT USE AN API. Strictly use the browser's native `window.speechSynthesis` Web Speech API in frontend components.\n"
+    "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background`.\n"
+    
     "3. **Volume:** \n"
-    "   - Always try to ask the user at least 2 questions to elaborate on their request DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question.\n"
+    "   - Always try to ask the user at least 2 questions to elaborate on their request, they should be obvious and add functionality to their app if they agree. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question.\n"
     "   - Simple Apps: 8-10 tasks (Mix of DB, Backend, Frontend).(if there are no questions only!)\n"
     "   - Above Simple Apps: 15+ tasks.(if there are no questions only!)\n"
     "   - Debugging Tasks: 1-2 tasks.(if there are no questions only!)\n"
@@ -211,14 +214,31 @@ class Planner:
         )
         
         chat_history = _get_history(project_id)
-        user_msg_content = json.dumps({
+        
+        # 1. Clean the file list so the AI doesn't see the raw .b64 filename
+        raw_files = project_context.get("files", [])
+        clean_files = [f for f in raw_files if not f.endswith(".b64")]
+
+        text_payload = json.dumps({
             "request": user_request,
-            "current_files": project_context.get("files", [])
+            "current_files": clean_files
         })
+
+        image_b64 = project_context.get("image_context")
+
+        # 2. Build multi-modal Vision payload if image exists
+        if image_b64:
+            user_msg_content = [
+                {"type": "text", "text": text_payload},
+                {"type": "image_url", "image_url": {"url": image_b64}}
+            ]
+        else:
+            user_msg_content = text_payload
 
         messages = [{"role": "system", "content": system_prompt}]
         for h in chat_history:
              messages.append({"role": h["role"], "content": h["content"]})
+             
         messages.append({"role": "user", "content": user_msg_content})
 
         payload = {
@@ -235,8 +255,8 @@ class Planner:
             "Accept": "application/json",
             "Content-Type": "application/json",
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "HTTP-Referer": SITE_URL, # OpenRouter Requirement
-            "X-Title": SITE_NAME,     # OpenRouter Requirement
+            "HTTP-Referer": SITE_URL, 
+            "X-Title": SITE_NAME,     
         }
 
         # --- RETRY LOGIC (503s AND Invalid JSON) ---
