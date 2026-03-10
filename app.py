@@ -2576,6 +2576,71 @@ async def proxy_remove_background(file: UploadFile = File(...), auth=Depends(ver
         # Returns the raw PNG image file directly to the frontend
         return Response(content=resp.content, media_type="image/png")
 
+@app.post("/api/v1/chat/completions/bargain")
+async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_key)):
+    user_id = auth["user_id"]
+    payload = await request.json()
+    
+    # Force the model to OpenRouter's massive 120b model as requested
+    payload["model"] = "deepseek/deepseek-v3.2" # Replace with your exact OpenRouter model string
+    
+    # Ask OpenRouter to send usage stats back even if it's a stream
+    if "stream_options" not in payload:
+        payload["stream_options"] = {"include_usage": True}
+        
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": SITE_URL,
+        "X-Title": SITE_NAME
+    }
+    
+    # Handle Streaming Responses
+    is_stream = payload.get("stream", False)
+    
+    if is_stream:
+        async def stream_generator():
+            total_tokens = 0
+            async with httpx.AsyncClient() as client:
+                async with client.stream("POST", OPENROUTER_URL, json=payload, headers=headers) as resp:
+                    if resp.status_code != 200:
+                        yield f"data: {json.dumps({'error': 'Upstream provider error'})}\n\n"
+                        return
+                    
+                    async for chunk in resp.aiter_text():
+                        yield chunk
+                        # OpenRouter includes {"usage": {"total_tokens": X}} in the final SSE chunk
+                        if '"usage":' in chunk and '"total_tokens":' in chunk:
+                            try:
+                                # Quick and dirty parse of the usage chunk
+                                parts = chunk.split('"total_tokens":')
+                                if len(parts) > 1:
+                                    token_val = parts[1].split(',')[0].split('}')[0].strip()
+                                    total_tokens = int(token_val)
+                            except: pass
+            
+            # Bill the user after the stream closes (0.5 tokens per 1 API token)
+            if total_tokens > 0:
+                _deduct_proxy_tokens(user_id, total_tokens * 0.3, "chat_stream")
+                
+        return StreamingResponse(stream_generator(), media_type="text/event-stream")
+    
+    # Handle Standard Non-Streaming Responses
+    else:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(OPENROUTER_URL, json=payload, headers=headers)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail=resp.text)
+            
+            data = resp.json()
+            total_tokens = data.get("usage", {}).get("total_tokens", 0)
+            
+            # Bill the user (0.5 tokens per 1 API token)
+            _deduct_proxy_tokens(user_id, total_tokens * 0.3, "chat")
+            
+            return JSONResponse(data)
+
+
 if __name__ == "__main__":
     import uvicorn
     from pyngrok import ngrok
