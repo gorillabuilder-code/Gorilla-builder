@@ -269,7 +269,7 @@ At the VERY END of every single response, you MUST output a hidden JSON block to
         container.classList.add('shake');
       }
 
-      if (patience === 0) {
+      if (patience < -50.0) {
         setTimeout(() => {
           gameOver.classList.add('active');
           chatInput.disabled = true;
