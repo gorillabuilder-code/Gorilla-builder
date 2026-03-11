@@ -466,14 +466,13 @@ FIGMA_REDIRECT_URI = os.getenv("FIGMA_REDIRECT_URI")
 @app.get("/auth/figma")
 async def figma_login(request: Request):
     """Initiates the Figma OAuth flow."""
-    user = get_current_user(request) # Ensure they are logged into Gorilla Builder first
+    user = get_current_user(request) 
     
-    # Generate a random state string to prevent CSRF attacks
     state = secrets.token_urlsafe(16)
     request.session["figma_oauth_state"] = state
     
-    # Send them to Figma's permission screen (requesting 'file_read' scope)
-    url = f"https://www.figma.com/oauth?client_id={FIGMA_CLIENT_ID}&redirect_uri={urllib.parse.quote(FIGMA_REDIRECT_URI)}&scope=file_read&state={state}&response_type=code"
+    # 🛑 THE FIX: Changed scope=file_read to scope=file_content:read
+    url = f"https://www.figma.com/oauth?client_id={FIGMA_CLIENT_ID}&redirect_uri={urllib.parse.quote(FIGMA_REDIRECT_URI)}&scope=file_content:read&state={state}&response_type=code"
     
     return RedirectResponse(url)
 
@@ -486,11 +485,11 @@ async def figma_callback(request: Request, code: str, state: str):
         # Verify the state matches what we sent (CSRF protection)
         saved_state = request.session.pop("figma_oauth_state", None)
         if not saved_state or state != saved_state:
-            return RedirectResponse("/dashboard?error=figma_invalid_state")
+            return RedirectResponse("/dashboard?error=figma_invalid_state", status_code=303)
         
-        # Trade the code for the actual access/refresh tokens
+        # 🛑 THE FIX: Changed from www.figma.com to api.figma.com/v1/
         async with httpx.AsyncClient() as client:
-            res = await client.post("https://www.figma.com/api/oauth/token", data={
+            res = await client.post("https://api.figma.com/v1/oauth/token", data={
                 "client_id": FIGMA_CLIENT_ID,
                 "client_secret": FIGMA_CLIENT_SECRET,
                 "redirect_uri": FIGMA_REDIRECT_URI,
@@ -500,12 +499,11 @@ async def figma_callback(request: Request, code: str, state: str):
             
             if res.status_code != 200:
                 print(f"⚠️ Figma OAuth Error: {res.text}")
-                return RedirectResponse("/dashboard?error=figma_token_exchange_failed")
+                return RedirectResponse("/dashboard?error=figma_token_exchange_failed", status_code=303)
                 
             tokens = res.json()
             access_token = tokens.get("access_token")
             refresh_token = tokens.get("refresh_token")
-            expires_in = tokens.get("expires_in") # Usually 90 days
             
             if access_token:
                 # Save the tokens to the user's record in Supabase
@@ -514,11 +512,11 @@ async def figma_callback(request: Request, code: str, state: str):
                     "figma_refresh_token": refresh_token
                 }).eq("id", user["id"]).execute()
                 
-        return RedirectResponse("/dashboard?success=figma_linked")
+        return RedirectResponse("/dashboard?success=figma_linked", status_code=303)
         
     except Exception as e:
         print(f"⚠️ Figma Auth Callback crashed: {e}")
-        return RedirectResponse("/dashboard?error=figma_auth_crash")
+        return RedirectResponse("/dashboard?error=figma_auth_crash", status_code=303)
 
 # ==========================================================================
 # PUBLIC ROUTES (Templates & Redirects)
@@ -1328,15 +1326,22 @@ async def project_create_page(request: Request, prompt: Optional[str] = None):
     )
 
 # 2. CREATE ACTION (Backend Insert)
+from backend.figma_import import fetch_and_compress_figma
+import re
+import urllib.parse
+import asyncio
+import os
+
 @app.post("/projects/create")
 async def create_project(
     request: Request,
-    background_tasks: BackgroundTasks, # Added for snapshot generation
+    background_tasks: BackgroundTasks,
     prompt: Optional[str] = Form(None), 
     name: Optional[str] = Form(None), 
     description: str = Form(""),
     xmode: Optional[str] = Form(None),
-    image_base64: Optional[str] = Form(None)
+    image_base64: Optional[str] = Form(None),
+    figma_url: Optional[str] = Form(None) # 🛑 NEW: Catches the hidden Figma URL
 ):
     user = get_current_user(request)
 
@@ -1373,15 +1378,59 @@ async def create_project(
     final_prompt = prompt or request.session.pop("stashed_prompt", None)
     project_name = name or "Untitled Project"
     final_image = image_base64
+    final_figma_json = None # Placeholder for our parsed data
     
-    # --- 3. HEAVY LIFTING (DB & Files) ---
+    # ====================================================================
+    # 🎨 3. FIGMA INTERCEPTOR (PRODUCTION MODE)
+    # ====================================================================
+    # Robust check: look in the hidden figma_url field OR the visible prompt
+    potential_url = figma_url or ""
+    if not potential_url and final_prompt and "figma.com/" in final_prompt:
+        match = re.search(r'(https://[^\s^?]*figma\.com/[^\s]*)', final_prompt)
+        if match:
+            potential_url = match.group(0)
+
+    if potential_url:
+        try:
+            print(f"🎯 Figma Link Detected: {potential_url}")
+            
+            # Grab their token securely
+            user_data = supabase.table("users").select("figma_access_token").eq("id", user["id"]).single().execute()
+            figma_token = user_data.data.get("figma_access_token") if user_data.data else None
+            
+            if not figma_token:
+                return RedirectResponse("/dashboard?error=figma_not_linked", status_code=303)
+                
+            # Run the parser
+            final_figma_json = await fetch_and_compress_figma(potential_url, figma_token)
+            print(f"✅ Figma extraction successful ({len(final_figma_json)} characters)")
+            
+            # Make sure we don't pass a raw URL or 50k character JSON to the browser URL params
+            if "figma.com" in final_prompt:
+                final_prompt = "Build a pixel-perfect React and Tailwind replica of the design structure. I have provided the exact layout rules, spacing, typography, and hex colors in the `.gorilla/figma.json` file. Read that file and implement it exactly."
+
+        except Exception as e:
+            print(f"⚠️ Figma Import Failed: {e}")
+            return RedirectResponse(f"/dashboard?error={urllib.parse.quote(str(e))}", status_code=303)
+
+
+    # --- 4. HEAVY LIFTING (DB & Files) ---
     def _heavy_lift_create():
+        
+        # 🛑 MAGIC UX TRICK: Inject the JSON into the Chat History so the AI sees it instantly
+        initial_history = []
+        if final_figma_json:
+            initial_history.append({
+                "role": "system",
+                "content": f"FIGMA DESIGN DATA: You MUST use this exact structural JSON to build the React/Tailwind UI. Do not hallucinate classes. Rely on the 'layoutMode', 'itemSpacing', and hex 'fills'. Data:\n{final_figma_json}"
+            })
+
         res = supabase.table("projects").insert({
             "owner_id": user["id"], 
             "name": project_name, 
             "description": description or (final_prompt[:200] if final_prompt else ""),
             "prompt_image": final_image,
-            "chat_history": []
+            "chat_history": initial_history # <--- Injects the AI Context!
         }).execute()
         
         if not res.data: 
@@ -1433,26 +1482,35 @@ async def create_project(
                 }).execute()
             except Exception as e:
                 print(f"⚠️ Failed to save image to virtual FS: {e}")
+                
+        # Safely inject the parsed Figma JSON directly into the virtual file system!
+        if final_figma_json:
+            try:
+                supabase.table("files").insert({
+                    "project_id": pid,
+                    "path": ".gorilla/figma.json",
+                    "content": final_figma_json
+                }).execute()
+                print(f"✅ Successfully wrote figma.json to project {pid}")
+            except Exception as e:
+                print(f"⚠️ Failed to save figma.json to virtual FS: {e}")
         
         return pid
 
-    # --- 4. EXECUTION ---
+    # --- 5. EXECUTION ---
     try:
         pid = await asyncio.to_thread(_heavy_lift_create)
         
-        # --- NEW: TRIGGER SNAPSHOT GENERATION ---
+        # Trigger Snapshot
         if final_prompt:
             try:
-                # Grab the user's live key to pass to the image generator
                 user_api_data = supabase.table("users").select("gorilla_api_key").eq("id", user["id"]).single().execute()
                 api_key = user_api_data.data.get("gorilla_api_key", "") if user_api_data and user_api_data.data else ""
                 
                 if api_key.startswith("gb_live_"):
                     background_tasks.add_task(generate_project_snapshot, pid, final_prompt, api_key)
-                else:
-                    print("⚠️ No valid gb_live_ key found, skipping snapshot generation.")
             except Exception as e:
-                print(f"⚠️ Failed to fetch API key for snapshot: {e}")
+                pass
         
         if xmode == "true":
             target_url = f"/projects/{pid}/xmode"
