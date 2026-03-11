@@ -1345,18 +1345,23 @@ async def create_project(
 ):
     user = get_current_user(request)
 
-    # --- 1. FREE TIER LIMIT CHECK ---
+    # Helper to safely run synchronous Supabase calls in the background
+    def check_project_limit():
+        res = supabase.table("projects").select("id", count="exact").eq("owner_id", user["id"]).execute()
+        count = res.count if hasattr(res, 'count') and res.count is not None else len(res.data)
+        if count >= 3:
+            return supabase.table("projects").select("*").eq("owner_id", user["id"]).order("created_at", desc=True).execute().data
+        return None
+
+    # --- 1. FREE TIER LIMIT CHECK (Now Non-Blocking) ---
     if user.get("plan") != "premium":
         try:
-            res = supabase.table("projects").select("id", count="exact").eq("owner_id", user["id"]).execute()
-            current_count = res.count if hasattr(res, 'count') and res.count is not None else len(res.data)
-
-            if current_count >= 3:
-                p_res = supabase.table("projects").select("*").eq("owner_id", user["id"]).order("created_at", desc=True).execute()
+            projects_data = await asyncio.to_thread(check_project_limit)
+            if projects_data is not None:
                 return templates.TemplateResponse("dashboard.html", {
                     "request": request, 
                     "user": user,
-                    "projects": p_res.data if p_res.data else [],
+                    "projects": projects_data,
                     "error": "Free Limit Reached (3/3). Upgrade to Pro to create unlimited projects."
                 })
         except Exception as e:
@@ -1365,7 +1370,6 @@ async def create_project(
 
     # --- 2. PROMPT & IMAGE STASHING ---
     if prompt and not name:
-        # 🛑 THE FIX: STASH THE FIGMA URL IN THE SESSION SO IT SURVIVES STEP 2
         if figma_url:
             request.session["stashed_figma_url"] = figma_url
             
@@ -1380,8 +1384,6 @@ async def create_project(
         )
     
     final_prompt = prompt or request.session.pop("stashed_prompt", None)
-    
-    # 🛑 THE FIX: GRAB THE STASHED FIGMA URL BACK OUT OF THE SESSION
     final_figma_url = figma_url or request.session.pop("stashed_figma_url", None)
     
     project_name = name or "Untitled Project"
@@ -1391,7 +1393,6 @@ async def create_project(
     # ====================================================================
     # 🎨 3. FIGMA INTERCEPTOR (PRODUCTION MODE)
     # ====================================================================
-    # We now check final_figma_url instead of the raw form input
     potential_url = final_figma_url or ""
     if not potential_url and final_prompt and "figma.com/" in final_prompt:
         match = re.search(r'(https://[^\s^?]*figma\.com/[^\s]*)', final_prompt)
@@ -1402,14 +1403,21 @@ async def create_project(
         try:
             print(f"🎯 Figma Link Detected: {potential_url}")
             
-            user_data = supabase.table("users").select("figma_access_token").eq("id", user["id"]).single().execute()
+            # 🛑 DB Call moved to thread to prevent server freeze!
+            def get_figma_token():
+                return supabase.table("users").select("figma_access_token").eq("id", user["id"]).single().execute()
+            
+            user_data = await asyncio.to_thread(get_figma_token)
             figma_token = user_data.data.get("figma_access_token") if user_data.data else None
             
             if not figma_token:
                 return RedirectResponse("/dashboard?error=figma_not_linked", status_code=303)
                 
-            final_figma_json = await fetch_and_compress_figma(potential_url, figma_token)
+            final_figma_json, figma_img_b64 = await fetch_and_compress_figma(potential_url, figma_token)
             print(f"✅ Figma extraction successful ({len(final_figma_json)} characters)")
+            
+            if figma_img_b64:
+                final_image = figma_img_b64
             
             if "figma.com" in final_prompt:
                 final_prompt = "Build a pixel-perfect React and Tailwind replica of the design structure. I have provided the exact layout rules, spacing, typography, and hex colors in the `.gorilla/figma.json` file. Read that file and implement it exactly."
@@ -1420,8 +1428,8 @@ async def create_project(
 
 
     # --- 4. HEAVY LIFTING (DB & Files) ---
+    # Everything inside this function already runs safely in a separate thread!
     def _heavy_lift_create():
-        
         initial_history = []
         if final_figma_json:
             initial_history.append({
@@ -1434,6 +1442,7 @@ async def create_project(
             "name": project_name, 
             "description": description or (final_prompt[:200] if final_prompt else ""),
             "prompt_image": final_image,
+            "snapshot_b64": final_image if final_figma_json else None, 
             "chat_history": initial_history 
         }).execute()
         
@@ -1504,9 +1513,13 @@ async def create_project(
     try:
         pid = await asyncio.to_thread(_heavy_lift_create)
         
-        if final_prompt:
+        if final_prompt and not final_figma_json:
             try:
-                user_api_data = supabase.table("users").select("gorilla_api_key").eq("id", user["id"]).single().execute()
+                # Threaded to prevent DB freeze
+                def get_api_key():
+                    return supabase.table("users").select("gorilla_api_key").eq("id", user["id"]).single().execute()
+                
+                user_api_data = await asyncio.to_thread(get_api_key)
                 api_key = user_api_data.data.get("gorilla_api_key", "") if user_api_data and user_api_data.data else ""
                 
                 if api_key.startswith("gb_live_"):

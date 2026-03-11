@@ -3,8 +3,9 @@ import httpx
 import urllib.parse
 import json
 import os
+import base64
 
-async def fetch_and_compress_figma(figma_url: str, access_token: str) -> str:
+async def fetch_and_compress_figma(figma_url: str, access_token: str):
     print(f"🚨 DEBUG: fetch_and_compress_figma triggered!")
     
     if not access_token:
@@ -158,6 +159,32 @@ async def fetch_and_compress_figma(figma_url: str, access_token: str) -> str:
     # Strip whitespace to save tokens for the AI payload
     json_output = json.dumps(optimized_tree, separators=(',', ':')) 
     
+    # ====================================================================
+    # 🖼️ 4. FETCH FIGMA RENDERED IMAGE (For Snapshots & UI)
+    # ====================================================================
+    img_b64 = None
+    img_api_url = f"https://api.figma.com/v1/images/{file_key}?ids={node_id}&format=jpg&scale=1"
+    
+    try:
+        print(f"🖼️ Asking Figma to render Node {node_id} as an image...")
+        async with httpx.AsyncClient() as client:
+            img_resp = await client.get(img_api_url, headers=headers, timeout=15.0)
+            
+            if img_resp.status_code == 200:
+                img_data = img_resp.json()
+                img_url = img_data.get("images", {}).get(node_id)
+                
+                if img_url:
+                    print(f"⬇️ Downloading rendered JPG from Figma S3...")
+                    actual_img_resp = await client.get(img_url, timeout=15.0)
+                    
+                    if actual_img_resp.status_code == 200:
+                        b64_bytes = base64.b64encode(actual_img_resp.content).decode('utf-8')
+                        img_b64 = f"data:image/jpeg;base64,{b64_bytes}"
+                        print("✅ Figma Image successfully converted to Base64!")
+    except Exception as e:
+        print(f"⚠️ Warning: Could not fetch Figma image preview: {e}")
+
     # --- DEBUG SAVER ---
     char_count = len(json_output)
     est_tokens = char_count // 4 
@@ -168,7 +195,6 @@ async def fetch_and_compress_figma(figma_url: str, access_token: str) -> str:
     
     debug_path = os.path.join(os.getcwd(), "debug_figma_payload.json")
     with open(debug_path, "w", encoding="utf-8") as f:
-        # Save a pretty version so you can easily verify what the AI sees
         f.write(json.dumps(optimized_tree, indent=2))
         
-    return json_output
+    return json_output, img_b64
