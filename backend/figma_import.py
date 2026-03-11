@@ -6,34 +6,29 @@ import os
 
 async def fetch_and_compress_figma(figma_url: str, access_token: str) -> str:
     print(f"🚨 DEBUG: fetch_and_compress_figma triggered!")
-    print(f"🚨 DEBUG: URL received: {figma_url}")
-    print(f"🚨 DEBUG: Token exists: {bool(access_token)}")
-    """
-    Parses a Figma URL, fetches the specific node data, and compresses it 
-    into a lightweight JSON tree optimized for LLM context windows.
-    """
+    
     if not access_token:
         raise ValueError("Missing Figma Access Token. User must link their account.")
 
-    # 1. Extract File Key and Node ID
-    match = re.search(r"figma\.com/(?:file|design)/([a-zA-Z0-9]{22,}).*?(?:node-id=([^&]+))?", figma_url)
-    if not match:
-        raise ValueError("Invalid Figma URL format.")
-        
-    file_key = match.group(1)
-    node_id = match.group(2)
+    # 1. Safely Extract File Key & Node ID
+    file_key_match = re.search(r"figma\.com/(?:file|design)/([a-zA-Z0-9]{22,})", figma_url)
+    if not file_key_match:
+        raise ValueError("Invalid Figma URL format. Could not find the file key.")
+    file_key = file_key_match.group(1)
     
-    if node_id:
-        node_id = urllib.parse.unquote(node_id).replace("-", ":")
-    else:
+    node_id_match = re.search(r"node-id=([^&#]+)", figma_url)
+    if not node_id_match:
         raise ValueError("Please provide a link to a specific Frame, not the whole file.")
+    
+    node_id = node_id_match.group(1)
+    node_id = urllib.parse.unquote(node_id).replace("-", ":")
 
     # 2. Fetch the Node from Figma API
     headers = {"Authorization": f"Bearer {access_token}"}
     api_url = f"https://api.figma.com/v1/files/{file_key}/nodes?ids={node_id}"
     
     async with httpx.AsyncClient() as client:
-        print(f"🎨 Fetching Figma Node {node_id} from File {file_key}...")
+        print(f"🎨 Fetching Figma Node {node_id}...")
         resp = await client.get(api_url, headers=headers, timeout=15.0)
         
         if resp.status_code != 200:
@@ -47,62 +42,133 @@ async def fetch_and_compress_figma(figma_url: str, access_token: str) -> str:
         
     target_node = nodes[node_id].get("document", {})
 
-    # 3. The "Token-Saver" Compressor 
-    # Figma JSON is massive. We recursively strip out vector math and keep only layout/CSS data.
-    def compress_node(node):
-        if not isinstance(node, dict): return node
-        
-        # We only care about layout, text, and styling
-        keys_to_keep = [
-            "name", "type", "characters", "fills", "strokes", 
-            "layoutMode", "primaryAxisAlignItems", "counterAxisAlignItems",
-            "paddingLeft", "paddingRight", "paddingTop", "paddingBottom", 
-            "itemSpacing", "cornerRadius", "absoluteBoundingBox", "style"
-        ]
-        
-        compressed = {k: node[k] for k in keys_to_keep if k in node}
-        
-        # Clean up fills (colors) to just hex codes if possible
-        if "fills" in compressed and isinstance(compressed["fills"], list):
-            simplified_fills = []
-            for f in compressed["fills"]:
-                if f.get("type") == "SOLID" and "color" in f:
-                    c = f["color"]
-                    hex_color = "#{:02x}{:02x}{:02x}".format(int(c.get('r',0)*255), int(c.get('g',0)*255), int(c.get('b',0)*255))
-                    simplified_fills.append(hex_color)
-            if simplified_fills:
-                compressed["fills"] = simplified_fills
-            else:
-                del compressed["fills"]
+    # ====================================================================
+    # 🗜️ 3. THE "SMART FIDELITY" COMPRESSOR 
+    # ====================================================================
+    def rgb_to_hex(color_dict):
+        """Helper to convert Figma RGB to Hex safely"""
+        if not color_dict: return None
+        return "#{:02x}{:02x}{:02x}".format(
+            int(color_dict.get('r',0)*255), 
+            int(color_dict.get('g',0)*255), 
+            int(color_dict.get('b',0)*255)
+        )
 
-        # Recurse through children
-        if "children" in node and isinstance(node["children"], list):
-            compressed_children = [compress_node(child) for child in node["children"]]
-            # Filter out empty or invisible vector junk
-            compressed["children"] = [c for c in compressed_children if c and c.get("type") not in ["VECTOR", "BOOLEAN_OPERATION"]]
+    def compress_node(node):
+        if not isinstance(node, dict): return None
+        
+        # 1. Purge Invisible Layers instantly
+        if node.get("visible") is False:
+            return None
             
+        node_type = node.get("type", "")
+        compressed = {"type": node_type}
+        if "name" in node: compressed["name"] = node["name"]
+
+        # Capture exact Width and Height for sizing context
+        bbox = node.get("absoluteBoundingBox", {})
+        if bbox:
+            if "width" in bbox: compressed["w"] = round(bbox["width"])
+            if "height" in bbox: compressed["h"] = round(bbox["height"])
+        
+        # 2. Vector Translation (Keep dimensions, drop math)
+        if node_type in ["VECTOR", "BOOLEAN_OPERATION", "STAR", "LINE", "ELLIPSE", "REGULAR_POLYGON"]:
+            return {"type": "ICON", "name": compressed.get("name", "Graphic"), "w": compressed.get("w"), "h": compressed.get("h")}
+            
+        # 3. Typography Fidelity
+        if node_type == "TEXT":
+            compressed["text"] = node.get("characters", "").strip()
+            style = node.get("style", {})
+            if style:
+                if "fontSize" in style: compressed["fontSize"] = style["fontSize"]
+                if "fontWeight" in style: compressed["fontWeight"] = style["fontWeight"]
+                if "textAlignHorizontal" in style: compressed["textAlign"] = style["textAlignHorizontal"]
+            
+            # Text Color
+            if "fills" in node and isinstance(node["fills"], list):
+                for f in node["fills"]:
+                    if f.get("type") == "SOLID" and f.get("visible", True):
+                        compressed["color"] = rgb_to_hex(f.get("color"))
+                        break
+            return compressed # Text has no children, return early
+            
+        # 4. Auto-Layout & Spacing (Crucial for Tailwind)
+        if "layoutMode" in node and node["layoutMode"] != "NONE":
+            compressed["layout"] = node["layoutMode"] # HORIZONTAL or VERTICAL
+            if "primaryAxisAlignItems" in node: compressed["alignX"] = node["primaryAxisAlignItems"]
+            if "counterAxisAlignItems" in node: compressed["alignY"] = node["counterAxisAlignItems"]
+            if "itemSpacing" in node and node["itemSpacing"] > 0: compressed["gap"] = node["itemSpacing"]
+            
+            # Paddings
+            px = node.get("paddingLeft", 0)
+            py = node.get("paddingTop", 0)
+            if px > 0: compressed["padX"] = px
+            if py > 0: compressed["padY"] = py
+            
+        # 5. Visual Styling (Backgrounds, Borders, Shadows)
+        if "cornerRadius" in node and node["cornerRadius"] > 0:
+            compressed["radius"] = node["cornerRadius"]
+            
+        # Background Color
+        if "fills" in node and isinstance(node["fills"], list):
+            for f in node["fills"]:
+                if f.get("type") == "SOLID" and f.get("visible", True):
+                    compressed["bg"] = rgb_to_hex(f.get("color"))
+                    break
+                    
+        # Borders
+        if "strokes" in node and isinstance(node["strokes"], list) and len(node["strokes"]) > 0:
+            for s in node["strokes"]:
+                 if s.get("type") == "SOLID" and s.get("visible", True):
+                     compressed["borderColor"] = rgb_to_hex(s.get("color"))
+                     compressed["borderWidth"] = node.get("strokeWeight", 1)
+                     break
+                     
+        # Drop Shadows
+        if "effects" in node and isinstance(node["effects"], list):
+            for e in node["effects"]:
+                if e.get("type") == "DROP_SHADOW" and e.get("visible", True):
+                    compressed["hasShadow"] = True
+                    break
+
+        # 6. Process Children recursively
+        if "children" in node and isinstance(node["children"], list):
+            valid_children = []
+            for child in node["children"]:
+                comp_child = compress_node(child)
+                if comp_child:
+                    valid_children.append(comp_child)
+            
+            if valid_children:
+                # Group raw vectors into a single ICON wrapper so the AI knows it's a unified graphic
+                if all(c.get("type") == "ICON" for c in valid_children):
+                    return {"type": "COMPLEX_ICON", "name": node.get("name", "Graphic_Group"), "w": compressed.get("w"), "h": compressed.get("h")}
+                
+                compressed["children"] = valid_children
+            else:
+                # If a frame is completely empty (no bg, no border, no children), purge it
+                if "bg" not in compressed and "borderColor" not in compressed and "text" not in compressed:
+                    return None
+                    
         return compressed
 
-    print("🗜️ Compressing Figma JSON for AI consumption...")
+    print("🗜️ Running Smart Fidelity Compression...")
     optimized_tree = compress_node(target_node)
     
-    json_output = json.dumps(optimized_tree, indent=2)
+    # Strip whitespace to save tokens for the AI payload
+    json_output = json.dumps(optimized_tree, separators=(',', ':')) 
     
-    # ====================================================================
-    # 🛑 TOKEN SAFETY & DEBUGGING BLOCK
-    # ====================================================================
+    # --- DEBUG SAVER ---
     char_count = len(json_output)
-    est_tokens = char_count // 4 # Rough rule of thumb: 4 chars = 1 token
+    est_tokens = char_count // 4 
     
-    print(f"\n✅ COMPRESSION COMPLETE!")
+    print(f"\n✅ SMART COMPRESSION COMPLETE!")
     print(f"📊 Payload Size: {char_count:,} characters")
-    print(f"🪙 Estimated LLM Tokens: ~{est_tokens:,} tokens")
+    print(f"🪙 Estimated Tokens: ~{est_tokens:,} tokens")
     
-    # Save it locally so you can open it in your IDE and verify it
     debug_path = os.path.join(os.getcwd(), "debug_figma_payload.json")
     with open(debug_path, "w", encoding="utf-8") as f:
-        f.write(json_output)
-    print(f"📁 Full JSON saved to: {debug_path}\n")
-    # ====================================================================
-    
+        # Save a pretty version so you can easily verify what the AI sees
+        f.write(json.dumps(optimized_tree, indent=2))
+        
     return json_output

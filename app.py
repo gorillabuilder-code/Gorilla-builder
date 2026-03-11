@@ -1341,7 +1341,7 @@ async def create_project(
     description: str = Form(""),
     xmode: Optional[str] = Form(None),
     image_base64: Optional[str] = Form(None),
-    figma_url: Optional[str] = Form(None) # 🛑 NEW: Catches the hidden Figma URL
+    figma_url: Optional[str] = Form(None)
 ):
     user = get_current_user(request)
 
@@ -1365,6 +1365,10 @@ async def create_project(
 
     # --- 2. PROMPT & IMAGE STASHING ---
     if prompt and not name:
+        # 🛑 THE FIX: STASH THE FIGMA URL IN THE SESSION SO IT SURVIVES STEP 2
+        if figma_url:
+            request.session["stashed_figma_url"] = figma_url
+            
         return templates.TemplateResponse(
             "projects/project-create.html", 
             {
@@ -1376,15 +1380,19 @@ async def create_project(
         )
     
     final_prompt = prompt or request.session.pop("stashed_prompt", None)
+    
+    # 🛑 THE FIX: GRAB THE STASHED FIGMA URL BACK OUT OF THE SESSION
+    final_figma_url = figma_url or request.session.pop("stashed_figma_url", None)
+    
     project_name = name or "Untitled Project"
     final_image = image_base64
-    final_figma_json = None # Placeholder for our parsed data
+    final_figma_json = None 
     
     # ====================================================================
     # 🎨 3. FIGMA INTERCEPTOR (PRODUCTION MODE)
     # ====================================================================
-    # Robust check: look in the hidden figma_url field OR the visible prompt
-    potential_url = figma_url or ""
+    # We now check final_figma_url instead of the raw form input
+    potential_url = final_figma_url or ""
     if not potential_url and final_prompt and "figma.com/" in final_prompt:
         match = re.search(r'(https://[^\s^?]*figma\.com/[^\s]*)', final_prompt)
         if match:
@@ -1394,18 +1402,15 @@ async def create_project(
         try:
             print(f"🎯 Figma Link Detected: {potential_url}")
             
-            # Grab their token securely
             user_data = supabase.table("users").select("figma_access_token").eq("id", user["id"]).single().execute()
             figma_token = user_data.data.get("figma_access_token") if user_data.data else None
             
             if not figma_token:
                 return RedirectResponse("/dashboard?error=figma_not_linked", status_code=303)
                 
-            # Run the parser
             final_figma_json = await fetch_and_compress_figma(potential_url, figma_token)
             print(f"✅ Figma extraction successful ({len(final_figma_json)} characters)")
             
-            # Make sure we don't pass a raw URL or 50k character JSON to the browser URL params
             if "figma.com" in final_prompt:
                 final_prompt = "Build a pixel-perfect React and Tailwind replica of the design structure. I have provided the exact layout rules, spacing, typography, and hex colors in the `.gorilla/figma.json` file. Read that file and implement it exactly."
 
@@ -1417,7 +1422,6 @@ async def create_project(
     # --- 4. HEAVY LIFTING (DB & Files) ---
     def _heavy_lift_create():
         
-        # 🛑 MAGIC UX TRICK: Inject the JSON into the Chat History so the AI sees it instantly
         initial_history = []
         if final_figma_json:
             initial_history.append({
@@ -1430,7 +1434,7 @@ async def create_project(
             "name": project_name, 
             "description": description or (final_prompt[:200] if final_prompt else ""),
             "prompt_image": final_image,
-            "chat_history": initial_history # <--- Injects the AI Context!
+            "chat_history": initial_history 
         }).execute()
         
         if not res.data: 
@@ -1483,7 +1487,6 @@ async def create_project(
             except Exception as e:
                 print(f"⚠️ Failed to save image to virtual FS: {e}")
                 
-        # Safely inject the parsed Figma JSON directly into the virtual file system!
         if final_figma_json:
             try:
                 supabase.table("files").insert({
@@ -1501,7 +1504,6 @@ async def create_project(
     try:
         pid = await asyncio.to_thread(_heavy_lift_create)
         
-        # Trigger Snapshot
         if final_prompt:
             try:
                 user_api_data = supabase.table("users").select("gorilla_api_key").eq("id", user["id"]).single().execute()
