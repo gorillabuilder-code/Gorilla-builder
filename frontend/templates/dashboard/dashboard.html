@@ -537,7 +537,69 @@
     
   </style>
 </head>
-<body class="{% if user.plan == 'premium' %}premium{% endif %}">
+<body class="{% if user.plan == 'premium' %}premium{% endif %} {% if xmode %}xmode{% endif %}">
+  
+  <style>
+    /* New styles for the visual snapshot cards */
+    .card {
+      padding: 0 !important; /* Remove default padding to make image flush */
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 100%; /* Ensures cards stretch evenly in the grid */
+    }
+    
+    .card-snapshot {
+      height: 180px; /* Taller, proper thumbnail aspect ratio */
+      width: 100%;
+      flex-shrink: 0; /* 🛑 CRITICAL: Prevents flexbox from squishing the image! */
+      background: #080a0f;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .snapshot-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover; /* Ensures the image fills the box without warping */
+      object-position: center top; /* Focuses on the top/ui portion of the render */
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      display: block;
+    }
+    
+    .card:hover .snapshot-img {
+      transform: scale(1.05); /* Slick zoom effect on hover */
+    }
+    
+    .card-content {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+    
+    .card-content h3 { 
+      margin-top: 0; 
+      margin-bottom: 8px;
+    }
+    
+    .card-content p {
+      flex: 1; /* Pushes the footer to the bottom */
+      margin-bottom: 20px;
+    }
+    
+    .card-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+  </style>
 
   <div class="noise-overlay"></div>
   <div class="glow-spot"></div>
@@ -701,28 +763,35 @@
       {% for project in projects %}
         <div class="card" onclick="location.href='/projects/{{ project.id }}/editor'">
           
-          <div class="card-icon">
-            <i class="ph ph-code"></i>
+          <div class="card-snapshot">
+            {% if project.snapshot_b64 %}
+              <img src="{% if project.snapshot_b64.startswith('data:image') %}{{ project.snapshot_b64 }}{% else %}data:image/jpeg;base64,{{ project.snapshot_b64 }}{% endif %}" class="snapshot-img">
+            {% else %}
+              <i class="ph-thin ph-image" style="font-size: 40px; color: var(--text-muted); opacity: 0.3;"></i>
+            {% endif %}
           </div>
           
-          <h3>{{ project.name }}</h3>
-          <p>{{ project.description[:80] if project.description else 'No description provided.' }}...</p>
-          
-          <div class="card-footer">
-            <span><i class="ph ph-clock"></i> {{ project.updated_at.split('T')[0] }}</span>
+          <div class="card-content">
+            <h3>{{ project.name }}</h3>
+            <p style="flex: 1;">{{ project.description[:80] if project.description else 'No description provided.' }}...</p>
             
-            <div class="card-actions">
-              {% if user.plan == 'premium' %}
-                <a href="/projects/{{ project.id }}/xmode" class="btn-xmode" onclick="event.stopPropagation();">
-                  <i class="ph-fill ph-lightning"></i> X-MODE
-                </a>
-              {% endif %}
+            <div class="card-footer">
+              <span><i class="ph ph-clock"></i> {{ project.updated_at.split('T')[0] }}</span>
               
-              <a href="/projects/{{ project.id }}/editor" class="btn-icon">
-                Open <i class="ph-bold ph-arrow-right"></i>
-              </a>
+              <div class="card-actions">
+                {% if user.plan == 'premium' %}
+                  <a href="/projects/{{ project.id }}/xmode" class="btn-xmode" onclick="event.stopPropagation();">
+                    <i class="ph-fill ph-lightning"></i> X-MODE
+                  </a>
+                {% endif %}
+                
+                <a href="/projects/{{ project.id }}/editor" class="btn-icon">
+                  Open <i class="ph-bold ph-arrow-right"></i>
+                </a>
+              </div>
             </div>
           </div>
+
         </div>
       {% else %}
         <div class="empty-state">

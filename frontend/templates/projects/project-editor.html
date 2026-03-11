@@ -11,16 +11,20 @@
     window.GORILLA_API_KEY = "{{ gorilla_api_key }}";
 </script>
 <script type="module">
-  import { marked } from "https://esm.sh/marked";
-  import DOMPurify from "https://esm.sh/dompurify";
-  import { EditorState } from "https://esm.sh/@codemirror/state";
-  import { EditorView, keymap, lineNumbers } from "https://esm.sh/@codemirror/view";
-  import { defaultKeymap, history, historyKeymap } from "https://esm.sh/@codemirror/commands";
-  import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark";
-  import { javascript } from "https://esm.sh/@codemirror/lang-javascript";
-  import { html } from "https://esm.sh/@codemirror/lang-html";
-  import { css } from "https://esm.sh/@codemirror/lang-css";
+  import { marked } from "https://esm.sh/marked@12.0.1";
+  import DOMPurify from "https://esm.sh/dompurify@3.0.9";
 
+  // 🛑 The ULTIMATE fix for CodeMirror's "Multiple Instances" Error.
+  // By adding ?deps=..., we force esm.sh to use the exact same core across all extensions!
+  import { EditorState } from "https://esm.sh/@codemirror/state@6.4.1";
+  import { EditorView, keymap, lineNumbers } from "https://esm.sh/@codemirror/view@6.26.3?deps=@codemirror/state@6.4.1";
+  import { defaultKeymap, history, historyKeymap } from "https://esm.sh/@codemirror/commands@6.5.0?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3";
+  import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark@6.1.2?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3";
+  import { javascript } from "https://esm.sh/@codemirror/lang-javascript@6.2.2?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3";
+  import { html } from "https://esm.sh/@codemirror/lang-html@6.4.9?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3";
+  import { css } from "https://esm.sh/@codemirror/lang-css@6.2.1?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3";
+
+  // ... (keep the rest of your createEditor code exactly the same)
   window.createEditor = (parent, content, onChange, fileName) => {
     const fixedHeightEditor = EditorView.theme({
       "&": { height: "100%", fontSize: "14px", backgroundColor: "transparent" },

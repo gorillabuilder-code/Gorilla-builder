@@ -1044,6 +1044,7 @@ async def dashboard(request: Request):
     
     # Project Data
     try:
+        # select("*") automatically pulls the new snapshot_b64 column
         res = (
             supabase.table("projects")
             .select("*")
@@ -1187,9 +1188,64 @@ import time
 import mimetypes
 import tempfile
 import subprocess
+import base64 # Added for handling image data
+import httpx # Needed for the background task API call
 from typing import Dict, Any, List, Optional
 from fastapi import Request, Form, BackgroundTasks, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, Response, JSONResponse
+
+# --- NEW: BACKGROUND TASK FOR SNAPSHOTS ---
+async def generate_project_snapshot(project_id: str, prompt: str, user_api_key: str):
+    try:
+        print(f"📸 Snapshot generation started for project {project_id}...")
+        
+        payload = {"prompt": f"Professional web UI dashboard preview: {prompt}", "samples": 1}
+        headers = {
+            "Authorization": f"Bearer {user_api_key}",
+            "Content-Type": "application/json",
+            "ngrok-skip-browser-warning": "true" # Bypass Ngrok landing page
+        }
+        
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/generations", 
+                json=payload, 
+                headers=headers, 
+                timeout=60.0
+            )
+            
+            if resp.status_code != 200:
+                print(f"⚠️ Proxy Error ({resp.status_code}): {resp.text}")
+                return
+
+            data = resp.json()
+            snapshot_b64_data = None
+            
+            # --- ROBUST PARSING LOGIC ---
+            # 1. Check if it's a list (Fireworks Native Format: [{"base64": "..."}])
+            if isinstance(data, list) and len(data) > 0:
+                snapshot_b64_data = data[0].get("base64")
+            
+            # 2. Check if it's a dict with 'data' (OpenAI Format: {"data": [{"b64_json": "..."}]})
+            elif isinstance(data, dict):
+                if "data" in data and len(data["data"]) > 0:
+                    snapshot_b64_data = data["data"][0].get("b64_json") or data["data"][0].get("url")
+                elif "base64" in data:
+                    snapshot_b64_data = data["base64"]
+
+            # 3. Save to Database
+            if snapshot_b64_data:
+                # Add prefix if missing
+                if not snapshot_b64_data.startswith("data:image"):
+                    snapshot_b64_data = f"data:image/jpeg;base64,{snapshot_b64_data}"
+
+                supabase.table("projects").update({"snapshot_b64": snapshot_b64_data}).eq("id", project_id).execute()
+                print(f"✅ Snapshot saved to Supabase for {project_id}!")
+            else:
+                print(f"⚠️ PARSE FAIL. Raw response was: {str(data)[:200]}")
+                
+    except Exception as e:
+        print(f"⚠️ Task crashed: {e}")
 
 # 1. CREATE PAGE (Stash prompt in session)
 @app.get("/projects/createit", response_class=HTMLResponse)
@@ -1206,7 +1262,8 @@ async def project_create_page(request: Request, prompt: Optional[str] = None):
 # 2. CREATE ACTION (Backend Insert)
 @app.post("/projects/create")
 async def create_project(
-    request: Request, 
+    request: Request,
+    background_tasks: BackgroundTasks, # Added for snapshot generation
     prompt: Optional[str] = Form(None), 
     name: Optional[str] = Form(None), 
     description: str = Form(""),
@@ -1215,7 +1272,7 @@ async def create_project(
 ):
     user = get_current_user(request)
 
-    # --- 1. FREE TIER LIMIT CHECK (Max 3 Projects) ---
+    # --- 1. FREE TIER LIMIT CHECK ---
     if user.get("plan") != "premium":
         try:
             res = supabase.table("projects").select("id", count="exact").eq("owner_id", user["id"]).execute()
@@ -1233,9 +1290,8 @@ async def create_project(
             print(f"⚠️ Project limit check failed: {e}")
             pass
 
-    # --- 2. PROMPT & IMAGE STASHING (Avoiding Session limits) ---
+    # --- 2. PROMPT & IMAGE STASHING ---
     if prompt and not name:
-        # Render the template directly to keep the massive image string safe
         return templates.TemplateResponse(
             "projects/project-create.html", 
             {
@@ -1256,8 +1312,8 @@ async def create_project(
             "owner_id": user["id"], 
             "name": project_name, 
             "description": description or (final_prompt[:200] if final_prompt else ""),
-            "prompt_image": final_image, # Store in projects table
-            "chat_history": [] # Initialize empty history
+            "prompt_image": final_image,
+            "chat_history": []
         }).execute()
         
         if not res.data: 
@@ -1300,7 +1356,6 @@ async def create_project(
                         try: supabase.table("files").upsert(f, on_conflict="project_id,path").execute()
                         except: pass
 
-        # --- D. INJECT IMAGE TO VIRTUAL FS FOR AI PLANNER ---
         if final_image:
             try:
                 supabase.table("files").insert({
@@ -1316,6 +1371,20 @@ async def create_project(
     # --- 4. EXECUTION ---
     try:
         pid = await asyncio.to_thread(_heavy_lift_create)
+        
+        # --- NEW: TRIGGER SNAPSHOT GENERATION ---
+        if final_prompt:
+            try:
+                # Grab the user's live key to pass to the image generator
+                user_api_data = supabase.table("users").select("gorilla_api_key").eq("id", user["id"]).single().execute()
+                api_key = user_api_data.data.get("gorilla_api_key", "") if user_api_data and user_api_data.data else ""
+                
+                if api_key.startswith("gb_live_"):
+                    background_tasks.add_task(generate_project_snapshot, pid, final_prompt, api_key)
+                else:
+                    print("⚠️ No valid gb_live_ key found, skipping snapshot generation.")
+            except Exception as e:
+                print(f"⚠️ Failed to fetch API key for snapshot: {e}")
         
         if xmode == "true":
             target_url = f"/projects/{pid}/xmode"
@@ -2499,39 +2568,37 @@ async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_k
             return JSONResponse(data)
 
 
-# --- 2. IMAGE GENERATION (Fireworks / 250 tokens per image) ---
 @app.post("/api/v1/images/generations")
 async def proxy_image_generations(request: Request, auth=Depends(verify_gorilla_key)):
     user_id = auth["user_id"]
     payload = await request.json()
     
-    num_images = int(payload.get("n", 1))
-    
+    # Fireworks Native Parameters
     fireworks_payload = {
-        "model": "accounts/fireworks/models/playground-v2-5-1024px-aesthetic",
         "prompt": payload.get("prompt", ""),
-        "n": num_images,
-        "size": payload.get("size", "1024x1024"),
-        "response_format": payload.get("response_format", "url")
+        "samples": 1,
+        "height": 1024,
+        "width": 1024
     }
     
     headers = {
         "Authorization": f"Bearer {FIREWORKS_API_KEY}",
         "Content-Type": "application/json",
-        "Accept": "application/json"
+        "Accept": "application/json"  # <--- CRITICAL: Ensures we get JSON back
     }
     
+    url = "https://api.fireworks.ai/inference/v1/image_generation/accounts/fireworks/models/playground-v2-5-1024px-aesthetic"
+    
     async with httpx.AsyncClient() as client:
-        resp = await client.post("https://api.fireworks.ai/inference/v1/image_generation", json=fireworks_payload, headers=headers)
+        resp = await client.post(url, json=fireworks_payload, headers=headers, timeout=60.0)
         
         if resp.status_code != 200:
-            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+            raise HTTPException(status_code=502, detail=f"Fireworks Error: {resp.text}")
         
-        # Bill 250 tokens per image generated
-        _deduct_proxy_tokens(user_id, 250 * num_images, "image_gen")
+        # Deduct tokens only on success
+        _deduct_proxy_tokens(user_id, 250, "image_gen")
         
         return JSONResponse(resp.json())
-
 
 # --- 3. SPEECH TO TEXT (Fireworks Whisper / 100 tokens per min) ---
 @app.post("/api/v1/audio/transcriptions")
