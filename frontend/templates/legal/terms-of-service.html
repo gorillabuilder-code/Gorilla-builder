@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Terms of Service · Gor://a Builder</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+  <style>
+    @font-face { font-family: 'din-next-w01-light'; font-style: normal; font-weight: 400; src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2'); font-display: swap; }
+    
+    :root { 
+      --bg: #050505; 
+      --panel: rgba(14, 16, 21, 0.7); 
+      --border: rgba(255, 255, 255, 0.08); 
+      --accent: #3b6cff; 
+      --accent-glow: rgba(59, 108, 255, 0.25); 
+      --text: #ffffff; 
+      --text-muted: #94a3b8; 
+      --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E"); 
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    
+    * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; outline: none; }
+    
+    body { 
+      margin: 0; 
+      background: var(--bg); 
+      color: var(--text); 
+      min-height: 100vh; 
+      overflow-x: hidden; 
+      font-size: 17px; 
+      line-height: 1.8;
+    }
+
+    .noise-overlay { position: fixed; inset: 0; background-image: var(--noise); pointer-events: none; z-index: 0; }
+    .glow-spot { position: fixed; width: 800px; height: 800px; background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%); opacity: 0.5; pointer-events: none; z-index: 0; top: -150px; left: 50%; transform: translateX(-50%); filter: blur(90px); }
+
+    main { position: relative; z-index: 1; max-width: 900px; margin: 0 auto; padding: 60px 20px; }
+    
+    .back-btn { display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted); text-decoration: none; font-size: 15px; margin-bottom: 40px; transition: all 0.2s var(--ease-out); border: 1px solid var(--border); padding: 12px 20px; border-radius: 12px; background: rgba(255,255,255,0.02); }
+    .back-btn:hover { color: #fff; background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.2); transform: translateX(-4px); }
+    .back-btn i { font-size: 20px; }
+
+    .content-box { background: var(--panel); border: 1px solid var(--border); border-radius: 24px; padding: 60px 80px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); backdrop-filter: blur(20px); }
+
+    h1 { font-size: 48px; font-weight: 600; margin: 0 0 8px; letter-spacing: -1px; color: #fff; }
+    .meta-data { color: var(--accent); font-size: 15px; font-weight: 500; margin-bottom: 50px; text-transform: uppercase; letter-spacing: 2px; display: flex; align-items: center; gap: 8px; }
+    
+    h2 { font-size: 26px; font-weight: 600; margin: 50px 0 20px; color: #fff; border-bottom: 1px solid var(--border); padding-bottom: 16px; }
+    p { margin: 0 0 24px; color: var(--text-muted); }
+    
+    ul { margin: 0 0 32px; padding-left: 20px; color: var(--text-muted); list-style-type: none; }
+    li { margin-bottom: 16px; position: relative; padding-left: 16px; }
+    li::before { content: '■'; position: absolute; left: -16px; color: var(--accent); font-size: 10px; top: 8px; }
+    strong { color: #fff; font-weight: 600; }
+
+    .highlight-box { background: rgba(59, 108, 255, 0.08); border-left: 4px solid var(--accent); padding: 24px 30px; border-radius: 0 16px 16px 0; margin: 40px 0; display: flex; gap: 16px; align-items: flex-start; }
+    .highlight-box i { font-size: 28px; color: var(--accent); margin-top: 2px; }
+    .highlight-box p { margin: 0; color: #fff; font-size: 16px; }
+
+    .footer-note { text-align: center; margin-top: 60px; padding-top: 30px; border-top: 1px dashed var(--border); color: rgba(255,255,255,0.3); font-size: 14px; }
+
+    @media (max-width: 768px) {
+      .content-box { padding: 40px 30px; }
+      h1 { font-size: 36px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="noise-overlay"></div>
+  <div class="glow-spot"></div>
+
+  <main>
+    <a href="/" class="back-btn"><i class="ph ph-arrow-left"></i> Back</a>
+
+    <div class="content-box">
+      <h1>Terms of Service</h1>
+      <div class="meta-data"><i class="ph-bold ph-file-text"></i> Last Updated: March 2026</div>
+
+      <h2>1. Acceptance of Terms</h2>
+      <p>By accessing or using Gor://a Builder, you agree to be bound by these Terms of Service. If you do not agree to these terms, you may not use our platform, AI generation services, or the API Proxy Gateway.</p>
+
+      <h2>2. AI-Generated Content & Code Ownership</h2>
+      <p>Gor://a Builder utilizes advanced Language Models to generate source code based on your prompts. <strong>You retain 100% ownership and copyright of all code generated within your projects.</strong></p>
+      
+      <div class="highlight-box">
+        <i class="ph-fill ph-warning-circle"></i>
+        <p><strong>Disclaimer of Liability:</strong> AI can make mistakes. We do not guarantee that the generated code is free from bugs, security vulnerabilities, or performance issues. You are solely responsible for reviewing, testing, and securing any code before deploying it to a production environment.</p>
+      </div>
+
+      <h2>3. Gorilla Tokens & Billing</h2>
+      <p>Access to our AI Proxy Gateway is governed by "Gorilla Credits" (Tokens). Tokens are deducted based on the complexity of the request (e.g., 0.5 credits per LLM token, 250 credits per image generated).</p>
+      <ul>
+        <li>Free tier accounts receive a daily limit. Premium users receive a monthly allotment as defined by their active Stripe subscription.</li>
+        <li>Tokens do not roll over month-to-month.</li>
+        <li>Attempting to bypass, reverse-engineer, or abuse the API gateway using your <code>gb_live_</code> key will result in immediate account termination without a refund.</li>
+      </ul>
+
+      <h2>4. Prohibited Uses</h2>
+      <p>You agree not to use Gor://a Builder to generate, host, or deploy:</p>
+      <ul>
+        <li>Malicious software (malware, ransomware, phishing pages).</li>
+        <li>Content that violates the intellectual property rights of third parties.</li>
+        <li>High-volume spam or automated bot networks.</li>
+      </ul>
+      <p>We reserve the right to suspend or terminate WebContainers or accounts that violate these restrictions.</p>
+
+      <div class="footer-note">
+        &copy; 2026 Gor://a Builder LLC. All rights reserved.
+      </div>
+    </div>
+  </main>
+
+</body>
+</html>

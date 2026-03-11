@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Privacy Policy · Gor://a Builder</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+  <style>
+    @font-face { font-family: 'din-next-w01-light'; font-style: normal; font-weight: 400; src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2'); font-display: swap; }
+    
+    :root { 
+      --bg: #050505; 
+      --panel: rgba(14, 16, 21, 0.7); 
+      --border: rgba(255, 255, 255, 0.08); 
+      --accent: #3b6cff; 
+      --accent-glow: rgba(59, 108, 255, 0.25); 
+      --text: #ffffff; 
+      --text-muted: #94a3b8; 
+      --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E"); 
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    
+    * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; outline: none; }
+    
+    body { 
+      margin: 0; 
+      background: var(--bg); 
+      color: var(--text); 
+      min-height: 100vh; 
+      overflow-x: hidden; 
+      font-size: 17px; /* BIGGER CONTENT */
+      line-height: 1.8;
+    }
+
+    /* Background Effects */
+    .noise-overlay { position: fixed; inset: 0; background-image: var(--noise); pointer-events: none; z-index: 0; }
+    .glow-spot { position: fixed; width: 800px; height: 800px; background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%); opacity: 0.5; pointer-events: none; z-index: 0; top: -150px; left: 50%; transform: translateX(-50%); filter: blur(90px); }
+
+    /* Layout */
+    main { position: relative; z-index: 1; max-width: 900px; margin: 0 auto; padding: 60px 20px; }
+    
+    .back-btn { display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted); text-decoration: none; font-size: 15px; margin-bottom: 40px; transition: all 0.2s var(--ease-out); border: 1px solid var(--border); padding: 12px 20px; border-radius: 12px; background: rgba(255,255,255,0.02); }
+    .back-btn:hover { color: #fff; background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.2); transform: translateX(-4px); }
+    .back-btn i { font-size: 20px; }
+
+    .content-box { background: var(--panel); border: 1px solid var(--border); border-radius: 24px; padding: 60px 80px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); backdrop-filter: blur(20px); }
+
+    /* Typography */
+    h1 { font-size: 48px; font-weight: 600; margin: 0 0 8px; letter-spacing: -1px; color: #fff; }
+    .meta-data { color: var(--accent); font-size: 15px; font-weight: 500; margin-bottom: 50px; text-transform: uppercase; letter-spacing: 2px; display: flex; align-items: center; gap: 8px; }
+    
+    h2 { font-size: 26px; font-weight: 600; margin: 50px 0 20px; color: #fff; border-bottom: 1px solid var(--border); padding-bottom: 16px; }
+    p { margin: 0 0 24px; color: var(--text-muted); }
+    
+    ul { margin: 0 0 32px; padding-left: 20px; color: var(--text-muted); list-style-type: none; }
+    li { margin-bottom: 16px; position: relative; padding-left: 16px; }
+    li::before { content: '■'; position: absolute; left: -16px; color: var(--accent); font-size: 10px; top: 8px; }
+    strong { color: #fff; font-weight: 600; }
+
+    .highlight-box { background: rgba(59, 108, 255, 0.08); border-left: 4px solid var(--accent); padding: 24px 30px; border-radius: 0 16px 16px 0; margin: 40px 0; display: flex; gap: 16px; align-items: flex-start; }
+    .highlight-box i { font-size: 28px; color: var(--accent); margin-top: 2px; }
+    .highlight-box p { margin: 0; color: #fff; font-size: 16px; }
+
+    .footer-note { text-align: center; margin-top: 60px; padding-top: 30px; border-top: 1px dashed var(--border); color: rgba(255,255,255,0.3); font-size: 14px; }
+
+    /* Mobile Responsive */
+    @media (max-width: 768px) {
+      .content-box { padding: 40px 30px; }
+      h1 { font-size: 36px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="noise-overlay"></div>
+  <div class="glow-spot"></div>
+
+  <main>
+    <a href="/" class="back-btn"><i class="ph ph-arrow-left"></i> Back</a>
+
+    <div class="content-box">
+      <h1>Privacy Policy</h1>
+      <div class="meta-data"><i class="ph-bold ph-shield-check"></i> Last Updated: March 2026</div>
+
+      <h2>1. Information We Collect</h2>
+      <p>To provide the Gor://a Builder service, coordinate your AI instances, and host your WebContainers, we collect and store data in the following categories:</p>
+      <ul>
+        <li><strong>Account Data:</strong> Email address, display name, and active subscription plan details.</li>
+        <li><strong>Project Content:</strong> Source code (HTML/CSS/JS), virtual file structures, prompt chat histories, and AI-generated project snapshots (Base64).</li>
+        <li><strong>Usage Metrics:</strong> Token consumption logs, API Gateway usage, and daily credit "spin" metrics.</li>
+        <li><strong>Infrastructure Data:</strong> Active project subdomains and connected GitHub repository URLs.</li>
+      </ul>
+
+      <h2>2. Third-Party Integrations & Tokens</h2>
+      <p>Gor://a Builder acts as a bridge between your ideas and your deployment environment. To automate your workflow, we securely store the following sensitive third-party credentials:</p>
+      <ul>
+        <li><strong>GitHub Access Tokens:</strong> Used exclusively to push generated boilerplate and WebContainer code directly to your repositories.</li>
+        <li><strong>Figma Access Tokens:</strong> Used via OAuth to read structural design files and nodes (JSON) to convert visual layouts into functional code.</li>
+      </ul>
+
+      <div class="highlight-box">
+        <i class="ph-fill ph-lock-key"></i>
+        <p><strong>Security Guarantee:</strong> Your access tokens are strictly isolated. They are never exposed to the public internet, never written to your generated code's <code>.env</code> files, and are used exclusively by our backend to execute the actions you request.</p>
+      </div>
+
+      <h2>3. How Your Data is Used</h2>
+      <p>We do not sell your project ideas or code. Your data is used exclusively to:</p>
+      <ul>
+        <li>Generate, compile, and host your web applications via WebContainers.</li>
+        <li>Facilitate high-speed AI generation via our internal Proxy Gateway.</li>
+        <li>Authenticate your <code>gb_live_</code> key against external LLM providers (e.g., OpenRouter, Fireworks).</li>
+      </ul>
+
+      <h2>4. Data Retention & Deletion</h2>
+      <p>Your data is stored securely using industry-standard PostgreSQL (Supabase) encryption. You retain full ownership of your code. You may request the total deletion of your account, projects, and all associated third-party tokens at any time through your dashboard settings.</p>
+
+      <div class="footer-note">
+        &copy; 2026 Gor://a Builder LLC. All rights reserved.
+      </div>
+    </div>
+  </main>
+
+</body>
+</html>

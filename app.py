@@ -452,6 +452,75 @@ def send_otp_email(to_email: str, code: str):
         print(f"❌ Resend Error: {e}")
 
 # ==========================================================================
+# FIGMA OAUTH INTEGRATION
+# ==========================================================================
+import secrets
+import httpx
+import urllib.parse
+
+FIGMA_CLIENT_ID = os.getenv("FIGMA_CLIENT_ID")
+FIGMA_CLIENT_SECRET = os.getenv("FIGMA_CLIENT_SECRET")
+# e.g., https://app.gorillabuilder.dev/auth/figma/callback (must match Figma exact)
+FIGMA_REDIRECT_URI = os.getenv("FIGMA_REDIRECT_URI")
+
+@app.get("/auth/figma")
+async def figma_login(request: Request):
+    """Initiates the Figma OAuth flow."""
+    user = get_current_user(request) # Ensure they are logged into Gorilla Builder first
+    
+    # Generate a random state string to prevent CSRF attacks
+    state = secrets.token_urlsafe(16)
+    request.session["figma_oauth_state"] = state
+    
+    # Send them to Figma's permission screen (requesting 'file_read' scope)
+    url = f"https://www.figma.com/oauth?client_id={FIGMA_CLIENT_ID}&redirect_uri={urllib.parse.quote(FIGMA_REDIRECT_URI)}&scope=file_read&state={state}&response_type=code"
+    
+    return RedirectResponse(url)
+
+@app.get("/auth/figma/callback")
+async def figma_callback(request: Request, code: str, state: str):
+    """Catches the code from Figma, trades it for a token, and saves it to DB."""
+    try:
+        user = get_current_user(request)
+        
+        # Verify the state matches what we sent (CSRF protection)
+        saved_state = request.session.pop("figma_oauth_state", None)
+        if not saved_state or state != saved_state:
+            return RedirectResponse("/dashboard?error=figma_invalid_state")
+        
+        # Trade the code for the actual access/refresh tokens
+        async with httpx.AsyncClient() as client:
+            res = await client.post("https://www.figma.com/api/oauth/token", data={
+                "client_id": FIGMA_CLIENT_ID,
+                "client_secret": FIGMA_CLIENT_SECRET,
+                "redirect_uri": FIGMA_REDIRECT_URI,
+                "code": code,
+                "grant_type": "authorization_code"
+            })
+            
+            if res.status_code != 200:
+                print(f"⚠️ Figma OAuth Error: {res.text}")
+                return RedirectResponse("/dashboard?error=figma_token_exchange_failed")
+                
+            tokens = res.json()
+            access_token = tokens.get("access_token")
+            refresh_token = tokens.get("refresh_token")
+            expires_in = tokens.get("expires_in") # Usually 90 days
+            
+            if access_token:
+                # Save the tokens to the user's record in Supabase
+                supabase.table("users").update({
+                    "figma_access_token": access_token,
+                    "figma_refresh_token": refresh_token
+                }).eq("id", user["id"]).execute()
+                
+        return RedirectResponse("/dashboard?success=figma_linked")
+        
+    except Exception as e:
+        print(f"⚠️ Figma Auth Callback crashed: {e}")
+        return RedirectResponse("/dashboard?error=figma_auth_crash")
+
+# ==========================================================================
 # PUBLIC ROUTES (Templates & Redirects)
 # ==========================================================================
 
@@ -463,9 +532,8 @@ PUBLIC_PAGES = {
     "/pricing": "freemium/pricing.html",
     "/checkout/tokens": "freemium/checkout/tokens.html",
     "/checkout/premium": "freemium/checkout/premium.html",
-    "/help": "help.html",
-    "/about": "docs/about.html", 
-    "/contact": "docs/contact.html",
+    "/privacy-policy": "legal/privacy-policy.html",
+    "/terms-of-service": "legal/terms-of-service.html"
 }
 # In app.py
 from fastapi.staticfiles import StaticFiles # Make sure this is imported

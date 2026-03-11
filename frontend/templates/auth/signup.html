@@ -25,6 +25,7 @@
       --text-main: #ffffff;
       --text-muted: #9ca3af;
       --border: #1f2937;
+      --error-red: #ef4444;
     }
 
     * {
@@ -49,7 +50,6 @@
       height: 100%;
     }
 
-    /* Left: Auth Form */
     .auth-section {
       flex: 1;
       display: flex;
@@ -63,7 +63,6 @@
       z-index: 10;
     }
 
-    /* Right: Visuals */
     .visual-section {
       flex: 1.4;
       position: relative;
@@ -89,7 +88,6 @@
       transform: scale(1.05);
     }
 
-    /* Overlay Gradient */
     .visual-overlay {
       position: absolute;
       inset: 0;
@@ -117,12 +115,68 @@
       color: var(--text-muted);
       font-size: 17px;
       line-height: 1.5;
-      margin: 0 0 40px;
+      margin: 0 0 30px;
       max-width: 440px;
     }
 
+    /* --- CHECKBOX STYLES --- */
+    .checkbox-group {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 24px;
+      padding: 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid transparent;
+      transition: all 0.3s ease;
+    }
+    
+    /* Animation for when they forget to check it */
+    .checkbox-group.shake-error {
+      border-color: var(--error-red);
+      background: rgba(239, 68, 68, 0.05);
+      animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+    }
+
+    @keyframes shake {
+      10%, 90% { transform: translate3d(-1px, 0, 0); }
+      20%, 80% { transform: translate3d(2px, 0, 0); }
+      30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+      40%, 60% { transform: translate3d(4px, 0, 0); }
+    }
+    
+    .checkbox-group input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      margin: 2px 0 0 0;
+      cursor: pointer;
+      accent-color: var(--primary);
+      flex-shrink: 0;
+    }
+    
+    .checkbox-group label {
+      text-transform: none;
+      font-size: 14px;
+      letter-spacing: normal;
+      font-weight: 400;
+      color: var(--text-muted);
+      margin: 0;
+      line-height: 1.5;
+      cursor: pointer;
+    }
+    
+    .checkbox-group label a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+    
+    .checkbox-group label a:hover {
+      text-decoration: underline;
+    }
+
     /* --- FORM --- */
-    label {
+    form label {
       display: block;
       font-size: 13px;
       text-transform: uppercase;
@@ -132,7 +186,7 @@
       font-weight: 600;
     }
 
-    input {
+    input[type="email"], input[type="password"], input[type="text"] {
       width: 100%;
       padding: 16px;
       background: var(--input-bg);
@@ -145,7 +199,7 @@
       transition: 0.2s;
     }
 
-    input:focus {
+    input[type="email"]:focus, input[type="password"]:focus, input[type="text"]:focus {
       border-color: var(--primary);
       box-shadow: 0 0 0 1px var(--primary);
     }
@@ -236,7 +290,6 @@
       font-size: 14px;
     }
 
-    /* Verification Code Input */
     .code-input {
       letter-spacing: 12px;
       font-size: 28px;
@@ -252,7 +305,6 @@
   <div class="split-wrapper">
     
     <div class="auth-section">
-      <div class="logo">Gor<span>://</span>a</div>
 
       {% if step != 'verify' %}
         <h1>Build Full-Stack, AI Apps. Fast.</h1>
@@ -264,8 +316,15 @@
           <div class="error-box">{{ error }}</div>
         {% endif %}
 
+        <div class="checkbox-group" id="consent-container">
+          <input type="checkbox" id="privacy-consent" name="privacy-consent" required form="signup-form">
+          <label for="privacy-consent">
+            I agree to the <a href="/terms-of-service" target="_blank">Terms of Service</a> and <a href="/privacy-policy" target="_blank">Privacy Policy</a>.
+          </label>
+        </div>
+
         <div class="oauth-group">
-          <button class="btn btn-oauth" onclick="location.href='/auth/google'">
+          <button class="btn btn-oauth" onclick="handleOAuth(event, '/auth/google')">
             <svg width="20" height="20" viewBox="0 0 24 24">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
               <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -275,7 +334,7 @@
             Continue with Google
           </button>
 
-          <button class="btn btn-github" onclick="location.href='/auth/github'">
+          <button class="btn btn-github" onclick="handleOAuth(event, '/auth/github')">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
             </svg>
@@ -285,7 +344,7 @@
 
         <div class="divider">Or with Email</div>
 
-        <form method="POST" action="/auth/signup">
+        <form id="signup-form" method="POST" action="/auth/signup">
           <label>Email</label>
           <input type="email" name="email" placeholder="hi@gorillabuilder.dev" required>
           
@@ -341,6 +400,31 @@
     </div>
 
   </div>
+
+  <script>
+    function handleOAuth(event, redirectUrl) {
+      event.preventDefault(); // Stop the redirect immediately
+      
+      const consentBox = document.getElementById('privacy-consent');
+      const container = document.getElementById('consent-container');
+      
+      if (!consentBox.checked) {
+        // Not checked! Trigger the error animation
+        container.classList.remove('shake-error');
+        // Trigger reflow to restart animation
+        void container.offsetWidth; 
+        container.classList.add('shake-error');
+        
+        // Remove the error styling after a couple seconds
+        setTimeout(() => {
+          container.classList.remove('shake-error');
+        }, 2000);
+      } else {
+        // Checked! Proceed to OAuth
+        window.location.href = redirectUrl;
+      }
+    }
+  </script>
 
 </body>
 </html>
