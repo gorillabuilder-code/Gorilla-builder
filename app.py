@@ -1446,11 +1446,23 @@ async def create_project(
     def _heavy_lift_create():
         # ⚡ THE GEMINI COMPILER STEP ⚡
         compiled_react_code = None
+        figma_tokens_used = 0  # 🛑 Track tokens locally
+        
         if final_figma_json:
             or_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("GORILLA_API_KEY")
             if or_key:
                 try:
-                    compiled_react_code = asyncio.run(compile_figma_to_react(final_figma_json, or_key))
+                    # 🛑 Unpack the tuple (code, tokens)
+                    compiled_react_code, figma_tokens_used = asyncio.run(compile_figma_to_react(final_figma_json, or_key))
+                    
+                    # 🛑 Securely deduct the tokens 
+                    if figma_tokens_used and figma_tokens_used > 0:
+                        try:
+                            add_monthly_tokens(user["id"], figma_tokens_used)
+                            print(f"💰 Deducted {figma_tokens_used} tokens for Gemini Figma Compiler (User: {user['id']})")
+                        except Exception as tk_err:
+                            print(f"⚠️ Failed to deduct tokens: {tk_err}")
+                            
                 except Exception as e:
                     print(f"❌ Gemini Compiler thread failed: {e}")
 

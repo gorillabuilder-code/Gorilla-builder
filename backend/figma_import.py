@@ -185,17 +185,6 @@ async def fetch_and_compress_figma(figma_url: str, access_token: str):
     except Exception as e:
         print(f"⚠️ Warning: Could not fetch Figma image preview: {e}")
 
-    # --- DEBUG SAVER ---
-    char_count = len(json_output)
-    est_tokens = char_count // 4 
-    
-    print(f"\n✅ SMART COMPRESSION COMPLETE!")
-    print(f"📊 Payload Size: {char_count:,} characters")
-    print(f"🪙 Estimated Tokens: ~{est_tokens:,} tokens")
-    
-    debug_path = os.path.join(os.getcwd(), "debug_figma_payload.json")
-    with open(debug_path, "w", encoding="utf-8") as f:
-        f.write(json.dumps(optimized_tree, indent=2))
         
     return json_output, img_b64
 
@@ -203,10 +192,11 @@ async def fetch_and_compress_figma(figma_url: str, access_token: str):
 # ====================================================================
 # ⚡ 5. THE ZERO-SHOT GEMINI COMPILER
 # ====================================================================
-async def compile_figma_to_react(figma_json: str, openrouter_api_key: str) -> str:
+async def compile_figma_to_react(figma_json: str, openrouter_api_key: str):
     """
     Takes the compressed Figma JSON and uses Gemini Flash to instantly 
     compile it into a single, massive React/Tailwind TSX component.
+    Returns: (react_code_string, total_tokens_used)
     """
     print("⚡ Booting up Gemini Flash Compiler...")
     
@@ -249,11 +239,14 @@ FIGMA JSON:
     try:
         async with httpx.AsyncClient() as client:
             # Setting a 60s timeout because a huge TSX file can take 10-15 seconds to stream back
-            resp = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=60.0)
+            resp = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=120.0)
             resp.raise_for_status()
             data = resp.json()
             
             react_code = data["choices"][0]["message"]["content"]
+            
+            # 🛑 Extract token usage
+            total_tokens = data.get("usage", {}).get("total_tokens", 0)
             
             # Clean up potential markdown blocks if Gemini decides to ignore Rule 2
             react_code = react_code.replace("```tsx\n", "").replace("```typescript\n", "").replace("```react\n", "").replace("```\n", "")
@@ -261,8 +254,10 @@ FIGMA JSON:
                 react_code = react_code[:-3]
                 
             print(f"✅ Gemini Flash compilation complete! ({len(react_code)} chars of TSX generated)")
-            return react_code.strip()
+            
+            # 🛑 Return both the code and the tokens used
+            return react_code.strip(), total_tokens
             
     except Exception as e:
         print(f"❌ Gemini Compiler failed: {e}")
-        return None
+        return None, 0
