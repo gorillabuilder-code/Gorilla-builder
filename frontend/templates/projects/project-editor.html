@@ -750,7 +750,6 @@ if (editorImageInput) {
 // --- CHAT LOGIC ---
 function loadChatHistory() {
   try {
-    // RENDER RAW JS OBJECT DIRECTLY - FIXES JSON PARSE ERRORS
     const dbHistory = {{ chat_history | safe }};
     
     if (Array.isArray(dbHistory) && dbHistory.length > 0) {
@@ -1003,7 +1002,7 @@ function buildEditor(content, fileName){
   }, fileName);
 }
 
-// --- UPDATED: Render Image viewer if clicking a .b64 file ---
+// --- Render Image viewer if clicking a .b64 file ---
 async function loadFile(path){
   currentFile = path;
   const data = await fetchJSON(`/api/project/${PROJECT_ID}/file?path=${encodeURIComponent(path)}`);
@@ -1097,7 +1096,6 @@ function switchTab(tab){
     $("preview").style.display = "none";
     $("previewModeWrap").style.display = "none";
     
-    // Toggle between code editor and image viewer based on file extension
     if (currentFile && (currentFile.endsWith('.b64') || currentFile.endsWith('.png') || currentFile.endsWith('.jpg'))) {
         $("editor").style.display = "none";
         $("imageViewer").style.display = "flex";
@@ -1188,7 +1186,6 @@ function startStream(){
     if(m.type === "log") {
       const role = m.role || "agent";
       
-      // Ignore 'user' logs from server (we already added them locally)
       if (role !== "user") {
           addMessage(role, m.text);
       }
@@ -1215,7 +1212,6 @@ function startStream(){
 async function triggerAgent(promptText) {
     if(!promptText && !currentAttachedImage) return;
     
-    // Render an attached image visually
     if (currentAttachedImage) {
         const refCard = document.createElement("div");
         refCard.style.cssText = "align-self: flex-end; margin: 10px 20px 5px 0; background: rgba(59, 130, 246, 0.1); border: 1px dashed rgba(59, 130, 246, 0.4); border-radius: 12px; padding: 12px; max-width: 60%; text-align: center;";
@@ -1234,7 +1230,6 @@ async function triggerAgent(promptText) {
         promptText = "Please update the UI to match the attached reference image.";
     }
     
-    // 🛑 THE FIX: Use FormData instead of URLSearchParams!
     const formData = new FormData();
     formData.append("prompt", promptText);
     
@@ -1242,7 +1237,6 @@ async function triggerAgent(promptText) {
         formData.append("image_base64", currentAttachedImage);
     }
     
-    // Clear attachment state immediately
     currentAttachedImage = null;
     if(editorImagePreview) {
         editorImagePreview.style.display = "none";
@@ -1251,7 +1245,6 @@ async function triggerAgent(promptText) {
     document.querySelector('label[for="editorImageInput"]').style.display = 'flex';
     if(editorImageInput) editorImageInput.value = "";
     
-    // 🛑 THE FIX: Remove headers! The browser automatically sets the correct Multipart Boundary for FormData.
     await fetch(`/api/project/${PROJECT_ID}/agent/start`, {
         method: "POST",
         body: formData
@@ -1278,11 +1271,12 @@ $("prompt").addEventListener("keydown", (e) => {
 (async () => {
   const initialImage = `{{ project.prompt_image or '' }}`;
   
+  // Display the Figma/Uploaded Image Reference in Chat UI
   if (initialImage && initialImage.startsWith('data:image')) {
       const refCard = document.createElement("div");
       refCard.style.cssText = "align-self: center; margin: 10px 0 20px 0; background: rgba(59, 130, 246, 0.05); border: 1px dashed rgba(59, 130, 246, 0.3); border-radius: 12px; padding: 12px; max-width: 85%; text-align: center;";
       refCard.innerHTML = `
-        <div style="font-size: 10px; text-transform: uppercase; color: var(--accent); font-weight: bold; margin-bottom: 8px; letter-spacing: 1px;"><i class="ph-bold ph-image"></i> Initial UI Reference</div>
+        <div style="font-size: 10px; text-transform: uppercase; color: var(--accent); font-weight: bold; margin-bottom: 8px; letter-spacing: 1px;"><i class="ph-bold ph-image"></i> UI Reference</div>
         <img src="${initialImage}" style="max-width: 100%; max-height: 250px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
       `;
       chat.appendChild(refCard);
@@ -1295,7 +1289,19 @@ $("prompt").addEventListener("keydown", (e) => {
   startStream();
   setProgress("Ready", 0);
   
-  if (INITIAL_PROMPT && INITIAL_PROMPT.length > 0) {
+  // ==========================================
+  // 🛑 PHASE 3: THE FIGMA BYPASS LOGIC
+  // ==========================================
+  const isFigmaImport = INITIAL_PROMPT.includes("figma.json");
+
+  if (isFigmaImport) {
+      // 1. We SKIP triggerAgent(). The AI is bypassed.
+      // 2. We instantly trigger the WebContainer to boot so the user sees Gemini's code!
+      setTimeout(() => {
+          $("btnRunServer").click();
+      }, 500);
+  } else if (INITIAL_PROMPT && INITIAL_PROMPT.length > 0) {
+      // Normal Flow (Not Figma) - Auto-start the Planner Agent
       setTimeout(() => {
           triggerAgent(INITIAL_PROMPT);
       }, 1000);

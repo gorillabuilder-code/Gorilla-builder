@@ -1313,20 +1313,31 @@ async def generate_project_snapshot(project_id: str, prompt: str, user_api_key: 
     except Exception as e:
         print(f"⚠️ Task crashed: {e}")
 
-# 1. CREATE PAGE (Stash prompt in session)
+# 1. CREATE PAGE (Stash prompt in session & detect Figma)
 @app.get("/projects/createit", response_class=HTMLResponse)
 async def project_create_page(request: Request, prompt: Optional[str] = None):
     user = get_current_user(request)
+    
+    is_figma_link = False
+    
     if prompt:
         request.session["stashed_prompt"] = prompt
+        # Detect if the initial prompt is a figma URL so the template knows which animation to show
+        if "figma.com" in prompt:
+            is_figma_link = True
         
     return templates.TemplateResponse(
         "projects/project-create.html", 
-        {"request": request, "user": user, "initial_prompt": prompt}
+        {
+            "request": request, 
+            "user": user, 
+            "initial_prompt": prompt,
+            "is_figma_link": is_figma_link # 🛑 Passes the flag to HTML!
+        }
     )
 
 # 2. CREATE ACTION (Backend Insert)
-from backend.figma_import import fetch_and_compress_figma
+from backend.figma_import import fetch_and_compress_figma, compile_figma_to_react
 import re
 import urllib.parse
 import asyncio
@@ -1345,7 +1356,6 @@ async def create_project(
 ):
     user = get_current_user(request)
 
-    # Helper to safely run synchronous Supabase calls in the background
     def check_project_limit():
         res = supabase.table("projects").select("id", count="exact").eq("owner_id", user["id"]).execute()
         count = res.count if hasattr(res, 'count') and res.count is not None else len(res.data)
@@ -1353,7 +1363,7 @@ async def create_project(
             return supabase.table("projects").select("*").eq("owner_id", user["id"]).order("created_at", desc=True).execute().data
         return None
 
-    # --- 1. FREE TIER LIMIT CHECK (Now Non-Blocking) ---
+    # --- 1. FREE TIER LIMIT CHECK ---
     if user.get("plan") != "premium":
         try:
             projects_data = await asyncio.to_thread(check_project_limit)
@@ -1373,13 +1383,19 @@ async def create_project(
         if figma_url:
             request.session["stashed_figma_url"] = figma_url
             
+        # Re-detect figma status here just in case they arrived via POST instead of GET
+        is_figma_link = False
+        if figma_url or (prompt and "figma.com" in prompt):
+            is_figma_link = True
+            
         return templates.TemplateResponse(
             "projects/project-create.html", 
             {
                 "request": request, 
                 "user": user, 
                 "initial_prompt": prompt,
-                "stashed_image": image_base64
+                "stashed_image": image_base64,
+                "is_figma_link": is_figma_link
             }
         )
     
@@ -1403,7 +1419,6 @@ async def create_project(
         try:
             print(f"🎯 Figma Link Detected: {potential_url}")
             
-            # 🛑 DB Call moved to thread to prevent server freeze!
             def get_figma_token():
                 return supabase.table("users").select("figma_access_token").eq("id", user["id"]).single().execute()
             
@@ -1428,10 +1443,34 @@ async def create_project(
 
 
     # --- 4. HEAVY LIFTING (DB & Files) ---
-    # Everything inside this function already runs safely in a separate thread!
     def _heavy_lift_create():
-        initial_history = []
+        # ⚡ THE GEMINI COMPILER STEP ⚡
+        compiled_react_code = None
         if final_figma_json:
+            or_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("GORILLA_API_KEY")
+            if or_key:
+                try:
+                    compiled_react_code = asyncio.run(compile_figma_to_react(final_figma_json, or_key))
+                except Exception as e:
+                    print(f"❌ Gemini Compiler thread failed: {e}")
+
+        # 🛑 CHAT HISTORY HACK
+        initial_history = []
+        if compiled_react_code:
+            initial_history.append({
+                "role": "system",
+                "content": "A Figma design was imported. A pre-compiler has already converted the design into the starting React code located in src/App.tsx. Your job is to help the user refine it, add state/interactivity, or split it into components as requested."
+            })
+            initial_history.append({
+                "role": "assistant",
+                "content": "✨ I have successfully compiled your Figma design into React! The preview is loading. What functionality or state would you like to add?"
+            })
+            if final_prompt and "figma.com" not in final_prompt:
+                initial_history.append({
+                    "role": "user",
+                    "content": final_prompt
+                })
+        elif final_figma_json:
             initial_history.append({
                 "role": "system",
                 "content": f"FIGMA DESIGN DATA: You MUST use this exact structural JSON to build the React/Tailwind UI. Do not hallucinate classes. Rely on the 'layoutMode', 'itemSpacing', and hex 'fills'. Data:\n{final_figma_json}"
@@ -1442,7 +1481,7 @@ async def create_project(
             "name": project_name, 
             "description": description or (final_prompt[:200] if final_prompt else ""),
             "prompt_image": final_image,
-            "snapshot_b64": final_image if final_figma_json else None, 
+            "snapshot_b64": final_image, 
             "chat_history": initial_history 
         }).execute()
         
@@ -1477,6 +1516,13 @@ async def create_project(
                                 "content": f.read()
                             })
                     except: continue 
+
+            if files_to_insert and compiled_react_code:
+                for f in files_to_insert:
+                    if f["path"] in ["src/App.tsx", "src/App.jsx"]:
+                        f["content"] = compiled_react_code
+                        print(f"💉 Injected Gemini React code perfectly into {f['path']}")
+                        break
 
             if files_to_insert:
                 try:
@@ -1513,9 +1559,8 @@ async def create_project(
     try:
         pid = await asyncio.to_thread(_heavy_lift_create)
         
-        if final_prompt and not final_figma_json:
+        if final_prompt and not final_figma_json and not final_image:
             try:
-                # Threaded to prevent DB freeze
                 def get_api_key():
                     return supabase.table("users").select("gorilla_api_key").eq("id", user["id"]).single().execute()
                 
@@ -1704,12 +1749,10 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             plan_context = {
                 "project_id": project_id, 
                 "files": list(file_tree.keys()),
-                "api_key": api_key  
+                "api_key": api_key,
+                "history": db_history # 🛑 ENHANCED: Pass the full DB history so Planner sees the Figma context
             }
             
-            if history:
-                plan_context["history"] = history
-
             if ".gorilla/prompt_image.b64" in file_tree:
                 plan_context["image_context"] = file_tree[".gorilla/prompt_image.b64"]
                 plan_context["image_filename"] = ".gorilla/prompt_image.b64"
@@ -1779,6 +1822,11 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         # 🛑 ADDED: A dictionary to hold all file changes in memory until the very end
         batch_files = {}
 
+        # 🛑 BULLETPROOF FIGMA CONTEXT INJECTOR 🛑
+        # If we find the Figma System Message in the database history, we explicitly prepend it 
+        # to the task so the Coder agent CANNOT ignore it.
+        figma_context = next((msg["content"] for msg in db_history if msg.get("role") == "system" and "Figma design was imported" in msg.get("content", "")), None)
+
         for i, task in enumerate(tasks, 1):
             if user_id:
                 try: enforce_token_limit_or_raise(user_id)
@@ -1790,11 +1838,17 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             emit_progress(project_id, f"Building step {i}/{total}...", pct)
             emit_status(project_id, f"Implementing task {i}/{total}...")
             
+            # Inject Figma Context if it exists
+            final_task_text = task
+            if figma_context and i == 1:
+                final_task_text = f"CRITICAL SYSTEM CONTEXT: {figma_context}\n\nUSER REQUEST: {task}"
+
             code_res = await coder.generate_code(
                 plan_section="Direct Execution" if skip_planner else f"Step {i}",
-                plan_text=task,
+                plan_text=final_task_text,
                 file_tree=file_tree, # File tree is still passed for context
-                project_name=project_id
+                project_name=project_id,
+                history=db_history # 🛑 Pass DB history down to the Coder
             )
             
             tk = code_res.get("usage", {}).get("total_tokens", 0)

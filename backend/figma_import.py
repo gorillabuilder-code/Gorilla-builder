@@ -198,3 +198,71 @@ async def fetch_and_compress_figma(figma_url: str, access_token: str):
         f.write(json.dumps(optimized_tree, indent=2))
         
     return json_output, img_b64
+
+
+# ====================================================================
+# ⚡ 5. THE ZERO-SHOT GEMINI COMPILER
+# ====================================================================
+async def compile_figma_to_react(figma_json: str, openrouter_api_key: str) -> str:
+    """
+    Takes the compressed Figma JSON and uses Gemini Flash to instantly 
+    compile it into a single, massive React/Tailwind TSX component.
+    """
+    print("⚡ Booting up Gemini Flash Compiler...")
+    
+    prompt = f"""You are an expert Frontend Engineer and UI/UX Compiler. 
+Your ONLY job is to convert the following highly compressed Figma JSON Abstract Syntax Tree into a single, pixel-perfect React TypeScript (TSX) component.
+
+CRITICAL CONTEXT & TECH STACK:
+1. React + TypeScript (Vite)
+2. Tailwind CSS (Translate all flexbox, padding, gap, and hex colors directly to Tailwind utility classes)
+3. lucide-react (Use for any `{{"type": "ICON"}}` or `{{"type": "COMPLEX_ICON"}}` placeholders)
+4. framer-motion (Use for buttery smooth micro-interactions, page transitions, and element reveals)
+
+UI/UX & DESIGN INSTRUCTIONS:
+- Go all out on the frontend! We want a sleek, modern, and highly polished user interface exactly matching the Figma data.
+- Translate `layoutMode`, `alignX`, `alignY`, and `gap` into the perfect Tailwind Flexbox classes.
+- Translate `bg` and `color` hex codes to Tailwind classes like `bg-[#1a1a1a]` and `text-[#ffffff]`.
+- Try to build the UI components yourself to exactly match the Figma design using Tailwind, rather than relying heavily on generic pre-built component libraries. Make it look premium and production-ready.
+
+STRICT OUTPUT RULES:
+1. Output ONLY valid, complete React TSX code. 
+2. NO markdown formatting blocks like ```tsx or ```react. NO JSON wrappers. JUST RAW TSX CODE.
+3. Put everything in one file, exporting the main component as `default`.
+4. Do not include a surrounding markdown code block. Begin directly with `import React...`
+
+FIGMA JSON:
+{figma_json}
+"""
+
+    headers = {
+        "Authorization": f"Bearer {openrouter_api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": "google/gemini-3-flash-preview", # Super fast, high context, cost-effective
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.1 # Keep it strictly deterministic for coding
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # Setting a 60s timeout because a huge TSX file can take 10-15 seconds to stream back
+            resp = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=60.0)
+            resp.raise_for_status()
+            data = resp.json()
+            
+            react_code = data["choices"][0]["message"]["content"]
+            
+            # Clean up potential markdown blocks if Gemini decides to ignore Rule 2
+            react_code = react_code.replace("```tsx\n", "").replace("```typescript\n", "").replace("```react\n", "").replace("```\n", "")
+            if react_code.endswith("```"):
+                react_code = react_code[:-3]
+                
+            print(f"✅ Gemini Flash compilation complete! ({len(react_code)} chars of TSX generated)")
+            return react_code.strip()
+            
+    except Exception as e:
+        print(f"❌ Gemini Compiler failed: {e}")
+        return None
