@@ -32,7 +32,27 @@ export class WebRunner {
             parts.forEach((part, index) => {
                 const isFile = index === parts.length - 1;
                 if (isFile) {
-                    current[part] = { file: { contents: f.content || "" } };
+                    let content = f.content || "";
+                    
+                    // 🛑 THE IFRAME INTERCEPTOR: Inject script to catch React/Vite Browser Errors!
+                    if (part === "index.html") {
+                        const interceptor = `\n<script>
+                            window.addEventListener('error', (e) => {
+                                window.parent.postMessage({ type: 'iframe_error', message: 'Uncaught Error: ' + (e.message || (e.error ? e.error.message : 'Unknown')) }, '*');
+                            });
+                            window.addEventListener('unhandledrejection', (e) => {
+                                window.parent.postMessage({ type: 'iframe_error', message: 'Promise Rejection: ' + (e.reason ? (e.reason.message || e.reason) : 'Unknown') }, '*');
+                            });
+                            const _origError = console.error;
+                            console.error = function(...args) {
+                                window.parent.postMessage({ type: 'iframe_error', message: 'Console Error: ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') }, '*');
+                                _origError.apply(console, args);
+                            };
+                        </script>\n`;
+                        content = content.replace('<head>', '<head>' + interceptor);
+                    }
+                    
+                    current[part] = { file: { contents: content } };
                 } else {
                     if (!current[part]) current[part] = { directory: {} };
                     current = current[part].directory;
@@ -54,19 +74,26 @@ export class WebRunner {
         let timeout = null;
 
         const flush = () => {
-            if (buffer.trim() !== "" && !this.isFixing) {
-                const prompt = `SYSTEM ALERT: ❌ ${contextName} Runtime Errors:\n<logs>\n${buffer.trim()}\n</logs>\nPlease fix these issues in the codebase.`;
-                logger("coder", prompt); 
-                this._notifyCoder(projectId, prompt); 
-                buffer = "";
+            if (buffer.trim() === "") return;
+
+            // 🛑 THE PATIENT LOGGER: If AI is fixing, don't drop the error. Wait and try again!
+            if (this.isFixing) {
+                timeout = setTimeout(flush, 2000);
+                return;
             }
+
+            const truncatedBuffer = buffer.trim().slice(-8000);
+            const prompt = `SYSTEM ALERT: ❌ ${contextName} Errors Detected:\n<logs>\n${truncatedBuffer}\n</logs>\nPlease analyze these logs, identify the root cause, and fix the codebase to resolve them.`;
+            logger("coder", prompt); 
+            this._notifyCoder(projectId, prompt); 
+            buffer = "";
         };
 
         return {
             push: (data) => {
                 buffer += data + "\n";
                 if (timeout) clearTimeout(timeout);
-                timeout = setTimeout(flush, 4000); 
+                timeout = setTimeout(flush, 3000); 
             },
             flushImmediate: () => {
                 if (timeout) clearTimeout(timeout);
@@ -76,16 +103,12 @@ export class WebRunner {
     }
 
     async _notifyCoder(projectId, systemPrompt) {
-        if (this.isFixing) {
-            console.info("⏳ AI is already working on a fix. Ignoring duplicate error.");
-            return;
-        }
+        if (this.isFixing) return;
 
         this.isFixing = true;
         const pid = projectId || window.PROJECT_ID || (window.location.pathname.match(/\/projects\/([^\/]+)/) || [])[1];
         
         if (!pid) {
-            console.info("No Project ID found. Cannot auto-notify coder.");
             this.isFixing = false; 
             return;
         }
@@ -105,10 +128,11 @@ export class WebRunner {
             console.info("❌ Failed to reach AI Auto-Fixer:", err);
         } finally {
             if (this.fixUnlockTimer) clearTimeout(this.fixUnlockTimer);
+            // Ensure AI has enough time to write files before unlocking
             this.fixUnlockTimer = setTimeout(() => { 
                 this.isFixing = false; 
                 console.info("🔓 AI Fix Lock released.");
-            }, 30000); 
+            }, 45000); 
         }
     }
 
@@ -123,11 +147,9 @@ export class WebRunner {
             logger("system", `🚀 Firing NPM, Hiring PNPM... (Attempt ${attempts})`);
             let errorLogs = ""; 
 
-            // Clear the board completely
             const rmProcess = await this.instance.spawn('rm', ['-rf', 'node_modules', 'package-lock.json', 'pnpm-lock.yaml']);
             await rmProcess.exit; 
 
-            // Use pnpm instead of npm
             const process = await this.instance.spawn('npx', [
                 'pnpm', 
                 'install', 
@@ -144,18 +166,24 @@ export class WebRunner {
             const exitCode = await process.exit;
             
             if (exitCode !== 0) {
-                logger("system", `⚠️ pnpm install failed. Retrying in 5s...`);
-                await new Promise(resolve => setTimeout(resolve, 5000));
+                logger("system", `⚠️ pnpm install failed (code ${exitCode}). Notifying AI Coder...`);
+                
+                if (!this.isFixing) {
+                    const autoPrompt = `SYSTEM ALERT: package installation failed. Logs:\n<logs>\n${errorLogs.slice(-8000)}\n</logs>\nPlease review package.json for invalid packages or version conflicts and rewrite it.`;
+                    await this._notifyCoder(projectId, autoPrompt);
+                }
+
+                logger("system", "Waiting for AI to apply fixes before retrying...");
+                let waitTicks = 0;
+                while (this.isFixing && waitTicks < 60) {
+                    await new Promise(r => setTimeout(r, 1000));
+                    waitTicks++;
+                }
+                await new Promise(r => setTimeout(r, 2000)); 
             } else {
                 logger("system", "✅ Dependencies installed beautifully.");
                 success = true;
             }
-        }
-        
-        if (!success) {
-            logger("system", "❌ Critical Failure: Notifying AI Coder to check package.json...");
-            const autoPrompt = `SYSTEM ALERT: package installation failed 3 times. Please carefully review package.json for invalid package names or missing brackets and rewrite it.`;
-            await this._notifyCoder(projectId, autoPrompt);
         }
     }
 
@@ -169,12 +197,12 @@ export class WebRunner {
         let dbSuccess = false;
         let dbAttempts = 0;
         
-        while (!dbSuccess && dbAttempts < 3) {
+        // 🛑 Reliable DB Retry Loop
+        while (!dbSuccess && dbAttempts < 5) {
             dbAttempts++;
             logger("system", `🗄️ Provisioning local SQLite database... (Attempt ${dbAttempts})`);
             let dbErrorLogs = "";
             
-            // 🛑 ADDED: Live tracker specifically for the DB push sequence
             const dbErrorTracker = this._createDebouncedLogger(logger, "Database Setup", projectId);
 
             const dbProcess = await this.instance.spawn('npm', ['run', 'db:push'], { env: envVars });
@@ -183,11 +211,8 @@ export class WebRunner {
                 write(data) {
                     dbErrorLogs += data;
                     console.info("[DB PUSH]", data);
-                    
-                    // 🛑 ADDED: Stream DB logs directly to the user's UI terminal
                     logger("system", data.trim());
 
-                    // 🛑 ADDED: Catch errors in real-time before process exits
                     if (data.includes('Error:') || data.includes('TypeError:') || data.includes('Exception') || data.includes('code:')) {
                         dbErrorTracker.push(data);
                     }
@@ -201,38 +226,71 @@ export class WebRunner {
                 logger("system", `⚠️ Database push failed (code ${dbExitCode}). Notifying AI Coder...`);
                 
                 if (!this.isFixing) {
-                    // 🛑 CHANGED: Expanded to 8000 characters to catch deep stack traces
                     const truncatedLogs = dbErrorLogs.slice(-8000);
-                    const autoPrompt = `SYSTEM ALERT: \`npm run db:push\` failed with code ${dbExitCode}. \nHere are the logs:\n<logs>\n${truncatedLogs}\n</logs>\nPlease review the Drizzle schema and connection settings, fix the errors, and rewrite the files.`;
+                    const autoPrompt = `SYSTEM ALERT: \`npm run db:push\` failed with code ${dbExitCode}. \nHere are the logs:\n<logs>\n${truncatedLogs}\n</logs>\nCRITICAL WEBCONTAINER RULE: You CANNOT use native C++ node modules like 'better-sqlite3' or native 'sqlite3' in this environment. You MUST use a pure JS/WASM fallback (like libSQL/WASM or PGlite) or mock the DB data if necessary. Please fix the Drizzle schema/connection and rewrite the files.`;
                     await this._notifyCoder(projectId, autoPrompt);
                 }
 
-                logger("system", "Coder notified! Retrying DB push in 25s...");
-                await new Promise(resolve => setTimeout(resolve, 25000));
+                logger("system", "Coder notified! Waiting for AI to apply fixes before retrying...");
+                let waitTicks = 0;
+                while (this.isFixing && waitTicks < 60) {
+                    await new Promise(r => setTimeout(r, 1000));
+                    waitTicks++;
+                }
+                await new Promise(r => setTimeout(r, 2000)); 
             } else {
                 logger("system", "✅ Database created successfully!");
                 dbSuccess = true;
             }
         }
 
-        logger("system", "🚀 Starting Dev Server...");
-        this.shell = await this.instance.spawn('npm', ['run', 'dev'], { env: envVars });
-
         const serverErrorTracker = this._createDebouncedLogger(logger, "Runtime/Server", projectId);
 
-        this.shell.output.pipeTo(new WritableStream({
-            write(data) {
-                if (data.includes('ReferenceError') || 
-                    data.includes('SyntaxError') || 
-                    data.includes('Error:') || 
-                    data.includes('[ERROR]') || 
-                    data.includes('Failed to resolve')) {
-                    
-                    serverErrorTracker.push(data);
-                }
-                console.info("[VM]", data);
+        // 🛑 Listen for Browser errors from our injected script
+        window.addEventListener("message", (e) => {
+            if (e.data && e.data.type === 'iframe_error') {
+                console.info("🔴 [BROWSER ERROR CAUGHT]", e.data.message);
+                serverErrorTracker.push(e.data.message);
             }
-        }));
+        });
+
+        // 🛑 Zombie Server Auto-Restarter
+        const bootServer = async () => {
+            logger("system", "🚀 Starting Dev Server...");
+            this.shell = await this.instance.spawn('npm', ['run', 'dev'], { env: envVars });
+
+            this.shell.output.pipeTo(new WritableStream({
+                write(data) {
+                    if (data.includes('ReferenceError') || 
+                        data.includes('SyntaxError') || 
+                        data.includes('Error:') || 
+                        data.includes('ERR_') ||
+                        data.includes('[ERROR]') || 
+                        data.includes('Failed to resolve')) {
+                        
+                        serverErrorTracker.push(data);
+                    }
+                    console.info("[VM]", data);
+                }
+            }));
+
+            this.shell.exit.then(async (code) => {
+                if (code !== 0) {
+                    serverErrorTracker.push(`[FATAL] Dev server crashed with code ${code}. Please fix the syntax or configuration errors.`);
+                    serverErrorTracker.flushImmediate();
+                    logger("system", "⚠️ Server crashed. Rebooting in 5s...");
+                    
+                    let waitTicks = 0;
+                    while (this.isFixing && waitTicks < 30) {
+                        await new Promise(r => setTimeout(r, 1000));
+                        waitTicks++;
+                    }
+                    setTimeout(bootServer, 2000);
+                }
+            });
+        };
+
+        bootServer();
 
         this.instance.on('server-ready', (port, url) => {
             console.log(`⚡ Server ready at ${url}`);
