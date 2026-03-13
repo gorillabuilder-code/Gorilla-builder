@@ -1178,6 +1178,11 @@ function startStream(){
     if(m.type === "status") {
       addMessage("system", m.text);
       setProgress(m.text);
+      
+      // 🛑 THE FIX: Auto-boot WebContainer exactly when coding is completed!
+      if (m.text.includes("Coding Complete") && !isWebContainerBooted) {
+          $("btnRunServer").click();
+      }
     }
     
     if(m.type === "phase") setPhase(m.value);
@@ -1296,10 +1301,7 @@ $("prompt").addEventListener("keydown", (e) => {
 
   if (isFigmaImport) {
       // 1. We SKIP triggerAgent(). The AI is bypassed.
-      // 2. We instantly trigger the WebContainer to boot so the user sees Gemini's code!
-      setTimeout(() => {
-          $("btnRunServer").click();
-      }, 500);
+      // 2. WebContainer boots ONLY when user clicks the Preview tab! (Or when code changes later)
   } else if (INITIAL_PROMPT && INITIAL_PROMPT.length > 0) {
       // Normal Flow (Not Figma) - Auto-start the Planner Agent
       setTimeout(() => {
