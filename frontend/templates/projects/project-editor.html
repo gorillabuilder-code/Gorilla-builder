@@ -279,7 +279,13 @@ body.xmode {
     border-left: 3px solid var(--coder-text);
     font-family: monospace;
 }
-.msg.planner { align-self: flex-start; }
+.msg.planner { 
+    align-self: flex-start; 
+    background: transparent;
+    border: none;
+    padding: 0;
+    max-width: 100%;
+}
 .msg.system { 
     align-self: center; font-size: 11px; color: var(--text-muted); 
     border-radius: 999px; padding: 4px 12px; margin: 8px 0; box-shadow: none; 
@@ -790,7 +796,20 @@ function addMessage(role, text, save=true){
 
   if(role === "system"){
     el.textContent = text;
+  } else if (role === "planner") {
+    // Planner messages contain HTML (steps) - render as HTML directly
+    if (text.includes('agent-step') || text.includes('<script')) {
+        el.innerHTML = DOMPurify.sanitize(text, { 
+            ADD_TAGS: ['script'], 
+            ADD_ATTR: ['onclick', 'onload', 'id', 'class', 'style', 'data-status'] 
+        });
+    } else {
+        // Regular planner message
+        const safeHtml = DOMPurify.sanitize(marked.parse(text || ""));
+        el.innerHTML = `<div class="meta">${role}</div><div class="md">${safeHtml}</div>`;
+    }
   } else {
+    // Other messages use markdown
     try {
         const safeHtml = DOMPurify.sanitize(marked.parse(text || ""));
         el.innerHTML = `<div class="meta">${role}</div><div class="md">${safeHtml}</div>`;

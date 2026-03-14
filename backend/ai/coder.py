@@ -1,12 +1,3 @@
-"""
-coder.py — gor://a AI Code Generation Engine (OpenRouter xAI Grok)
-- Calls OpenRouter API (x-ai/grok-4.1-fast)
-- Uses Regex to reliably extract JSON from "chatty" models
-- Enforces a 'message' field so the AI talks to the user
-- Returns token usage statistics
-- Auto-retries on failure
-- Maintains separate chat history contexts per Project/App
-"""
 from __future__ import annotations
 import os
 import json
@@ -214,7 +205,7 @@ class Coder:
             "- There is no external database server. You MUST configure both `drizzle.config.ts` and your DB connection instance to use a local file-based database with the exact connection URL: `file:local.db`.\n\n"
 
             "UI/UX & DESIGN ENCOURAGEMENT:\n"
-            "- Go all out on the frontend! We want a sleek, modern, and highly polished user interface.\n"
+            "- Go all out on the frontend! We want a sleek, modern, and highly polished user interface. THINK OUT OF THE BOX WITHOUT BOOTSTRAPPY LOOKS AND NO INTER FONTS, BE CREATIVE!\n"
             "- Liberally use Tailwind CSS for beautiful styling, spacing, and typography.\n"
             "- Use `framer-motion` for buttery smooth micro-interactions, page transitions, and element reveals.\n"
             "- Use `lucide-react` for crisp, consistent iconography.\n"

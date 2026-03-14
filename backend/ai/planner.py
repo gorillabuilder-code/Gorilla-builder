@@ -1,7 +1,3 @@
-"""
-planner.py — gor://a Deterministic AI Capability Planner (OpenRouter Moonshot Kimi)
-"""
-
 from __future__ import annotations
 
 import os
@@ -17,7 +13,7 @@ import httpx
 # -------------------------------------------------
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-PLANNER_MODEL = os.getenv("MODEL_PLANNER", "google/gemini-3-flash-preview:online") 
+PLANNER_MODEL = os.getenv("MODEL_PLANNER", "openrouter/hunter-alpha:online") 
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # OpenRouter specific headers for rankings/stats
@@ -176,7 +172,7 @@ class Planner:
     "   - **Database**: Drizzle ORM with `better-sqlite3`. The DB will be a local file (`sqlite.db`).\n"
     "2. **Task Strategy:**\n"
     "   - **NEVER** assign a task to create `package.json` or `index.html`. They exist.\n"
-    "   - **Database Tasks**: Instruct the coder to create `db/schema.ts` (for tables), `db/index.ts` (to export the db connection), and `drizzle.config.ts` at the root.\n"
+    "   - **Database Tasks**: Instruct the coder to create `db/schema.ts` (for tables), `db/index.ts` (to export the db connection), and `drizzle.config.ts` at the root. ALL OF THESE FILES MUST BE CREATED.\n"
     "   - **Frontend Tasks**: Modify `src/pages/Index.tsx` to implement layout. Create components in `src/components/`.\n"
     "   - **Backend Tasks**: Modify `server.js` to add middleware/routes. Create specific route files in `routes/`.\n"
     "3. **The Wiring & Evolution Rule (CRITICAL - NO DEAD CODE):**\n"

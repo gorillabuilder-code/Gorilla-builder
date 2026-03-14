@@ -43,8 +43,6 @@ load_dotenv()
 # --------------------------------------------------------------------------
 # Ensure these files exist in your backend/ directory
 from backend.run_manager import ProjectRunManager
-from backend.ai.planner import Planner
-from backend.ai.coder import Coder
 # from backend.ai.Xcoder import XCoder # Uncomment if you have this file
 from backend.deployer import Deployer
 
@@ -405,7 +403,7 @@ def send_otp_email(to_email: str, code: str):
         params = {
             "from": "Gor://a Auth Verification <auth@gorillabuilder.dev>", # Use your verified domain
             "to": [to_email],
-            "subject": "{code}, your Verification Code for Gor://a Builder",
+            "subject": "Your Verification Code for Gor://a Builder",
             "html": f"""
             <!DOCTYPE html>
             <html>
@@ -414,7 +412,7 @@ def send_otp_email(to_email: str, code: str):
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Verification Email</title>
             </head>
-            <body style="margin: 0; padding: 0; background-color: #0b1020; font-family: Tahoma, Geneva, Verdana, sans-serif;">
+            <body style="margin: 0; padding: 0; background-color: #0b1020; font-family: Monospace, sans-serif;">
                 <div style="width: 100%; padding: 40px 0; background-color: #0b1020;">
                     <div style="max-width: 420px; margin: 0 auto; background-color: #0f1530; padding: 40px; border-radius: 18px; color: #ffffff;">
                         <h1 style="margin: 0 0 10px; font-size: 24px; font-weight: 400; letter-spacing: -0.3px;">Welcome to Gor://a</h1>
@@ -1730,15 +1728,51 @@ async def project_export(request: Request, project_id: str):
     )
 
 # ==========================================================================
-# REUSABLE AGENT LOOP (Used by UI and Auto-Fix)
+# REUSABLE AGENT LOOP - Streamlined Version
 # ==========================================================================
+#
+# No plan rendering - agents work freely
+# Only assistant message shown to user
+# All activity logged to terminal
+# Minimal, clean UI experience
+#
+
 import httpx
 import re
 import asyncio
 from typing import List, Dict
 
+# Import the unified Agent class
+from backend.ai.agent import Agent, _render_token_limit_message
+
+# Global tracking for active AI fixes
+active_ai_fixes = set()
+
+
 async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: bool = False, history: List[Dict] = None, skip_planner: bool = False):
+    """
+    Streamlined agent loop.
+    
+    - No plan rendering in UI
+    - Only assistant message shown
+    - All activity logged to terminal
+    - Agents work freely with internal MCP
+    """
+    agent = Agent()
+    
     try:
+        # ==========================================================================
+        # TOKEN CHECK - Before ANY work begins
+        # ==========================================================================
+        if user_id:
+            try: 
+                enforce_token_limit_or_raise(user_id)
+            except HTTPException:
+                emit_log(project_id, "planner", _render_token_limit_message())
+                emit_status(project_id, "Token Limit Reached")
+                emit_progress(project_id, "Upgrade required", 0)
+                return
+        
         await asyncio.sleep(0.5)
         file_tree = await _fetch_file_tree(project_id)
         
@@ -1747,128 +1781,104 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         db_history = proj_data.get("chat_history", []) if proj_data and proj_data.get("chat_history") else []
         db_history.append({"role": "user", "content": prompt})
         
-        planner = Planner()
-        coder = XCoder() if (is_xmode and 'XCoder' in globals()) else Coder()
-        
-        # Fetch user API key to pass to planner for image generation capabilities
+        # Fetch user API key
         user_api_data = db_select_one("users", {"id": user_id}, "gorilla_api_key")
         api_key = user_api_data.get("gorilla_api_key", "") if user_api_data else ""
         
+        # ==========================================================================
+        # PLANNING PHASE
+        # ==========================================================================
         if not skip_planner:
             emit_phase(project_id, "planner")
-            emit_progress(project_id, "Architecting solution...", 10)
+            emit_progress(project_id, "Thinking...", 10)
             
             plan_context = {
                 "project_id": project_id, 
                 "files": list(file_tree.keys()),
                 "api_key": api_key,
-                "history": db_history # 🛑 ENHANCED: Pass the full DB history so Planner sees the Figma context
+                "history": db_history
             }
             
             if ".gorilla/prompt_image.b64" in file_tree:
                 plan_context["image_context"] = file_tree[".gorilla/prompt_image.b64"]
                 plan_context["image_filename"] = ".gorilla/prompt_image.b64"
 
+            # Run planner (logs everything to terminal internally)
             plan_res = await asyncio.to_thread(
-                planner.generate_plan,
+                agent.plan,
                 user_request=prompt, 
                 project_context=plan_context
             )
             
             tk = plan_res.get("usage", {}).get("total_tokens", 0)
-            if tk and user_id: add_monthly_tokens(user_id, tk)
+            if tk and user_id: 
+                add_monthly_tokens(user_id, tk)
             
-            raw_plan = plan_res.get("plan", {})
-            real_assistant_msg = plan_res.get("assistant_message")
+            # ONLY emit the assistant message - no plan rendering
+            assistant_msg = plan_res.get("assistant_message", "I'm working on that...")
+            emit_log(project_id, "assistant", assistant_msg)
             
-            if real_assistant_msg:
-                db_history.append({"role": "planner", "content": real_assistant_msg})
-                
-            emit_log(project_id, "assistant", real_assistant_msg or "I have created a plan for your application.")
-
-            tasks = raw_plan.get("todo", [])
-            if tasks:
-                steps_html = ""
-                for i, task in enumerate(tasks, 1):
-                    task_content = task
-                    if "]" in task:
-                        parts = task.split("]", 1)
-                        if len(parts) > 1:
-                            task_content = parts[1].strip()
-
-                    steps_html += (
-                        f'<div style="display:flex; gap:25px; position:relative; z-index:2; margin-bottom:20px;">'
-                        f'  <div style="width:12px; height:12px; background:#0f172a; border:2px solid #3b82f6; border-radius:50%; box-shadow:0 0 10px #3b82f6; flex-shrink:0; margin-top:6px; position:relative; z-index:2;"></div>'
-                        f'  <div style="flex:1; background:rgba(30,41,59,0.3); border:1px solid rgba(255,255,255,0.05); border-radius:8px; padding:18px;">'
-                        f'    <span style="color:#60a5fa; font-size:11px; font-weight:bold; letter-spacing:1px; margin-bottom:6px; display:block; font-family:monospace; opacity:0.8;">{i:02}</span>'
-                        f'    <div style="color:#cbd5e1; font-size:14px; line-height:1.5;">{task_content}</div>'
-                        f'  </div>'
-                        f'</div>'
-                    )
-                
-                full_html = (
-                    f'  <div style="margin-bottom:30px; padding-bottom:15px; border-bottom:1px solid rgba(255,255,255,0.05);">'
-                    f'    <div style="color:#e2e8f0; font-size:18px; font-weight:400; letter-spacing:1px; text-transform:uppercase;">✦ BluePrint</div>'
-                    f'  </div>'
-                    f'  <div style="position:relative; padding-left:5px;">'
-                    f'    <div style="position:absolute; left:6px; top:10px; bottom:10px; width:1px; background:linear-gradient(to bottom,#3b82f6,rgba(59,130,246,0.1)); z-index:1;"></div>'
-                    f'    {steps_html}'
-                    f'  </div>'
-                    f'</div>'
-                )
-                emit_log(project_id, "planner", full_html)
-
+            # Check if we got tasks
+            tasks = plan_res.get("plan", {}).get("todo", [])
+            
             if not tasks:
+                # Just a chat response, no coding needed
+                db_history.append({"role": "assistant", "content": assistant_msg})
                 supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
-                emit_status(project_id, "Response Complete")
-                emit_progress(project_id, "Done", 100)
+                emit_status(project_id, "Done")
+                emit_progress(project_id, "Ready", 100)
                 return
         else:
             emit_phase(project_id, "coder")
-            emit_log(project_id, "system", "⚡ Bypassing Planner. Triggering Coder directly...")
-            tasks = [prompt] 
-
+            emit_log(project_id, "assistant", "Applying fix...")
+        
+        # ==========================================================================
+        # CODING PHASE - Agents work freely
+        # ==========================================================================
         emit_phase(project_id, "coder")
+        emit_progress(project_id, "Building...", 30)
+        
+        # Dictionary to hold all file changes in memory until the very end
+        batch_files = {}
+        
+        # Get tasks from plan or use prompt directly
+        tasks = plan_res.get("plan", {}).get("todo", []) if not skip_planner else [prompt]
         total = len(tasks)
         
-        # 🛑 ADDED: A dictionary to hold all file changes in memory until the very end
-        batch_files = {}
-
-        # 🛑 BULLETPROOF FIGMA CONTEXT INJECTOR 🛑
-        # If we find the Figma System Message in the database history, we explicitly prepend it 
-        # to the task so the Coder agent CANNOT ignore it.
+        # BULLETPROOF FIGMA CONTEXT INJECTOR
         figma_context = next((msg["content"] for msg in db_history if msg.get("role") == "system" and "Figma design was imported" in msg.get("content", "")), None)
 
         for i, task in enumerate(tasks, 1):
+            # Check token limit before each coding step
             if user_id:
-                try: enforce_token_limit_or_raise(user_id)
+                try: 
+                    enforce_token_limit_or_raise(user_id)
                 except HTTPException:
-                    emit_log(project_id, "system", "⚠️ Token limit reached. Stopping.")
+                    emit_log(project_id, "planner", _render_token_limit_message())
+                    emit_status(project_id, "Token Limit Reached")
+                    emit_progress(project_id, "Upgrade required", 0)
                     return
 
-            pct = 10 + (80 * (i / total)) # Adjusted progress bar math slightly
-            emit_progress(project_id, f"Building step {i}/{total}...", pct)
-            emit_status(project_id, f"Implementing task {i}/{total}...")
+            pct = 30 + (60 * (i / total))
+            emit_progress(project_id, f"Building...", pct)
             
             # Inject Figma Context if it exists
             final_task_text = task
             if figma_context and i == 1:
                 final_task_text = f"CRITICAL SYSTEM CONTEXT: {figma_context}\n\nUSER REQUEST: {task}"
 
-            code_res = await coder.generate_code(
-                plan_section="Direct Execution" if skip_planner else f"Step {i}",
+            # Run coder (logs everything to terminal internally)
+            code_res = await agent.code(
+                plan_section="" if skip_planner else f"Step {i}",
                 plan_text=final_task_text,
-                file_tree=file_tree, # File tree is still passed for context
+                file_tree=file_tree,
                 project_name=project_id,
-                history=db_history # 🛑 Pass DB history down to the Coder
+                history=db_history
             )
             
             tk = code_res.get("usage", {}).get("total_tokens", 0)
-            if tk and user_id: add_monthly_tokens(user_id, tk)
-
-            if code_res.get("message"):
-                db_history.append({"role": "coder", "content": code_res.get("message")})
-                emit_log(project_id, "coder", code_res.get("message"))
+            if tk and user_id: 
+                add_monthly_tokens(user_id, tk)
 
             ops = code_res.get("operations", [])
             
@@ -1876,33 +1886,32 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                 path = op.get("path")
                 content = op.get("content")
                 if path and content is not None:
-                    # 🛑 CHANGED: Write to memory instead of the database immediately
                     batch_files[path] = content
-                    
-                    # Update the local file_tree so the next iteration of the Coder 
-                    # knows about the newly generated code without needing a DB fetch.
                     file_tree[path] = content
 
-        # 🛑 ADDED: The Batch Release Step
+        # ==========================================================================
+        # FILE RELEASE PHASE
+        # ==========================================================================
         emit_phase(project_id, "files")
-        emit_status(project_id, "Releasing atomic update to WebContainer...")
-        emit_progress(project_id, "Committing files...", 95)
+        emit_progress(project_id, "Saving...", 95)
         
         for path, content in batch_files.items():
             if path.startswith("static/") and path.endswith(".js"):
                 try:
                     lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
                     if lint_err:
-                        emit_log(project_id, "system", f"❌ Syntax Error in {path}:\n{lint_err}")
-                except: pass
+                        emit_log(project_id, "system", f"Syntax Error in {path}:\n{lint_err}")
+                except: 
+                    pass
 
             db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
             emit_file_changed(project_id, path)
 
         # Save History when done
+        db_history.append({"role": "assistant", "content": "Done!"})
         supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
 
-        emit_status(project_id, "Coding Complete.")
+        emit_status(project_id, "Done")
         emit_progress(project_id, "Ready", 100)
         
     except Exception as e:
@@ -1911,15 +1920,11 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         import traceback
         print(traceback.format_exc())
 
-# ==========================================================================
-# AUTO-FIXING LOG ENDPOINT
-# ==========================================================================
-# Add this near your other global variables in app.py
-active_ai_fixes = set()
 
 # ==========================================================================
 # AUTO-FIXING LOG ENDPOINT
 # ==========================================================================
+
 @app.post("/api/project/{project_id}/log")
 async def log_browser_event(project_id: str, request: Request, background_tasks: BackgroundTasks):
     global active_ai_fixes
@@ -1931,16 +1936,15 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
 
         if "error" in message.lower() or "failed" in message.lower() or "syntax error" in message.lower():
             
-            # 🛑 THE BACKEND MUTEX: Block duplicate AI agents
+            # THE BACKEND MUTEX: Block duplicate AI agents
             if project_id in active_ai_fixes:
                 print(f"[{project_id}] AI is already fixing this. Ignoring duplicate request.")
                 return JSONResponse({"status": "ignored", "detail": "Fix already in progress"})
             
             active_ai_fixes.add(project_id)
             
-            emit_log(project_id, "system", f"⚠️ Browser Error Detected. Analyzing...")
-            emit_log(project_id, "system", "🔧 AI Agent is spinning up to apply an Auto-Fix...")
-
+            emit_log(project_id, "system", f"Browser Error Detected. Analyzing...")
+            
             chat_history = []
             owner_id = None
             try:
@@ -1955,7 +1959,7 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
                 active_ai_fixes.remove(project_id)
                 return JSONResponse({"status": "error", "detail": "Owner not found"}, status_code=404)
 
-            # Wrapper to ensure the lock is always removed when the AI finishes or crashes
+            # Wrapper to ensure the lock is always removed
             async def run_and_unlock(*args, **kwargs):
                 try:
                     await run_agent_loop(*args, **kwargs)
@@ -1966,7 +1970,7 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
             background_tasks.add_task(
                 run_and_unlock, 
                 project_id=project_id, 
-                prompt=message, # Give it the exact error message
+                prompt=message,
                 user_id=owner_id,
                 history=chat_history,
                 is_xmode=True, 
