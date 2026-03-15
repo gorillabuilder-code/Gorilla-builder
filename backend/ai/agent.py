@@ -27,7 +27,7 @@ import httpx
 
 # --- Configuration for OpenRouter ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("MODEL", "openrouter/hunter-alpha")
+MODEL = os.getenv("MODEL", "")
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions").strip()
 SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev").strip()
 SITE_NAME = os.getenv("SITE_NAME", "Gorilla Builder")
@@ -510,7 +510,7 @@ class PlannerAgent(BaseAgent):
     "Rules:\n"
     "MANDATORY OUTPUT FORMAT: JSON OBJECT ONLY. Do NOT wrap in markdown blocks.\n"
     "{\n"
-    '  "assistant_message": "Sure I will build the monkeychat application for you with...and...it will be...",\n'
+    '  "assistant_message": "Sure I will build the ... application for you with...and...it will be...",\n'
     '  "tasks": [\n'
     '    "Step 1: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Create `App.tsx` to begint the process...",\n'
     '    "Step 2: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Modify `server.js` to setup API..."\n'
@@ -622,14 +622,14 @@ Output JSON with either type="plan" or type="questions"."""})
                     raise ValueError("Could not extract JSON from response")
                 
                 response_type = data.get("type", "plan")
-                assistant_message = data.get("assistant_message", "")
+                assistant_message = data.get("assistant_message", "Plan created.")
                 
                 if response_type == "questions":
                     questions = data.get("questions", [])
                     log_agent("planner", f"Asking {len(questions)} clarifying questions", self.project_id)
     
                     # Format questions into the assistant message so user sees them
-                    questions_formatted = "\n".join([f"**{i+1}.** {q}" for i, q in enumerate(questions)])
+                    questions_formatted = "\n".join([f"\n**{i+1}.** {q}" for i, q in enumerate(questions)])
                     full_message = f"{assistant_message}\n\n{questions_formatted}"
     
                     self.emit(
@@ -1470,33 +1470,58 @@ class AgentSwarm:
             # Phase 2: Reasoning (automatic)
             # Reasoner already processed via MCP subscription
         
-        # Phase 3: Execution - wait for completion
+        # Phase 3: Execution - wait for completion with stability detection
         if not needs_clarification:
             max_wait = 300
             waited = 0
+            last_op_count = 0
+            stable_count = 0
             
             while waited < max_wait:
                 await asyncio.sleep(0.5)
                 waited += 0.5
                 
-                # Check for final completion
-                done_msgs = [m for m in self.bus.messages if m.intent == Intent.DONE]
-                if done_msgs:
-                    last_done = done_msgs[-1]
-                    if last_done.from_agent in ["coder", "reviewer"] and not self.coder.pending_tasks:
-                        log_agent("swarm", "✅ Execution complete", self.project_id)
+                # Count current operations from all DONE messages
+                current_ops = []
+                for msg in self.bus.messages:
+                    if msg.intent in [Intent.DONE, Intent.DEBUG_FIX]:
+                        current_ops.extend(msg.payload.get("operations", []))
+                
+                # Check for stability - operation count not growing
+                if len(current_ops) == last_op_count and len(current_ops) > 0:
+                    stable_count += 1
+                    # Stable for 3 seconds and no pending tasks = done
+                    if stable_count >= 6 and not self.coder.pending_tasks:
+                        log_agent("swarm", f"✅ Stable: {len(current_ops)} operations", self.project_id)
                         break
+                else:
+                    stable_count = 0
+                    last_op_count = len(current_ops)
+                    if len(current_ops) > 0:
+                        log_agent("swarm", f"⏳ Growing: {len(current_ops)} operations...", self.project_id)
         
-        # Collect all operations
+        # Collect all operations from ALL DONE messages
         all_ops = []
         for msg in self.bus.messages:
             if msg.intent in [Intent.DONE, Intent.DEBUG_FIX]:
-                all_ops.extend(msg.payload.get("operations", []))
+                ops = msg.payload.get("operations", [])
+                if ops:
+                    all_ops.extend(ops)
         
-        log_agent("swarm", f"📦 Complete: {len(all_ops)} file operations", self.project_id)
+        # Deduplicate by path (keep last occurrence - most recent version)
+        seen_paths = {}
+        for op in all_ops:
+            path = op.get("path", "")
+            if path:
+                seen_paths[path] = op
+        all_ops = list(seen_paths.values())
         
-        # Await any pending background tasks to prevent "destroyed but pending" warnings
-        await self.bus.await_all_tasks(timeout=2.0)
+        log_agent("swarm", f"📦 Complete: {len(all_ops)} unique file operations", self.project_id)
+        for op in all_ops:
+            log_agent("swarm", f"  📄 {op.get('action')}: {op.get('path')}", self.project_id)
+        
+        # Await any pending background tasks
+        await self.bus.await_all_tasks(timeout=3.0)
         
         return {
             "status": "complete",
@@ -1601,13 +1626,16 @@ class Agent:
                    file_tree: Dict[str, str], project_name: str,
                    history: Optional[List[Dict[str, str]]] = None,
                    max_retries: int = 3) -> Dict[str, Any]:
-        """Generate code - FIXED to properly collect all operations."""
+        """Generate code - BULLETPROOF operation collection."""
         swarm = self._get_swarm(project_name)
         
         # Reset coder state for fresh execution
         swarm.coder.all_operations = []
         swarm.coder.pending_tasks = {}
         swarm.coder.execution_complete = False
+        
+        # Clear old messages to avoid picking up stale DONE messages
+        swarm.bus.messages = []
         
         # Emit the plan to the coder
         swarm.coder.emit(
@@ -1621,35 +1649,61 @@ class Agent:
             reasoning="Single task execution"
         )
         
-        # Wait for execution to complete (check for DONE message from coder)
-        max_wait = 120
+        # Wait for execution to complete - collect ALL operations from ALL DONE messages
+        max_wait = 180  # Increased timeout
         waited = 0
-        operations = []
+        all_collected_ops = []
+        last_op_count = 0
+        stable_count = 0
         
         while waited < max_wait:
             await asyncio.sleep(0.5)
             waited += 0.5
             
-            # Check if coder has emitted DONE (execution complete)
+            # Collect operations from ALL DONE messages (not just first one)
+            current_ops = []
             for msg in swarm.bus.messages:
-                if msg.intent == Intent.DONE and msg.from_agent == "coder":
-                    operations = msg.payload.get("operations", [])
-                    log_agent("agent", f"Collected {len(operations)} operations from coder", project_name)
-                    break
-            
-            if operations:
-                break
-        
-        # Also collect from all DONE messages as fallback
-        if not operations:
-            for msg in swarm.bus.messages:
-                if msg.intent == Intent.DONE:
+                if msg.intent in [Intent.DONE, Intent.DEBUG_FIX]:
                     ops = msg.payload.get("operations", [])
                     if ops:
-                        operations.extend(ops)
+                        current_ops.extend(ops)
+            
+            # Track if operation count is stable (indicates completion)
+            if len(current_ops) == last_op_count and len(current_ops) > 0:
+                stable_count += 1
+                # If stable for 3 seconds and no pending tasks, we're done
+                if stable_count >= 6 and not swarm.coder.pending_tasks:
+                    all_collected_ops = current_ops
+                    log_agent("agent", f"✅ Stable: {len(all_collected_ops)} operations collected", project_name)
+                    break
+            else:
+                stable_count = 0
+                last_op_count = len(current_ops)
+                all_collected_ops = current_ops
+        
+        # Final collection - ensure we got everything
+        final_ops = []
+        for msg in swarm.bus.messages:
+            if msg.intent in [Intent.DONE, Intent.DEBUG_FIX]:
+                ops = msg.payload.get("operations", [])
+                if ops:
+                    final_ops.extend(ops)
+        
+        # Use the larger collection
+        operations = final_ops if len(final_ops) >= len(all_collected_ops) else all_collected_ops
+        
+        # Deduplicate by path (keep last occurrence)
+        seen_paths = {}
+        for op in operations:
+            path = op.get("path", "")
+            if path:
+                seen_paths[path] = op
+        operations = list(seen_paths.values())
+        
+        log_agent("agent", f"📦 Final: {len(operations)} unique file operations", project_name)
         
         # Await background tasks
-        await swarm.bus.await_all_tasks(timeout=2.0)
+        await swarm.bus.await_all_tasks(timeout=3.0)
         
         return {
             "message": f"Completed {len(operations)} operations",
