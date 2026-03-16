@@ -1742,8 +1742,9 @@ import re
 import asyncio
 from typing import List, Dict
 
-# Import the unified Agent class
-from backend.ai.agent import Agent, _render_token_limit_message
+# Import both Agent classes for conditional usage
+from backend.ai.agent import Agent as RegularAgent, _render_token_limit_message
+from backend.ai.Xagent import XAgent
 
 # Global tracking for active AI fixes
 active_ai_fixes = set()
@@ -1757,8 +1758,10 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
     - Only assistant message shown
     - All activity logged to terminal
     - Agents work freely with internal MCP
+    - Xmode uses XAgent with extreme swarm logic
     """
-    agent = Agent()
+    # Use XAgent for extreme mode, RegularAgent for normal mode
+    agent = XAgent() if is_xmode else RegularAgent()
     
     try:
         # ==========================================================================
