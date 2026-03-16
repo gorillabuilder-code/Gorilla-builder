@@ -1911,7 +1911,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             emit_file_changed(project_id, path)
 
         # Save History when done
-        db_history.append({"role": "assistant", "content": "Done!"})
+        db_history.append({"role": "assistant", "content": assistant_msg})
         supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
 
         emit_status(project_id, "Done")

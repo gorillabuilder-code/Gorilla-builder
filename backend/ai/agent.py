@@ -641,7 +641,7 @@ Output JSON with either type="plan" or type="questions"."""})
                     log_agent("planner", f"Asking {len(questions)} clarifying questions", self.project_id)
     
                     # Format questions into the assistant message so user sees them
-                    questions_formatted = "\n".join([f"**\n{i+1}.** {q}" for i, q in enumerate(questions)])
+                    questions_formatted = "\n".join([f"**{i+1}.** {q}" for i, q in enumerate(questions)])
                     full_message = f"{assistant_message}\n\n{questions_formatted}"
     
                     self.emit(
