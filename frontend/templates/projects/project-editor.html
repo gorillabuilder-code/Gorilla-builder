@@ -455,6 +455,20 @@ body.xmode {
 </head>
 
 <body class="{% if user.plan == 'premium' %}premium{% endif %} {% if xmode %}xmode{% endif %}">
+
+<div id="editor-loading-overlay" style="position: fixed; inset: 0; z-index: 9999; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.5s ease, visibility 0.5s ease;">
+  
+  <img src="/static/gorilla.gif" alt="Waking up Gorilla..." style="width: 250px; height: 250px; object-fit: contain; filter: drop-shadow(0 10px 30px rgba(59, 108, 255, 0.2));" />
+  
+  <h2 style="color: var(--text); font-family: monospace; font-size: 18px; margin-top: 10px; font-weight: 300; letter-spacing: 2px;">
+    WAKING UP GORILLA...
+  </h2>
+  
+  <div style="margin-top: 20px; font-size: 11px; color: var(--text-muted); opacity: 0.6; font-family: sans-serif;">
+    <a href="https://iconscout.com/lottie-animations/gorilla" class="text-underline font-size-sm" target="_blank" style="color: inherit;">Gorilla</a> by <a href="https://iconscout.com/contributors/google-inc" class="text-underline font-size-sm" style="color: inherit;">Google Inc.</a> on <a href="https://iconscout.com" class="text-underline font-size-sm" style="color: inherit;">IconScout</a>
+  </div>
+</div>
+
 <div class="shell">
 
 <aside class="left">
@@ -674,6 +688,18 @@ import DOMPurify from 'https://esm.sh/dompurify@3.0.6';
 const PROJECT_ID = "{{ project_id }}";
 const INITIAL_PROMPT = "{{ initial_prompt or '' }}"; 
 const CHAT_KEY = `gorilla_chat_${PROJECT_ID}`;
+
+// --- HIDE LOADER FUNCTION ---
+function hideEditorLoader() {
+  const loader = document.getElementById('editor-loading-overlay');
+  if (loader) {
+    loader.style.opacity = '0';
+    setTimeout(() => {
+      loader.style.visibility = 'hidden';
+      loader.style.display = 'none';
+    }, 500);
+  }
+}
 
 // 2. LOGGING (Browser -> Backend)
 function captureConsole() {
@@ -1312,6 +1338,9 @@ $("prompt").addEventListener("keydown", (e) => {
   
   startStream();
   setProgress("Ready", 0);
+  
+  // Fade out loader once files are pulled
+  hideEditorLoader();
   
   // ==========================================
   // 🛑 PHASE 3: THE FIGMA BYPASS LOGIC
