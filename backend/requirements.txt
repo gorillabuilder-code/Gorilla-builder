@@ -1,22 +1,51 @@
+# Core Web Framework
 fastapi==0.115.0
 uvicorn[standard]==0.30.5
+
+# Database & Auth
 supabase==2.9.1
-pydantic==1.10.15
-dotenv==1.0.1
+gotrue==2.9.1
+httpx>=0.27.0,<1.0.0
+
+# Data Validation (UPGRADED to v2 for compatibility)
+pydantic==2.9.2
+pydantic-core==2.23.4
+
+# Environment & Config
+python-dotenv==1.0.1
+
+# Image Processing
 Pillow==10.4.0
-rembg
-python-multipart
+rembg==2.0.62
+
+# File Handling
+python-multipart==0.0.9
+
+# PDF & OCR
 pdfplumber==0.11.2
 pytesseract==0.3.10
+
+# ML & NLP
 sentence-transformers==3.0.1
-numpy
+numpy==1.26.4
+
+# HTTP Client
 requests==2.32.3
+
+# JSON Performance
 orjson==3.10.7
-python-multipart==0.0.9
-itsdangerous
-gotrue==2.9.1
-resend
+
+# Security
+itsdangerous==2.2.0
+
+# Email
+resend==2.4.0
+
+# Code Execution
 e2b-code-interpreter==1.1.0
-httpx>=0.27.0,<1.0.0
-jinja2
-uvicorn
+
+# Templating
+jinja2==3.1.4
+
+# Additional dependencies for rembg
+onnxruntime==1.19.2
