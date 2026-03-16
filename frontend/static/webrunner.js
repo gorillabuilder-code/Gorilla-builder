@@ -194,56 +194,6 @@ export class WebRunner {
             GORILLA_API_KEY: window.GORILLA_API_KEY || "", 
         };
 
-        let dbSuccess = false;
-        let dbAttempts = 0;
-        
-        // 🛑 Reliable DB Retry Loop
-        while (!dbSuccess && dbAttempts < 5) {
-            dbAttempts++;
-            logger("system", `🗄️ Provisioning local SQLite database... (Attempt ${dbAttempts})`);
-            let dbErrorLogs = "";
-            
-            const dbErrorTracker = this._createDebouncedLogger(logger, "Database Setup", projectId);
-
-            const dbProcess = await this.instance.spawn('npm', ['run', 'db:push'], { env: envVars });
-            
-            dbProcess.output.pipeTo(new WritableStream({
-                write(data) {
-                    dbErrorLogs += data;
-                    console.info("[DB PUSH]", data);
-                    logger("system", data.trim());
-
-                    if (data.includes('Error:') || data.includes('TypeError:') || data.includes('Exception') || data.includes('code:')) {
-                        dbErrorTracker.push(data);
-                    }
-                }
-            }));
-
-            const dbExitCode = await dbProcess.exit;
-            dbErrorTracker.flushImmediate();
-            
-            if (dbExitCode !== 0) {
-                logger("system", `⚠️ Database push failed (code ${dbExitCode}). Notifying AI Coder...`);
-                
-                if (!this.isFixing) {
-                    const truncatedLogs = dbErrorLogs.slice(-8000);
-                    const autoPrompt = `SYSTEM ALERT: \`npm run db:push\` failed with code ${dbExitCode}. \nHere are the logs:\n<logs>\n${truncatedLogs}\n</logs>\nCRITICAL WEBCONTAINER RULE: You CANNOT use native C++ node modules like 'better-sqlite3' or native 'sqlite3' in this environment. You MUST use a pure JS/WASM fallback (like libSQL/WASM or PGlite) or mock the DB data if necessary. Please fix the Drizzle schema/connection and rewrite the files.`;
-                    await this._notifyCoder(projectId, autoPrompt);
-                }
-
-                logger("system", "Coder notified! Waiting for AI to apply fixes before retrying...");
-                let waitTicks = 0;
-                while (this.isFixing && waitTicks < 60) {
-                    await new Promise(r => setTimeout(r, 1000));
-                    waitTicks++;
-                }
-                await new Promise(r => setTimeout(r, 2000)); 
-            } else {
-                logger("system", "✅ Database created successfully!");
-                dbSuccess = true;
-            }
-        }
-
         const serverErrorTracker = this._createDebouncedLogger(logger, "Runtime/Server", projectId);
 
         // 🛑 Listen for Browser errors from our injected script

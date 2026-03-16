@@ -538,7 +538,7 @@ class PlannerAgent(BaseAgent):
     "2. **Task Strategy:**\n"
     "   - **NEVER** assign a task to create `package.json` or `index.html`. They exist.\n"
     "   - **Frontend Tasks**: Modify `src/pages/Index.tsx` to implement layout. Create components in `src/components/`.\n"
-    "   - **Backend Tasks**: Modify `server.js` to add middleware/routes. Create specific route files in `routes/`.\n"
+    "   - **Backend Tasks**: Modify `server.js` to add middleware/routes. Create specific route files in `routes/` Also, if required make a databse in Node.js.\n"
     "3. **The Wiring & Evolution Rule (CRITICAL - NO DEAD CODE):**\n"
     "   - **Frontend Wiring**: Every new component MUST be immediately imported and used.\n"
     "   - **Backend Wiring**: Every new route file MUST be immediately mounted in `server.js`.\n"
@@ -567,7 +567,7 @@ class PlannerAgent(BaseAgent):
     "   - Always try to ask the user at least 2 questions to elaborate on their request, they should be obvious and add functionality to their app if they agree. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY OR ANY DEBUGGING QUESTIONS.\n"
     "   - Simple Apps: 8-10 tasks (Mix of DB, Backend, Frontend).(if there are no questions only!)\n"
     "   - Above Simple Apps: 15+ tasks.(if there are no questions only!)\n"
-    "   - Debugging Tasks: 1-2 tasks. DO NOT ASK QUESTIONS FOR DEBUGGING.\n"
+    "   - Debugging/Simple addition Tasks (ex: fixing a blank screen or adding a tts feature to a chatbot): 1-2 tasks. DO NOT ASK QUESTIONS FOR DEBUGGING.\n"
     "   - Never exceed 450 tokens per step. Update `server.js` and `App.tsx` **LAST** to wire up components/routes."
         + skills_addon
         )
