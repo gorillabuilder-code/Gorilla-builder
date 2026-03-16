@@ -43,8 +43,6 @@ load_dotenv()
 # --------------------------------------------------------------------------
 # Ensure these files exist in your backend/ directory
 from backend.run_manager import ProjectRunManager
-from backend.ai.planner import Planner
-from backend.ai.coder import Coder
 # from backend.ai.Xcoder import XCoder # Uncomment if you have this file
 from backend.deployer import Deployer
 
@@ -405,7 +403,7 @@ def send_otp_email(to_email: str, code: str):
         params = {
             "from": "Gor://a Auth Verification <auth@gorillabuilder.dev>", # Use your verified domain
             "to": [to_email],
-            "subject": "{code}, your Verification Code for Gor://a Builder",
+            "subject": "Your Verification Code for Gor://a Builder",
             "html": f"""
             <!DOCTYPE html>
             <html>
@@ -414,7 +412,7 @@ def send_otp_email(to_email: str, code: str):
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Verification Email</title>
             </head>
-            <body style="margin: 0; padding: 0; background-color: #0b1020; font-family: Tahoma, Geneva, Verdana, sans-serif;">
+            <body style="margin: 0; padding: 0; background-color: #0b1020; font-family: Monospace, sans-serif;">
                 <div style="width: 100%; padding: 40px 0; background-color: #0b1020;">
                     <div style="max-width: 420px; margin: 0 auto; background-color: #0f1530; padding: 40px; border-radius: 18px; color: #ffffff;">
                         <h1 style="margin: 0 0 10px; font-size: 24px; font-weight: 400; letter-spacing: -0.3px;">Welcome to Gor://a</h1>
@@ -452,6 +450,73 @@ def send_otp_email(to_email: str, code: str):
         print(f"❌ Resend Error: {e}")
 
 # ==========================================================================
+# FIGMA OAUTH INTEGRATION
+# ==========================================================================
+import secrets
+import httpx
+import urllib.parse
+
+FIGMA_CLIENT_ID = os.getenv("FIGMA_CLIENT_ID")
+FIGMA_CLIENT_SECRET = os.getenv("FIGMA_CLIENT_SECRET")
+# e.g., https://app.gorillabuilder.dev/auth/figma/callback (must match Figma exact)
+FIGMA_REDIRECT_URI = os.getenv("FIGMA_REDIRECT_URI")
+
+@app.get("/auth/figma")
+async def figma_login(request: Request):
+    """Initiates the Figma OAuth flow."""
+    user = get_current_user(request) 
+    
+    state = secrets.token_urlsafe(16)
+    request.session["figma_oauth_state"] = state
+    
+    # 🛑 THE FIX: Changed scope=file_read to scope=file_content:read
+    url = f"https://www.figma.com/oauth?client_id={FIGMA_CLIENT_ID}&redirect_uri={urllib.parse.quote(FIGMA_REDIRECT_URI)}&scope=file_content:read&state={state}&response_type=code"
+    
+    return RedirectResponse(url)
+
+@app.get("/auth/figma/callback")
+async def figma_callback(request: Request, code: str, state: str):
+    """Catches the code from Figma, trades it for a token, and saves it to DB."""
+    try:
+        user = get_current_user(request)
+        
+        # Verify the state matches what we sent (CSRF protection)
+        saved_state = request.session.pop("figma_oauth_state", None)
+        if not saved_state or state != saved_state:
+            return RedirectResponse("/dashboard?error=figma_invalid_state", status_code=303)
+        
+        # 🛑 THE FIX: Changed from www.figma.com to api.figma.com/v1/
+        async with httpx.AsyncClient() as client:
+            res = await client.post("https://api.figma.com/v1/oauth/token", data={
+                "client_id": FIGMA_CLIENT_ID,
+                "client_secret": FIGMA_CLIENT_SECRET,
+                "redirect_uri": FIGMA_REDIRECT_URI,
+                "code": code,
+                "grant_type": "authorization_code"
+            })
+            
+            if res.status_code != 200:
+                print(f"⚠️ Figma OAuth Error: {res.text}")
+                return RedirectResponse("/dashboard?error=figma_token_exchange_failed", status_code=303)
+                
+            tokens = res.json()
+            access_token = tokens.get("access_token")
+            refresh_token = tokens.get("refresh_token")
+            
+            if access_token:
+                # Save the tokens to the user's record in Supabase
+                supabase.table("users").update({
+                    "figma_access_token": access_token,
+                    "figma_refresh_token": refresh_token
+                }).eq("id", user["id"]).execute()
+                
+        return RedirectResponse("/dashboard?success=figma_linked", status_code=303)
+        
+    except Exception as e:
+        print(f"⚠️ Figma Auth Callback crashed: {e}")
+        return RedirectResponse("/dashboard?error=figma_auth_crash", status_code=303)
+
+# ==========================================================================
 # PUBLIC ROUTES (Templates & Redirects)
 # ==========================================================================
 
@@ -463,9 +528,8 @@ PUBLIC_PAGES = {
     "/pricing": "freemium/pricing.html",
     "/checkout/tokens": "freemium/checkout/tokens.html",
     "/checkout/premium": "freemium/checkout/premium.html",
-    "/help": "help.html",
-    "/about": "docs/about.html", 
-    "/contact": "docs/contact.html",
+    "/privacy-policy": "legal/privacy-policy.html",
+    "/terms-of-service": "legal/terms-of-service.html"
 }
 # In app.py
 from fastapi.staticfiles import StaticFiles # Make sure this is imported
@@ -1044,6 +1108,7 @@ async def dashboard(request: Request):
     
     # Project Data
     try:
+        # select("*") automatically pulls the new snapshot_b64 column
         res = (
             supabase.table("projects")
             .select("*")
@@ -1187,77 +1252,247 @@ import time
 import mimetypes
 import tempfile
 import subprocess
+import base64 # Added for handling image data
+import httpx # Needed for the background task API call
 from typing import Dict, Any, List, Optional
 from fastapi import Request, Form, BackgroundTasks, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, Response, JSONResponse
 
-# 1. CREATE PAGE (Stash prompt in session)
+# --- NEW: BACKGROUND TASK FOR SNAPSHOTS ---
+async def generate_project_snapshot(project_id: str, prompt: str, user_api_key: str):
+    try:
+        print(f"📸 Snapshot generation started for project {project_id}...")
+        
+        payload = {"prompt": f"Professional web UI dashboard preview: {prompt}", "samples": 1}
+        headers = {
+            "Authorization": f"Bearer {user_api_key}",
+            "Content-Type": "application/json",
+            "ngrok-skip-browser-warning": "true" # Bypass Ngrok landing page
+        }
+        
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/generations", 
+                json=payload, 
+                headers=headers, 
+                timeout=60.0
+            )
+            
+            if resp.status_code != 200:
+                print(f"⚠️ Proxy Error ({resp.status_code}): {resp.text}")
+                return
+
+            data = resp.json()
+            snapshot_b64_data = None
+            
+            # --- ROBUST PARSING LOGIC ---
+            # 1. Check if it's a list (Fireworks Native Format: [{"base64": "..."}])
+            if isinstance(data, list) and len(data) > 0:
+                snapshot_b64_data = data[0].get("base64")
+            
+            # 2. Check if it's a dict with 'data' (OpenAI Format: {"data": [{"b64_json": "..."}]})
+            elif isinstance(data, dict):
+                if "data" in data and len(data["data"]) > 0:
+                    snapshot_b64_data = data["data"][0].get("b64_json") or data["data"][0].get("url")
+                elif "base64" in data:
+                    snapshot_b64_data = data["base64"]
+
+            # 3. Save to Database
+            if snapshot_b64_data:
+                # Add prefix if missing
+                if not snapshot_b64_data.startswith("data:image"):
+                    snapshot_b64_data = f"data:image/jpeg;base64,{snapshot_b64_data}"
+
+                supabase.table("projects").update({"snapshot_b64": snapshot_b64_data}).eq("id", project_id).execute()
+                print(f"✅ Snapshot saved to Supabase for {project_id}!")
+            else:
+                print(f"⚠️ PARSE FAIL. Raw response was: {str(data)[:200]}")
+                
+    except Exception as e:
+        print(f"⚠️ Task crashed: {e}")
+
+# 1. CREATE PAGE (Stash prompt in session & detect Figma)
 @app.get("/projects/createit", response_class=HTMLResponse)
 async def project_create_page(request: Request, prompt: Optional[str] = None):
     user = get_current_user(request)
+    
+    is_figma_link = False
+    
     if prompt:
         request.session["stashed_prompt"] = prompt
+        # Detect if the initial prompt is a figma URL so the template knows which animation to show
+        if "figma.com" in prompt:
+            is_figma_link = True
         
     return templates.TemplateResponse(
         "projects/project-create.html", 
-        {"request": request, "user": user, "initial_prompt": prompt}
+        {
+            "request": request, 
+            "user": user, 
+            "initial_prompt": prompt,
+            "is_figma_link": is_figma_link # 🛑 Passes the flag to HTML!
+        }
     )
 
 # 2. CREATE ACTION (Backend Insert)
+from backend.figma_import import fetch_and_compress_figma, compile_figma_to_react
+import re
+import urllib.parse
+import asyncio
+import os
+
 @app.post("/projects/create")
 async def create_project(
-    request: Request, 
+    request: Request,
+    background_tasks: BackgroundTasks,
     prompt: Optional[str] = Form(None), 
     name: Optional[str] = Form(None), 
     description: str = Form(""),
     xmode: Optional[str] = Form(None),
-    image_base64: Optional[str] = Form(None)
+    image_base64: Optional[str] = Form(None),
+    figma_url: Optional[str] = Form(None)
 ):
     user = get_current_user(request)
 
-    # --- 1. FREE TIER LIMIT CHECK (Max 3 Projects) ---
+    def check_project_limit():
+        res = supabase.table("projects").select("id", count="exact").eq("owner_id", user["id"]).execute()
+        count = res.count if hasattr(res, 'count') and res.count is not None else len(res.data)
+        if count >= 3:
+            return supabase.table("projects").select("*").eq("owner_id", user["id"]).order("created_at", desc=True).execute().data
+        return None
+
+    # --- 1. FREE TIER LIMIT CHECK ---
     if user.get("plan") != "premium":
         try:
-            res = supabase.table("projects").select("id", count="exact").eq("owner_id", user["id"]).execute()
-            current_count = res.count if hasattr(res, 'count') and res.count is not None else len(res.data)
-
-            if current_count >= 3:
-                p_res = supabase.table("projects").select("*").eq("owner_id", user["id"]).order("created_at", desc=True).execute()
+            projects_data = await asyncio.to_thread(check_project_limit)
+            if projects_data is not None:
                 return templates.TemplateResponse("dashboard.html", {
                     "request": request, 
                     "user": user,
-                    "projects": p_res.data if p_res.data else [],
+                    "projects": projects_data,
                     "error": "Free Limit Reached (3/3). Upgrade to Pro to create unlimited projects."
                 })
         except Exception as e:
             print(f"⚠️ Project limit check failed: {e}")
             pass
 
-    # --- 2. PROMPT & IMAGE STASHING (Avoiding Session limits) ---
+    # --- 2. PROMPT & IMAGE STASHING ---
     if prompt and not name:
-        # Render the template directly to keep the massive image string safe
+        if figma_url:
+            request.session["stashed_figma_url"] = figma_url
+            
+        # Re-detect figma status here just in case they arrived via POST instead of GET
+        is_figma_link = False
+        if figma_url or (prompt and "figma.com" in prompt):
+            is_figma_link = True
+            
         return templates.TemplateResponse(
             "projects/project-create.html", 
             {
                 "request": request, 
                 "user": user, 
                 "initial_prompt": prompt,
-                "stashed_image": image_base64
+                "stashed_image": image_base64,
+                "is_figma_link": is_figma_link
             }
         )
     
     final_prompt = prompt or request.session.pop("stashed_prompt", None)
+    final_figma_url = figma_url or request.session.pop("stashed_figma_url", None)
+    
     project_name = name or "Untitled Project"
     final_image = image_base64
+    final_figma_json = None 
     
-    # --- 3. HEAVY LIFTING (DB & Files) ---
+    # ====================================================================
+    # 🎨 3. FIGMA INTERCEPTOR (PRODUCTION MODE)
+    # ====================================================================
+    potential_url = final_figma_url or ""
+    if not potential_url and final_prompt and "figma.com/" in final_prompt:
+        match = re.search(r'(https://[^\s^?]*figma\.com/[^\s]*)', final_prompt)
+        if match:
+            potential_url = match.group(0)
+
+    if potential_url:
+        try:
+            print(f"🎯 Figma Link Detected: {potential_url}")
+            
+            def get_figma_token():
+                return supabase.table("users").select("figma_access_token").eq("id", user["id"]).single().execute()
+            
+            user_data = await asyncio.to_thread(get_figma_token)
+            figma_token = user_data.data.get("figma_access_token") if user_data.data else None
+            
+            if not figma_token:
+                return RedirectResponse("/dashboard?error=figma_not_linked", status_code=303)
+                
+            final_figma_json, figma_img_b64 = await fetch_and_compress_figma(potential_url, figma_token)
+            print(f"✅ Figma extraction successful ({len(final_figma_json)} characters)")
+            
+            if figma_img_b64:
+                final_image = figma_img_b64
+            
+            if "figma.com" in final_prompt:
+                final_prompt = "Build a pixel-perfect React and Tailwind replica of the design structure. I have provided the exact layout rules, spacing, typography, and hex colors in the `.gorilla/figma.json` file. Read that file and implement it exactly."
+
+        except Exception as e:
+            print(f"⚠️ Figma Import Failed: {e}")
+            return RedirectResponse(f"/dashboard?error={urllib.parse.quote(str(e))}", status_code=303)
+
+
+    # --- 4. HEAVY LIFTING (DB & Files) ---
     def _heavy_lift_create():
+        # ⚡ THE GEMINI COMPILER STEP ⚡
+        compiled_react_code = None
+        figma_tokens_used = 0  # 🛑 Track tokens locally
+        
+        if final_figma_json:
+            or_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("GORILLA_API_KEY")
+            if or_key:
+                try:
+                    # 🛑 Unpack the tuple (code, tokens)
+                    compiled_react_code, figma_tokens_used = asyncio.run(compile_figma_to_react(final_figma_json, or_key))
+                    
+                    # 🛑 Securely deduct the tokens 
+                    if figma_tokens_used and figma_tokens_used > 0:
+                        try:
+                            add_monthly_tokens(user["id"], figma_tokens_used)
+                            print(f"💰 Deducted {figma_tokens_used} tokens for Gemini Figma Compiler (User: {user['id']})")
+                        except Exception as tk_err:
+                            print(f"⚠️ Failed to deduct tokens: {tk_err}")
+                            
+                except Exception as e:
+                    print(f"❌ Gemini Compiler thread failed: {e}")
+
+        # 🛑 CHAT HISTORY HACK
+        initial_history = []
+        if compiled_react_code:
+            initial_history.append({
+                "role": "system",
+                "content": "A Figma design was imported. A pre-compiler has already converted the design into the starting React code located in src/App.tsx. Your job is to help the user refine it, add state/interactivity, or split it into components as requested."
+            })
+            initial_history.append({
+                "role": "assistant",
+                "content": "✨ I have successfully compiled your Figma design into React! The preview is loading. What functionality or state would you like to add?"
+            })
+            if final_prompt and "figma.com" not in final_prompt:
+                initial_history.append({
+                    "role": "user",
+                    "content": final_prompt
+                })
+        elif final_figma_json:
+            initial_history.append({
+                "role": "system",
+                "content": f"FIGMA DESIGN DATA: You MUST use this exact structural JSON to build the React/Tailwind UI. Do not hallucinate classes. Rely on the 'layoutMode', 'itemSpacing', and hex 'fills'. Data:\n{final_figma_json}"
+            })
+
         res = supabase.table("projects").insert({
             "owner_id": user["id"], 
             "name": project_name, 
             "description": description or (final_prompt[:200] if final_prompt else ""),
-            "prompt_image": final_image, # Store in projects table
-            "chat_history": [] # Initialize empty history
+            "prompt_image": final_image,
+            "snapshot_b64": final_image, 
+            "chat_history": initial_history 
         }).execute()
         
         if not res.data: 
@@ -1292,6 +1527,13 @@ async def create_project(
                             })
                     except: continue 
 
+            if files_to_insert and compiled_react_code:
+                for f in files_to_insert:
+                    if f["path"] in ["src/App.tsx", "src/App.jsx"]:
+                        f["content"] = compiled_react_code
+                        print(f"💉 Injected Gemini React code perfectly into {f['path']}")
+                        break
+
             if files_to_insert:
                 try:
                     supabase.table("files").insert(files_to_insert).execute()
@@ -1300,7 +1542,6 @@ async def create_project(
                         try: supabase.table("files").upsert(f, on_conflict="project_id,path").execute()
                         except: pass
 
-        # --- D. INJECT IMAGE TO VIRTUAL FS FOR AI PLANNER ---
         if final_image:
             try:
                 supabase.table("files").insert({
@@ -1310,12 +1551,36 @@ async def create_project(
                 }).execute()
             except Exception as e:
                 print(f"⚠️ Failed to save image to virtual FS: {e}")
+                
+        if final_figma_json:
+            try:
+                supabase.table("files").insert({
+                    "project_id": pid,
+                    "path": ".gorilla/figma.json",
+                    "content": final_figma_json
+                }).execute()
+                print(f"✅ Successfully wrote figma.json to project {pid}")
+            except Exception as e:
+                print(f"⚠️ Failed to save figma.json to virtual FS: {e}")
         
         return pid
 
-    # --- 4. EXECUTION ---
+    # --- 5. EXECUTION ---
     try:
         pid = await asyncio.to_thread(_heavy_lift_create)
+        
+        if final_prompt and not final_figma_json and not final_image:
+            try:
+                def get_api_key():
+                    return supabase.table("users").select("gorilla_api_key").eq("id", user["id"]).single().execute()
+                
+                user_api_data = await asyncio.to_thread(get_api_key)
+                api_key = user_api_data.data.get("gorilla_api_key", "") if user_api_data and user_api_data.data else ""
+                
+                if api_key.startswith("gb_live_"):
+                    background_tasks.add_task(generate_project_snapshot, pid, final_prompt, api_key)
+            except Exception as e:
+                pass
         
         if xmode == "true":
             target_url = f"/projects/{pid}/xmode"
@@ -1463,13 +1728,54 @@ async def project_export(request: Request, project_id: str):
     )
 
 # ==========================================================================
-# REUSABLE AGENT LOOP (Used by UI and Auto-Fix)
+# REUSABLE AGENT LOOP - Streamlined Version
 # ==========================================================================
+#
+# No plan rendering - agents work freely
+# Only assistant message shown to user
+# All activity logged to terminal
+# Minimal, clean UI experience
+#
+
 import httpx
 import re
+import asyncio
+from typing import List, Dict
+
+# Import both Agent classes for conditional usage
+from backend.ai.agent import Agent as RegularAgent, _render_token_limit_message
+from backend.ai.Xagent import XAgent
+
+# Global tracking for active AI fixes
+active_ai_fixes = set()
+
 
 async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: bool = False, history: List[Dict] = None, skip_planner: bool = False):
+    """
+    Streamlined agent loop.
+    
+    - No plan rendering in UI
+    - Only assistant message shown
+    - All activity logged to terminal
+    - Agents work freely with internal MCP
+    - Xmode uses XAgent with extreme swarm logic
+    """
+    # Use XAgent for extreme mode, RegularAgent for normal mode
+    agent = XAgent() if is_xmode else RegularAgent()
+    
     try:
+        # ==========================================================================
+        # TOKEN CHECK - Before ANY work begins
+        # ==========================================================================
+        if user_id:
+            try: 
+                enforce_token_limit_or_raise(user_id)
+            except HTTPException:
+                emit_log(project_id, "planner", _render_token_limit_message())
+                emit_status(project_id, "Token Limit Reached")
+                emit_progress(project_id, "Upgrade required", 0)
+                return
+        
         await asyncio.sleep(0.5)
         file_tree = await _fetch_file_tree(project_id)
         
@@ -1478,141 +1784,137 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         db_history = proj_data.get("chat_history", []) if proj_data and proj_data.get("chat_history") else []
         db_history.append({"role": "user", "content": prompt})
         
-        planner = Planner()
-        coder = XCoder() if (is_xmode and 'XCoder' in globals()) else Coder()
-        
-        # Fetch user API key to pass to planner for image generation capabilities
+        # Fetch user API key
         user_api_data = db_select_one("users", {"id": user_id}, "gorilla_api_key")
         api_key = user_api_data.get("gorilla_api_key", "") if user_api_data else ""
         
+        # ==========================================================================
+        # PLANNING PHASE
+        # ==========================================================================
         if not skip_planner:
             emit_phase(project_id, "planner")
-            emit_progress(project_id, "Architecting solution...", 10)
+            emit_progress(project_id, "Thinking...", 10)
             
             plan_context = {
                 "project_id": project_id, 
                 "files": list(file_tree.keys()),
-                "api_key": api_key  # Pass key to the planner for external AI capabilities
+                "api_key": api_key,
+                "history": db_history
             }
             
-            if history:
-                plan_context["history"] = history
-
             if ".gorilla/prompt_image.b64" in file_tree:
                 plan_context["image_context"] = file_tree[".gorilla/prompt_image.b64"]
-                # Give planner strict awareness of the file name
                 plan_context["image_filename"] = ".gorilla/prompt_image.b64"
 
+            # Run planner (logs everything to terminal internally)
             plan_res = await asyncio.to_thread(
-                planner.generate_plan,
+                agent.plan,
                 user_request=prompt, 
                 project_context=plan_context
             )
             
             tk = plan_res.get("usage", {}).get("total_tokens", 0)
-            if tk and user_id: add_monthly_tokens(user_id, tk)
+            if tk and user_id: 
+                add_monthly_tokens(user_id, tk)
             
-            raw_plan = plan_res.get("plan", {})
-            real_assistant_msg = plan_res.get("assistant_message")
+            # ONLY emit the assistant message - no plan rendering
+            assistant_msg = plan_res.get("assistant_message", "I'm working on that...")
+            emit_log(project_id, "assistant", assistant_msg)
             
-            if real_assistant_msg:
-                db_history.append({"role": "planner", "content": real_assistant_msg})
-                
-            emit_log(project_id, "assistant", real_assistant_msg or "I have created a plan for your application.")
-
-            tasks = raw_plan.get("todo", [])
-            if tasks:
-                steps_html = ""
-                for i, task in enumerate(tasks, 1):
-                    task_content = task
-                    if "]" in task:
-                        parts = task.split("]", 1)
-                        if len(parts) > 1:
-                            task_content = parts[1].strip()
-
-                    steps_html += (
-                        f'<div style="display:flex; gap:25px; position:relative; z-index:2; margin-bottom:20px;">'
-                        f'  <div style="width:12px; height:12px; background:#0f172a; border:2px solid #3b82f6; border-radius:50%; box-shadow:0 0 10px #3b82f6; flex-shrink:0; margin-top:6px; position:relative; z-index:2;"></div>'
-                        f'  <div style="flex:1; background:rgba(30,41,59,0.3); border:1px solid rgba(255,255,255,0.05); border-radius:8px; padding:18px;">'
-                        f'    <span style="color:#60a5fa; font-size:11px; font-weight:bold; letter-spacing:1px; margin-bottom:6px; display:block; font-family:monospace; opacity:0.8;">{i:02}</span>'
-                        f'    <div style="color:#cbd5e1; font-size:14px; line-height:1.5;">{task_content}</div>'
-                        f'  </div>'
-                        f'</div>'
-                    )
-                
-                full_html = (
-                    f'  <div style="margin-bottom:30px; padding-bottom:15px; border-bottom:1px solid rgba(255,255,255,0.05);">'
-                    f'    <div style="color:#e2e8f0; font-size:18px; font-weight:400; letter-spacing:1px; text-transform:uppercase;">✦ BluePrint</div>'
-                    f'  </div>'
-                    f'  <div style="position:relative; padding-left:5px;">'
-                    f'    <div style="position:absolute; left:6px; top:10px; bottom:10px; width:1px; background:linear-gradient(to bottom,#3b82f6,rgba(59,130,246,0.1)); z-index:1;"></div>'
-                    f'    {steps_html}'
-                    f'  </div>'
-                    f'</div>'
-                )
-                emit_log(project_id, "planner", full_html)
-
+            # Check if we got tasks
+            tasks = plan_res.get("plan", {}).get("todo", [])
+            
             if not tasks:
+                # Just a chat response, no coding needed
+                db_history.append({"role": "assistant", "content": assistant_msg})
                 supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
-                emit_status(project_id, "Response Complete")
-                emit_progress(project_id, "Done", 100)
+                emit_status(project_id, "Done")
+                emit_progress(project_id, "Ready", 100)
                 return
         else:
             emit_phase(project_id, "coder")
-            emit_log(project_id, "system", "⚡ Bypassing Planner. Triggering Coder directly...")
-            tasks = [prompt] 
-
+            emit_log(project_id, "assistant", "Applying fix...")
+        
+        # ==========================================================================
+        # CODING PHASE - Agents work freely
+        # ==========================================================================
         emit_phase(project_id, "coder")
+        emit_progress(project_id, "Building...", 30)
+        
+        # Dictionary to hold all file changes in memory until the very end
+        batch_files = {}
+        
+        # Get tasks from plan or use prompt directly
+        tasks = plan_res.get("plan", {}).get("todo", []) if not skip_planner else [prompt]
         total = len(tasks)
         
+        # BULLETPROOF FIGMA CONTEXT INJECTOR
+        figma_context = next((msg["content"] for msg in db_history if msg.get("role") == "system" and "Figma design was imported" in msg.get("content", "")), None)
+
         for i, task in enumerate(tasks, 1):
+            # Check token limit before each coding step
             if user_id:
-                try: enforce_token_limit_or_raise(user_id)
+                try: 
+                    enforce_token_limit_or_raise(user_id)
                 except HTTPException:
-                    emit_log(project_id, "system", "⚠️ Token limit reached. Stopping.")
+                    emit_log(project_id, "planner", _render_token_limit_message())
+                    emit_status(project_id, "Token Limit Reached")
+                    emit_progress(project_id, "Upgrade required", 0)
                     return
 
-            pct = 10 + (90 * (i / total))
-            emit_progress(project_id, f"Building step {i}/{total}...", pct)
-            emit_status(project_id, f"Implementing task {i}/{total}...")
+            pct = 30 + (60 * (i / total))
+            emit_progress(project_id, f"Building...", pct)
             
-            code_res = await coder.generate_code(
-                plan_section="Direct Execution" if skip_planner else "Implementation",
-                plan_text=task,
+            # Inject Figma Context if it exists
+            final_task_text = task
+            if figma_context and i == 1:
+                final_task_text = f"CRITICAL SYSTEM CONTEXT: {figma_context}\n\nUSER REQUEST: {task}"
+
+            # Run coder (logs everything to terminal internally)
+            code_res = await agent.code(
+                plan_section="" if skip_planner else f"Step {i}",
+                plan_text=final_task_text,
                 file_tree=file_tree,
-                project_name=project_id
+                project_name=project_id,
+                history=db_history
             )
             
             tk = code_res.get("usage", {}).get("total_tokens", 0)
-            if tk and user_id: add_monthly_tokens(user_id, tk)
-
-            if code_res.get("message"):
-                db_history.append({"role": "coder", "content": code_res.get("message")})
-                emit_log(project_id, "coder", code_res.get("message"))
+            if tk and user_id: 
+                add_monthly_tokens(user_id, tk)
 
             ops = code_res.get("operations", [])
-            emit_phase(project_id, "files")
             
             for op in ops:
                 path = op.get("path")
                 content = op.get("content")
                 if path and content is not None:
-                    if path.startswith("static/") and path.endswith(".js"):
-                        try:
-                            lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
-                            if lint_err:
-                                emit_log(project_id, "system", f"❌ Syntax Error in {path}:\n{lint_err}")
-                        except: pass
+                    batch_files[path] = content
+                    file_tree[path] = content
 
-                    db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
-                    emit_file_changed(project_id, path)
-            
-            file_tree = await _fetch_file_tree(project_id)
+        # ==========================================================================
+        # FILE RELEASE PHASE
+        # ==========================================================================
+        emit_phase(project_id, "files")
+        emit_progress(project_id, "Saving...", 95)
         
+        for path, content in batch_files.items():
+            if path.startswith("static/") and path.endswith(".js"):
+                try:
+                    lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
+                    if lint_err:
+                        emit_log(project_id, "system", f"Syntax Error in {path}:\n{lint_err}")
+                except: 
+                    pass
+
+            db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
+            emit_file_changed(project_id, path)
+
         # Save History when done
+        db_history.append({"role": "assistant", "content": assistant_msg})
         supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
 
-        emit_status(project_id, "Coding Complete.")
+        emit_status(project_id, "Done")
         emit_progress(project_id, "Ready", 100)
         
     except Exception as e:
@@ -1621,15 +1923,11 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         import traceback
         print(traceback.format_exc())
 
-# ==========================================================================
-# AUTO-FIXING LOG ENDPOINT
-# ==========================================================================
-# Add this near your other global variables in app.py
-active_ai_fixes = set()
 
 # ==========================================================================
 # AUTO-FIXING LOG ENDPOINT
 # ==========================================================================
+
 @app.post("/api/project/{project_id}/log")
 async def log_browser_event(project_id: str, request: Request, background_tasks: BackgroundTasks):
     global active_ai_fixes
@@ -1641,16 +1939,15 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
 
         if "error" in message.lower() or "failed" in message.lower() or "syntax error" in message.lower():
             
-            # 🛑 THE BACKEND MUTEX: Block duplicate AI agents
+            # THE BACKEND MUTEX: Block duplicate AI agents
             if project_id in active_ai_fixes:
                 print(f"[{project_id}] AI is already fixing this. Ignoring duplicate request.")
                 return JSONResponse({"status": "ignored", "detail": "Fix already in progress"})
             
             active_ai_fixes.add(project_id)
             
-            emit_log(project_id, "system", f"⚠️ Browser Error Detected. Analyzing...")
-            emit_log(project_id, "system", "🔧 AI Agent is spinning up to apply an Auto-Fix...")
-
+            emit_log(project_id, "system", f"Browser Error Detected. Analyzing...")
+            
             chat_history = []
             owner_id = None
             try:
@@ -1665,7 +1962,7 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
                 active_ai_fixes.remove(project_id)
                 return JSONResponse({"status": "error", "detail": "Owner not found"}, status_code=404)
 
-            # Wrapper to ensure the lock is always removed when the AI finishes or crashes
+            # Wrapper to ensure the lock is always removed
             async def run_and_unlock(*args, **kwargs):
                 try:
                     await run_agent_loop(*args, **kwargs)
@@ -1676,7 +1973,7 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
             background_tasks.add_task(
                 run_and_unlock, 
                 project_id=project_id, 
-                prompt=message, # Give it the exact error message
+                prompt=message,
                 user_id=owner_id,
                 history=chat_history,
                 is_xmode=True, 
@@ -2485,39 +2782,37 @@ async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_k
             return JSONResponse(data)
 
 
-# --- 2. IMAGE GENERATION (Fireworks / 250 tokens per image) ---
 @app.post("/api/v1/images/generations")
 async def proxy_image_generations(request: Request, auth=Depends(verify_gorilla_key)):
     user_id = auth["user_id"]
     payload = await request.json()
     
-    num_images = int(payload.get("n", 1))
-    
+    # Fireworks Native Parameters
     fireworks_payload = {
-        "model": "accounts/fireworks/models/playground-v2-5-1024px-aesthetic",
         "prompt": payload.get("prompt", ""),
-        "n": num_images,
-        "size": payload.get("size", "1024x1024"),
-        "response_format": payload.get("response_format", "url")
+        "samples": 1,
+        "height": 1024,
+        "width": 1024
     }
     
     headers = {
         "Authorization": f"Bearer {FIREWORKS_API_KEY}",
         "Content-Type": "application/json",
-        "Accept": "application/json"
+        "Accept": "application/json"  # <--- CRITICAL: Ensures we get JSON back
     }
     
+    url = "https://api.fireworks.ai/inference/v1/image_generation/accounts/fireworks/models/playground-v2-5-1024px-aesthetic"
+    
     async with httpx.AsyncClient() as client:
-        resp = await client.post("https://api.fireworks.ai/inference/v1/image_generation", json=fireworks_payload, headers=headers)
+        resp = await client.post(url, json=fireworks_payload, headers=headers, timeout=60.0)
         
         if resp.status_code != 200:
-            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+            raise HTTPException(status_code=502, detail=f"Fireworks Error: {resp.text}")
         
-        # Bill 250 tokens per image generated
-        _deduct_proxy_tokens(user_id, 250 * num_images, "image_gen")
+        # Deduct tokens only on success
+        _deduct_proxy_tokens(user_id, 250, "image_gen")
         
         return JSONResponse(resp.json())
-
 
 # --- 3. SPEECH TO TEXT (Fireworks Whisper / 100 tokens per min) ---
 @app.post("/api/v1/audio/transcriptions")

@@ -64,6 +64,7 @@
       position: relative; z-index: 1;
       box-shadow: 0 20px 50px -10px rgba(0,0,0,0.5);
       outline: #ffd700;
+      transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     h1 { margin: 0 0 8px; font-size: 28px; font-weight: 300; letter-spacing: -0.5px; }
@@ -102,9 +103,8 @@
     .prompt-icon { color: var(--accent); font-size: 18px; margin-top: 2px; }
     .prompt-content { flex: 1; }
     .prompt-content strong { color: #fff; display: block; font-size: 13px; margin-bottom: 2px; }
-    .prompt-content span { color: var(--text-muted); font-size: 13px; line-height: 1.4; display: block; }
+    .prompt-content span { color: var(--text-muted); font-size: 13px; line-height: 1.4; display: block; word-break: break-all; }
     
-    /* Thumbnail preview for the stashed image */
     .stashed-thumbnail {
       width: 40px; height: 40px; border-radius: 8px;
       object-fit: cover; border: 1px solid var(--border);
@@ -120,13 +120,11 @@
       transition: all 0.2s;
     }
     
-    /* Standard Button */
     .btn-primary {
       background: #fff; color: #000;
     }
     .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(255,255,255,0.15); }
 
-    /* X-Mode Button (Purple) */
     .btn-xmode {
       background: linear-gradient(135deg, #7c3aed, #6d28d9);
       color: #fff;
@@ -145,6 +143,158 @@
     }
     .back-link:hover { color: #fff; }
 
+    /* ==========================================================================
+       THE MATRIX LOADING STATE
+       ========================================================================== */
+    .loading-state {
+      display: none; 
+      text-align: center;
+      padding: 40px 0;
+      position: relative;
+    }
+    
+    .loading-state.active {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Floating Figma Logo Container */
+    .compiler-core {
+      position: relative;
+      width: 120px; 
+      height: 120px;
+      margin: 0 auto 40px;
+      display: flex; 
+      align-items: center; 
+      justify-content: center;
+    }
+
+    /* Background Core Glow */
+    .compiler-glow {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle, var(--accent) 0%, transparent 60%);
+      opacity: 0.2;
+      filter: blur(20px);
+      animation: corePulse 2s ease-in-out infinite alternate;
+    }
+
+    /* The actual Figma SVG styling */
+    .figma-icon {
+      width: 50px; 
+      height: 50px;
+      z-index: 10;
+      filter: drop-shadow(0 0 15px rgba(26, 188, 254, 0.5));
+      animation: levitate 4s ease-in-out infinite;
+    }
+
+    /* Scanning Laser Line */
+    .scanner-line {
+      position: absolute;
+      width: 120%;
+      height: 2px;
+      background: #1ABCFE;
+      box-shadow: 0 0 10px #1ABCFE, 0 0 20px #0ACF83;
+      z-index: 15;
+      opacity: 0.8;
+      animation: scan 2s linear infinite;
+    }
+
+    /* Rotating Tech Ring */
+    .tech-ring {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border: 1px dashed rgba(255, 255, 255, 0.2);
+      border-radius: 50%;
+      z-index: 5;
+      animation: spin 10s linear infinite;
+    }
+    .tech-ring::before, .tech-ring::after {
+      content: '';
+      position: absolute;
+      width: 8px; height: 8px;
+      background: var(--accent);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--accent);
+    }
+    .tech-ring::before { top: -4px; left: 50%; transform: translateX(-50%); }
+    .tech-ring::after { bottom: -4px; left: 50%; transform: translateX(-50%); }
+
+    /* Canvas for particle streams */
+    #matrixCanvas {
+      position: absolute;
+      top: -50px;
+      left: -50px;
+      width: calc(100% + 100px);
+      height: calc(100% + 100px);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* Standard Abstract Icon (For Non-Figma) */
+    .abstract-icon {
+      font-size: 50px;
+      color: var(--accent);
+      z-index: 10;
+      animation: levitate 3s ease-in-out infinite;
+    }
+
+    /* Typography */
+    .loading-title {
+      font-size: 24px; 
+      font-weight: 500; 
+      color: #fff; 
+      margin-bottom: 12px;
+      letter-spacing: -0.5px;
+    }
+    
+    .loading-subtitle {
+      font-size: 14px; 
+      color: var(--accent);
+      font-family: monospace;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      background: rgba(59, 108, 255, 0.1);
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 1px solid var(--accent-glow);
+    }
+
+    .typewriter-text {
+      display: inline-block;
+      overflow: hidden;
+      white-space: nowrap;
+      border-right: 2px solid var(--accent);
+      animation: typing 1.5s steps(3) infinite;
+    }
+
+    /* Animations */
+    @keyframes levitate {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50% { transform: translateY(-8px) scale(1.05); }
+    }
+    @keyframes corePulse {
+      0% { opacity: 0.1; transform: scale(0.8); }
+      100% { opacity: 0.3; transform: scale(1.2); }
+    }
+    @keyframes scan {
+      0% { top: -10%; opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { top: 110%; opacity: 0; }
+    }
+    @keyframes spin {
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes typing {
+      0%, 100% { border-color: transparent; }
+      50% { border-color: var(--accent); }
+    }
+
   </style>
 </head>
 
@@ -153,64 +303,206 @@
   <div class="noise-overlay"></div>
   <div class="glow-spot"></div>
 
-  <div class="card">
-    <h1>Initialize Project</h1>
-    <p>Review details before the AI begins construction.</p>
+  <div class="card" id="mainCard">
+    
+    <div id="formView">
+      <h1>Initialize Project</h1>
+      <p>Review details before the AI begins construction.</p>
 
-    {% if initial_prompt or stashed_image %}
-    <div class="prompt-preview">
-      <i class="ph-fill ph-sparkle prompt-icon"></i>
-      <div class="prompt-content">
-        <strong>Prompt Loaded</strong>
-        {% if initial_prompt %}
-          <span>"{{ initial_prompt[:80] }}..."</span>
-        {% else %}
-          <span>Image layout detected.</span>
+      {% if initial_prompt or stashed_image %}
+      <div class="prompt-preview">
+        <i class="ph-fill ph-sparkle prompt-icon"></i>
+        <div class="prompt-content">
+          <strong>Prompt Loaded</strong>
+          {% if initial_prompt %}
+            <span>"{{ initial_prompt[:80] }}{% if initial_prompt|length > 80 %}...{% endif %}"</span>
+          {% else %}
+            <span>Image layout detected.</span>
+          {% endif %}
+        </div>
+        
+        {% if stashed_image %}
+          <img src="{{ stashed_image }}" class="stashed-thumbnail" alt="Uploaded UI Mockup" title="Design attached successfully">
         {% endif %}
       </div>
+      {% endif %}
+
+      <form id="createForm" method="post" action="/projects/create" enctype="multipart/form-data">
+        
+        <input type="hidden" name="prompt" value="{{ initial_prompt or '' }}">
+        {% if stashed_image %}
+          <input type="hidden" name="image_base64" value="{{ stashed_image }}">
+        {% endif %}
+
+        <div class="form-group">
+          <label>Project Name</label>
+          <input name="name" placeholder="e.g. Finance Dashboard" required autofocus />
+        </div>
+
+        <div class="form-group">
+          <label>Description</label>
+          <textarea name="description" placeholder="A brief summary of what this app does...">{{ initial_prompt }}</textarea>
+        </div>
+
+        <div class="btn-group">
+          {% if user.plan == 'premium' %}
+            <button type="submit" name="xmode" value="true" class="btn btn-xmode">
+              <i class="ph-fill ph-lightning"></i> Create in X-Mode (Manual Prompting)
+            </button>
+            
+            <button type="submit" name="xmode" value="false" class="btn btn-primary" style="background:transparent; color:var(--text-muted); border:1px solid var(--border);">
+              Standard Build
+            </button>
+          {% else %}
+            <button type="submit" class="btn btn-primary">
+              Build Project <i class="ph-bold ph-arrow-right"></i>
+            </button>
+          {% endif %}
+        </div>
+      </form>
       
-      {% if stashed_image %}
-        <img src="{{ stashed_image }}" class="stashed-thumbnail" alt="Uploaded UI Mockup" title="Design attached successfully">
+      <a href="/dashboard" class="back-link">Cancel & Return</a>
+    </div>
+
+    <div id="loadingView" class="loading-state">
+      
+      <div class="compiler-core">
+        <canvas id="matrixCanvas"></canvas>
+        <div class="compiler-glow"></div>
+        <div class="tech-ring"></div>
+        
+        {% if is_figma_link %}
+          <div class="scanner-line"></div>
+          <svg class="figma-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M16 16C16 13.7909 17.7909 12 20 12C22.2091 12 24 13.7909 24 16C24 18.2091 22.2091 20 20 20C17.7909 20 16 18.2091 16 16Z" fill="#1ABCFE"/>
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M8 24C8 21.7909 9.79086 20 12 20H16V24C16 26.2091 14.2091 28 12 28C9.79086 28 8 26.2091 8 24Z" fill="#0ACF83"/>
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M16 4V12H20C22.2091 12 24 10.2091 24 8C24 5.79086 22.2091 4 20 4H16Z" fill="#FF7262"/>
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M8 8C8 10.2091 9.79086 12 12 12H16V4H12C9.79086 4 8 5.79086 8 8Z" fill="#F24E1E"/>
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M8 16C8 18.2091 9.79086 20 12 20H16V12H12C9.79086 12 8 13.7909 8 16Z" fill="#A259FF"/>
+          </svg>
+        {% else %}
+          <i class="ph-bold ph-brackets-angle abstract-icon"></i>
+        {% endif %}
+      </div>
+
+      {% if is_figma_link %}
+        <div class="loading-title">Compiling Figma Design</div>
+        <div class="loading-subtitle" id="statusText">EXTRACTING_AST <span class="typewriter-text">...</span></div>
+        <p style="margin-top:20px; font-size:13px; color:var(--text-muted); opacity: 0.7;">Translating vector layout into React TSX</p>
+      {% else %}
+        <div class="loading-title">Initializing Environment</div>
+        <div class="loading-subtitle">BOOTING_VM <span class="typewriter-text">...</span></div>
       {% endif %}
     </div>
-    {% endif %}
 
-    <form method="post" action="/projects/create" enctype="multipart/form-data">
-      
-      <input type="hidden" name="prompt" value="{{ initial_prompt or '' }}">
-      {% if stashed_image %}
-        <input type="hidden" name="image_base64" value="{{ stashed_image }}">
-      {% endif %}
-
-      <div class="form-group">
-        <label>Project Name</label>
-        <input name="name" placeholder="e.g. Finance Dashboard" required autofocus />
-      </div>
-
-      <div class="form-group">
-        <label>Description</label>
-        <textarea name="description" placeholder="A brief summary of what this app does...">{{ initial_prompt }}</textarea>
-      </div>
-
-      <div class="btn-group">
-        {% if user.plan == 'premium' %}
-          <button type="submit" name="xmode" value="true" class="btn btn-xmode">
-            <i class="ph-fill ph-lightning"></i> Create in X-Mode (Manual Prompting)
-          </button>
-          
-          <button type="submit" name="xmode" value="false" class="btn btn-primary" style="background:transparent; color:var(--text-muted); border:1px solid var(--border);">
-            Standard Build
-          </button>
-        {% else %}
-          <button type="submit" class="btn btn-primary">
-            Build Project <i class="ph-bold ph-arrow-right"></i>
-          </button>
-        {% endif %}
-      </div>
-    </form>
-    
-    <a href="/dashboard" class="back-link">Cancel & Return</a>
   </div>
+
+  <script>
+    // --- MATRIX PARTICLES SCRIPT ---
+    function startMatrixEffect() {
+      const canvas = document.getElementById('matrixCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      
+      // Match canvas size to CSS size
+      canvas.width = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+      
+      const particles = [];
+      const colors = ['#1ABCFE', '#0ACF83', '#A259FF', '#FF7262', '#ffffff'];
+      
+      class Particle {
+        constructor() {
+          this.reset();
+        }
+        reset() {
+          // Start particles from the edges, moving towards the center (Figma logo)
+          const angle = Math.random() * Math.PI * 2;
+          const distance = 80 + Math.random() * 40;
+          this.x = canvas.width/2 + Math.cos(angle) * distance;
+          this.y = canvas.height/2 + Math.sin(angle) * distance;
+          this.size = Math.random() * 2 + 1;
+          this.speed = Math.random() * 1 + 0.5;
+          this.color = colors[Math.floor(Math.random() * colors.length)];
+          // Calculate vector towards center
+          const dx = canvas.width/2 - this.x;
+          const dy = canvas.height/2 - this.y;
+          const mag = Math.sqrt(dx*dx + dy*dy);
+          this.vx = (dx / mag) * this.speed;
+          this.vy = (dy / mag) * this.speed;
+          this.life = 1;
+        }
+        update() {
+          this.x += this.vx;
+          this.y += this.vy;
+          // Fade out as it gets closer to center
+          const dx = canvas.width/2 - this.x;
+          const dy = canvas.height/2 - this.y;
+          const distToCenter = Math.sqrt(dx*dx + dy*dy);
+          
+          if (distToCenter < 15) {
+            this.reset();
+          } else {
+            this.life = distToCenter / 80;
+          }
+        }
+        draw() {
+          ctx.globalAlpha = Math.max(0, Math.min(1, this.life));
+          ctx.fillStyle = this.color;
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      for(let i=0; i<30; i++) particles.push(new Particle());
+
+      function animate() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        particles.forEach(p => {
+          p.update();
+          p.draw();
+        });
+        requestAnimationFrame(animate);
+      }
+      animate();
+    }
+
+    // Intercept form submission
+    document.getElementById("createForm").addEventListener("submit", function(e) {
+      
+      // Disable buttons to prevent spam
+      const buttons = this.querySelectorAll('button[type="submit"]');
+      buttons.forEach(btn => {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'wait';
+      });
+
+      const formView = document.getElementById("formView");
+      const loadingView = document.getElementById("loadingView");
+      const isFigma = {{ 'true' if is_figma_link else 'false' }};
+      
+      formView.style.display = "none";
+      loadingView.classList.add("active");
+      
+      if (isFigma) {
+        startMatrixEffect();
+        
+        const texts = [
+            "EXTRACTING_AST", 
+            "PURGING_MATH", 
+            "TRANSLATING_FLEXBOX", 
+            "WRITING_COMPONENTS"
+        ];
+        let i = 0;
+        setInterval(() => {
+          i = (i + 1) % texts.length;
+          document.getElementById("statusText").innerHTML = texts[i] + ' <span class="typewriter-text">...</span>';
+        }, 2500);
+      }
+    });
+  </script>
 
 </body>
 </html>

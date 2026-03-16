@@ -1,12 +1,3 @@
-"""
-coder.py — gor://a AI Code Generation Engine (OpenRouter xAI Grok)
-- Calls OpenRouter API (x-ai/grok-4.1-fast)
-- Uses Regex to reliably extract JSON from "chatty" models
-- Enforces a 'message' field so the AI talks to the user
-- Returns token usage statistics
-- Auto-retries on failure
-- Maintains separate chat history contexts per Project/App
-"""
 from __future__ import annotations
 import os
 import json
@@ -208,13 +199,13 @@ class Coder:
 
             "CRITICAL ENVIRONMENT CONSTRAINTS (WebContainers):\n"
             "- You are writing code that will execute inside a browser-based WebContainer.\n"
-            "- WebContainers DO NOT support native C++ bindings or WASM for certain database drivers.\n"
-            "- 🚨 NEVER use `@libsql/client`. It will crash with a WASM execution error.\n"
-            "- ✅ ALWAYS use `better-sqlite3` and `drizzle-orm/better-sqlite3` for local databases.\n"
-            "- When generating `drizzle.config.ts`, you MUST use `dialect: 'sqlite'` and `dbCredentials: { url: 'sqlite.db' }`.\n\n"
+            "- WebContainers DO NOT support native C++ Node modules.\n"
+            "- 🚨 NEVER use `better-sqlite3` or `sqlite3`. It will fatally crash the container.\n"
+            "- ✅ ALWAYS use `@libsql/client` and `drizzle-orm/libsql` for local databases.\n"
+            "- There is no external database server. You MUST configure both `drizzle.config.ts` and your DB connection instance to use a local file-based database with the exact connection URL: `file:local.db`.\n\n"
 
             "UI/UX & DESIGN ENCOURAGEMENT:\n"
-            "- Go all out on the frontend! We want a sleek, modern, and highly polished user interface.\n"
+            "- Go all out on the frontend! We want a sleek, modern, and highly polished user interface. THINK OUT OF THE BOX WITHOUT BOOTSTRAPPY LOOKS AND NO INTER FONTS, BE CREATIVE!\n"
             "- Liberally use Tailwind CSS for beautiful styling, spacing, and typography.\n"
             "- Use `framer-motion` for buttery smooth micro-interactions, page transitions, and element reveals.\n"
             "- Use `lucide-react` for crisp, consistent iconography.\n"
@@ -229,7 +220,7 @@ class Coder:
             "  - **CRITICAL**: You MUST include the `.js` extension for local backend imports.\n\n"
 
             "API & MODELS CONFIGURATION:\n"
-            "- Use `process.env.OPENROUTER_API_KEY and FIREWORKS_API_KEY and REMBG_API_KEY` for AI. Listen to the planner.\n"
+            "- Use `process.env.OPENROUTER_API_KEY and FIREWORKS_API_KEY and REMBG_API_KEY` for AI. Listen to the planner.\n\n"
 
             "RESPONSE FORMAT (JSON ONLY):\n"
             "{\n"
@@ -248,7 +239,9 @@ class Coder:
             "2. NEVER generate .env or Dockerfile. The main server is always server.js and the backend is always node.js within the routes/ folder, the frontend is always react/typescript.\n"
             "3. NEVER use literal '\\n'. Use physical newlines.\n"
             "4. There is no read file action, to find a file please look into the conversation history\n"
-            "5. When you get instructions to finalize the server.js, ALWAYS update the WHOLE SERVER.JS and use overwrite_file action, never leave it as is.\n\n"
+            "5. When you get instructions to finalize the server.js, ALWAYS update the WHOLE SERVER.JS and use overwrite_file action, never leave it as is.\n"
+            "6. CRITICAL INFRASTRUCTURE RULE: If you modify `package.json` to add dependencies, you MUST entirely preserve the existing `scripts` block. NEVER delete or modify the `dev`, `server`, `client`, or `db:push` scripts, or the WebContainer will fatally crash.\n\n"
+
             "SPECIFIC RULES:\n"
             "1. **Frontend (React)**: Use Functional Components. MAKE EVERYTHING LOOK VERY GOOD! WITH EYECANDY FOR THE USER.\n"
             "2. **Backend (Node)**: Use `async/await`. Return JSON (`res.json`). Handle errors with `try/catch`.\n"

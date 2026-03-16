@@ -231,7 +231,12 @@
       background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.15);
       color: #fff; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     }
-
+    .figma-upload-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .figma-upload-btn:hover svg {
+      transform: scale(1.1);
+    }
     /* ERROR MSG */
     .error-msg {
       margin-top: 24px; padding: 12px 16px; 
@@ -437,6 +442,79 @@
       margin-bottom: 24px; text-transform: uppercase;
     }
 
+    /* --- NAV PROMO AD (MONKE) --- */
+    .nav-promo {
+      margin-top: 16px;
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), rgba(245, 158, 11, 0.01));
+      border: 1px solid rgba(245, 158, 11, 0.2);
+      border-radius: 16px;
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    
+    .nav-promo:hover {
+      transform: translateY(-2px) scale(1.02);
+      border-color: rgba(245, 158, 11, 0.5);
+      box-shadow: 0 10px 25px rgba(245, 158, 11, 0.15);
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05));
+    }
+
+    /* The moving light reflection */
+    .nav-promo::after {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%;
+      width: 50%; height: 100%;
+      background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.15), transparent);
+      transform: skewX(-20deg);
+      animation: promoShimmer 4s infinite;
+    }
+
+    @keyframes promoShimmer {
+      0% { left: -100%; }
+      15% { left: 200%; }
+      100% { left: 200%; }
+    }
+
+    .promo-icon {
+      font-size: 22px;
+      background: rgba(0, 0, 0, 0.5);
+      min-width: 42px; height: 42px;
+      border-radius: 12px;
+      display: flex; justify-content: center; align-items: center;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      box-shadow: inset 0 0 10px rgba(245, 158, 11, 0.2);
+    }
+
+    .promo-text {
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .promo-text strong {
+      color: #fff; font-size: 13px; font-weight: 600; letter-spacing: 0.2px;
+    }
+    .promo-text span {
+      color: rgba(255, 255, 255, 0.6); font-size: 11px; line-height: 1.3;
+    }
+
+    .promo-badge {
+      position: absolute;
+      top: 8px; right: 8px;
+      background: #f59e0b;
+      color: #000;
+      font-size: 9px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+      box-shadow: 0 2px 5px rgba(245, 158, 11, 0.4);
+    }
+
     .spin-modal h2 { font-size: 26px; color: #fff; margin: 0 0 8px; font-weight: 500; }
     .spin-modal p { color: var(--text-muted); font-size: 14px; line-height: 1.5; margin: 0 0 24px; }
     
@@ -464,7 +542,69 @@
     
   </style>
 </head>
-<body class="{% if user.plan == 'premium' %}premium{% endif %}">
+<body class="{% if user.plan == 'premium' %}premium{% endif %} {% if xmode %}xmode{% endif %}">
+  
+  <style>
+    /* New styles for the visual snapshot cards */
+    .card {
+      padding: 0 !important;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    
+    .card-snapshot {
+      height: 180px;
+      width: 100%;
+      flex-shrink: 0;
+      background: #080a0f;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .snapshot-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      display: block;
+    }
+    
+    .card:hover .snapshot-img {
+      transform: scale(1.05);
+    }
+    
+    .card-content {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+    
+    .card-content h3 { 
+      margin-top: 0; 
+      margin-bottom: 8px;
+    }
+    
+    .card-content p {
+      flex: 1;
+      margin-bottom: 20px;
+    }
+    
+    .card-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+  </style>
 
   <div class="noise-overlay"></div>
   <div class="glow-spot"></div>
@@ -480,23 +620,25 @@
       <a href="/dashboard" class="active">
         <i class="ph ph-squares-four"></i> Projects
       </a>
-      
       <a href="/settings/skills" id="nav-agent-skills">
         <i class="ph ph-brain"></i> Agent Skills
       </a>
-
       <a href="/settings">
         <i class="ph ph-gear"></i> Settings
       </a>
-
       <a href="/pricing">
         <i class="ph ph-lightning"></i> Upgrade
       </a>
       <a href="/docs/intro">
         <i class="ph ph-book"></i> Docs
       </a>
-      <a href="/pricing/negotiate">
-        <i class="ph ph-monkey"></i> Get the first month free by negotiating with our AI!
+      <a href="/pricing/negotiate" class="nav-promo">
+        <div class="promo-icon">😎</div>
+        <div class="promo-text">
+          <strong>Haggle with Monke</strong>
+          <span>Negotiate your Pro plan down to $0.67/mo!</span>
+        </div>
+        <div class="promo-badge">HOT</div>
       </a>
     </nav>
 
@@ -547,14 +689,27 @@
     <section class="builder-section animate-entry" style="animation-delay: 100ms;">
       {% set is_locked = (user.plan != 'premium' and projects|length >= 3) %}
 
-      <form class="input-box {% if is_locked %}disabled{% endif %}" method="POST" action="/projects/create" enctype="multipart/form-data">
+      <form class="input-box {% if is_locked %}disabled{% endif %}" method="POST" action="/projects/create" id="mainPromptForm" enctype="multipart/form-data">
         
         {% if not is_locked %}
-        <div class="image-upload-wrapper">
-          <input type="file" name="image_file" id="imageInput" accept="image/png, image/jpeg, image/webp">
-          <i class="ph-bold ph-image image-upload-btn" id="imageUploadBtn"></i>
-          <img id="imagePreview" class="image-preview" src="" alt="Preview">
-          <input type="hidden" name="image_base64" id="imageBase64">
+        <div class="input-actions" style="display: flex; align-items: center; gap: 8px; margin-left: 8px;">
+          
+          <div class="image-upload-wrapper">
+            <input type="file" name="image_file" id="imageInput" accept="image/png, image/jpeg, image/webp">
+            <i class="ph-bold ph-image image-upload-btn" id="imageUploadBtn" title="Upload Image Reference"></i>
+            <img id="imagePreview" class="image-preview" src="" alt="Preview">
+            <input type="hidden" name="image_base64" id="imageBase64">
+          </div>
+
+          <button type="button" class="figma-upload-btn" id="figmaUploadBtn" title="Import from Figma" data-linked="{% if user.figma_access_token %}true{% else %}false{% endif %}" style="background: none; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 6px; border-radius: 8px; transition: 0.2s;">
+            <svg width="30" height="30" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="transition: transform 0.2s;">
+              <path fill-rule="evenodd" clip-rule="evenodd" d="M16 16C16 13.7909 17.7909 12 20 12C22.2091 12 24 13.7909 24 16C24 18.2091 22.2091 20 20 20C17.7909 20 16 18.2091 16 16Z" fill="#1ABCFE"/>
+              <path fill-rule="evenodd" clip-rule="evenodd" d="M8 24C8 21.7909 9.79086 20 12 20H16V24C16 26.2091 14.2091 28 12 28C9.79086 28 8 26.2091 8 24Z" fill="#0ACF83"/>
+              <path fill-rule="evenodd" clip-rule="evenodd" d="M16 4V12H20C22.2091 12 24 10.2091 24 8C24 5.79086 22.2091 4 20 4H16Z" fill="#FF7262"/>
+              <path fill-rule="evenodd" clip-rule="evenodd" d="M8 8C8 10.2091 9.79086 12 12 12H16V4H12C9.79086 4 8 5.79086 8 8Z" fill="#F24E1E"/>
+              <path fill-rule="evenodd" clip-rule="evenodd" d="M8 16C8 18.2091 9.79086 20 12 20H16V12H12C9.79086 12 8 13.7909 8 16Z" fill="#A259FF"/>
+            </svg>
+          </button>
         </div>
         {% endif %}
 
@@ -564,7 +719,8 @@
             <i class="ph-fill ph-lock-key"></i>
           </button>
         {% else %}
-          <input type="text" name="prompt" required placeholder="Describe your app idea (e.g. 'A kanban board for tracking tasks')" autocomplete="off" autofocus>
+          <input type="text" id="mainPromptInput" name="prompt" required placeholder="Describe your app idea (e.g. 'A kanban board for tracking tasks')" autocomplete="off" autofocus>
+          <input type="hidden" id="figmaUrlInput" name="figma_url">
           <button type="submit" class="action-btn" title="Create App">
             <i class="ph-bold ph-arrow-right"></i>
           </button>
@@ -621,28 +777,35 @@
       {% for project in projects %}
         <div class="card" onclick="location.href='/projects/{{ project.id }}/editor'">
           
-          <div class="card-icon">
-            <i class="ph ph-code"></i>
+          <div class="card-snapshot">
+            {% if project.snapshot_b64 %}
+              <img src="{% if project.snapshot_b64.startswith('data:image') %}{{ project.snapshot_b64 }}{% else %}data:image/jpeg;base64,{{ project.snapshot_b64 }}{% endif %}" class="snapshot-img">
+            {% else %}
+              <i class="ph-thin ph-image" style="font-size: 40px; color: var(--text-muted); opacity: 0.3;"></i>
+            {% endif %}
           </div>
           
-          <h3>{{ project.name }}</h3>
-          <p>{{ project.description[:80] if project.description else 'No description provided.' }}...</p>
-          
-          <div class="card-footer">
-            <span><i class="ph ph-clock"></i> {{ project.updated_at.split('T')[0] }}</span>
+          <div class="card-content">
+            <h3>{{ project.name }}</h3>
+            <p style="flex: 1;">{{ project.description[:80] if project.description else 'No description provided.' }}...</p>
             
-            <div class="card-actions">
-              {% if user.plan == 'premium' %}
-                <a href="/projects/{{ project.id }}/xmode" class="btn-xmode" onclick="event.stopPropagation();">
-                  <i class="ph-fill ph-lightning"></i> X-MODE
-                </a>
-              {% endif %}
+            <div class="card-footer">
+              <span><i class="ph ph-clock"></i> {{ project.updated_at.split('T')[0] }}</span>
               
-              <a href="/projects/{{ project.id }}/editor" class="btn-icon">
-                Open <i class="ph-bold ph-arrow-right"></i>
-              </a>
+              <div class="card-actions">
+                {% if user.plan == 'premium' %}
+                  <a href="/projects/{{ project.id }}/xmode" class="btn-xmode" onclick="event.stopPropagation();">
+                    <i class="ph-fill ph-lightning"></i> X-MODE
+                  </a>
+                {% endif %}
+                
+                <a href="/projects/{{ project.id }}/editor" class="btn-icon">
+                  Open <i class="ph-bold ph-arrow-right"></i>
+                </a>
+              </div>
             </div>
           </div>
+
         </div>
       {% else %}
         <div class="empty-state">
@@ -737,21 +900,18 @@
         const file = e.target.files[0];
         if (!file) return;
 
-        // 1. Instantly show the image in the UI
         const objectUrl = URL.createObjectURL(file);
         imagePreview.src = objectUrl;
         imagePreview.style.display = 'block';
         imageUploadBtn.style.display = 'none';
 
-        // 2. Compress the image using Canvas
         const img = new Image();
         img.onload = function() {
           const canvas = document.createElement('canvas');
-          const MAX_SIZE = 1024; // Perfect max dimension for Vision AI
+          const MAX_SIZE = 1024;
           let width = img.width;
           let height = img.height;
 
-          // Calculate new dimensions while keeping aspect ratio
           if (width > height && width > MAX_SIZE) {
             height *= MAX_SIZE / width;
             width = MAX_SIZE;
@@ -765,7 +925,6 @@
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
 
-          // 3. Export as compressed JPEG and inject into hidden input
           imageBase64.value = canvas.toDataURL('image/jpeg', 0.7);
         };
         img.src = objectUrl;
@@ -788,18 +947,16 @@
       skillsModal.classList.remove('active');
     }
 
-    // --- Daily Spin Wheel Logic with ANIMATION ---
+    // --- Daily Spin Wheel Logic ---
     const spinModal = document.getElementById('spinModal');
     const wagerInput = document.getElementById('wagerInput');
     const spinBtn = document.getElementById('spinBtn');
     const spinResultText = document.getElementById('spinResultText');
     const wheelElement = document.getElementById('spinWheelElement');
     
-    // Check if user has spun today based on backend date vs local UTC date
     const lastSpinDateStr = "{{ last_spin_date or '' }}";
     const todayStr = new Date().toISOString().split('T')[0];
     
-    // Only show if they haven't spun today AND haven't clicked "Maybe Later" this session
     if (lastSpinDateStr !== todayStr && sessionStorage.getItem('spinSkipped') !== 'true') {
       setTimeout(() => {
         if (!skillsModal.classList.contains('active')) {
@@ -829,9 +986,7 @@
       try {
         const response = await fetch('/api/tokens/spin', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ wager: wager })
         });
 
@@ -844,16 +999,9 @@
           return;
         }
 
-        // --- Calculate Target Angle for Animation ---
         const baseSpins = 5 * 360; 
         let targetDegree = 0;
 
-        /*
-          Because the pointer is at 0° (Top), and we spin clockwise:
-          Red is drawn from 0° - 120° (Middle is 60°). To bring 60° to the top, rotate 300°.
-          Blue is drawn from 120° - 240° (Middle is 180°). To bring 180° to the top, rotate 180°.
-          Green is drawn from 240° - 360° (Middle is 300°). To bring 300° to the top, rotate 60°.
-        */
         if (data.multiplier === 0.0) {
           targetDegree = baseSpins + 300; 
         } else if (data.multiplier === 1.5) {
@@ -862,11 +1010,9 @@
           targetDegree = baseSpins + 60;  
         }
 
-        // Add slight visual randomness so it doesn't land in the exact same pixel every time
         const randomOffset = Math.floor(Math.random() * 20) - 10; 
         wheelElement.style.transform = `rotate(${targetDegree + randomOffset}deg)`;
 
-        // Wait 3.5 seconds (matching the CSS transition time) before showing the text
         setTimeout(() => {
           if (data.multiplier === 0.0) {
             spinResultText.textContent = `Aww... You lost ${wager} credits!`;
@@ -876,11 +1022,9 @@
             spinResultText.className = "spin-result-text win";
           }
 
-          // Reload after displaying the winning/losing text
           setTimeout(() => {
             window.location.reload();
           }, 3000);
-
         }, 3500); 
 
       } catch (error) {
@@ -889,7 +1033,71 @@
         spinBtn.disabled = false;
       }
     }
-  </script>
 
+    // --- CONSOLIDATED FIGMA UI LOGIC ---
+    const figmaBtn = document.getElementById('figmaUploadBtn');
+    const promptInput = document.getElementById('mainPromptInput');
+    const figmaHiddenInput = document.getElementById('figmaUrlInput');
+    const mainForm = document.getElementById('mainPromptForm');
+
+    // Helper to visually swap the input box into "Figma URL" mode
+    function toggleFigmaMode() {
+      const isFigmaMode = promptInput.placeholder.includes('Figma');
+      if (isFigmaMode) {
+        // Turn OFF
+        promptInput.placeholder = "Describe your app idea (e.g. 'A kanban board for tracking tasks')";
+        promptInput.value = "";
+        figmaHiddenInput.value = "";
+        promptInput.style.borderColor = "var(--border)";
+        promptInput.style.boxShadow = "none";
+        figmaBtn.style.background = "none";
+      } else {
+        // Turn ON
+        promptInput.placeholder = "Paste your Figma Frame URL here...";
+        promptInput.value = "";
+        promptInput.focus();
+        promptInput.style.borderColor = "#0ACF83"; 
+        promptInput.style.boxShadow = "0 0 0 1px #0ACF83";
+        figmaBtn.style.background = "rgba(10, 207, 131, 0.15)"; 
+      }
+    }
+
+    // 1. Auto-trigger Figma Mode if returning from a successful OAuth redirect
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('success') === 'figma_linked' && figmaBtn) {
+      // Force update the data attribute so the button works correctly going forward
+      figmaBtn.setAttribute('data-linked', 'true');
+      toggleFigmaMode();
+      
+      // Clean up the URL so it looks professional
+      window.history.replaceState({}, document.title, "/dashboard");
+    }
+
+    // 2. Handle Manual Button Clicks
+    if (figmaBtn) {
+      figmaBtn.addEventListener('click', () => {
+        const isLinked = figmaBtn.getAttribute('data-linked') === 'true';
+        if (!isLinked) {
+          window.location.href = '/auth/figma';
+        } else {
+          toggleFigmaMode();
+        }
+      });
+    }
+
+    // 3. Intercept form submission to swap the prompt text under the hood
+    if (mainForm) {
+      mainForm.addEventListener('submit', (e) => {
+        const val = promptInput.value.trim();
+        
+        if (val.includes('figma.com/')) {
+          figmaHiddenInput.value = val;
+          // Hide the ugly URL from the AI and tell it to look for the virtual file we create in backend
+          promptInput.value = "Build a pixel-perfect React and Tailwind replica of the design structure. I have provided the exact layout rules, spacing, typography, and hex colors in the `.gorilla/figma.json` file. Read that file and implement it exactly.";
+        }
+      });
+    }
+  </script>
+</body>
 </body>
 </html>
