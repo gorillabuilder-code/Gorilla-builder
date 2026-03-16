@@ -635,7 +635,7 @@ Output JSON with type="plan" or type="questions"."""})
                 
                 if response_type == "questions":
                     questions = data.get("questions", [])
-                    questions_formatted = "\n".join([f" {q}" for q in questions])
+                    questions_formatted = "\n".join([f"**{i+1}.** {q}" for i, q in enumerate(questions)])
                     full_message = f"{assistant_message}\n\n{questions_formatted}"
                     
                     self.emit(
