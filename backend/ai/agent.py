@@ -27,7 +27,7 @@ import httpx
 
 # --- Configuration for OpenRouter ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("MODEL", "")
+MODEL = os.getenv("MODEL", "openrouter/hunter-alpha")
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions").strip()
 SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev").strip()
 SITE_NAME = os.getenv("SITE_NAME", "Gorilla Builder")
@@ -407,7 +407,16 @@ class BaseAgent:
         self.project_id = project_id
         self.file_tree: Dict[str, str] = {}
         self.conversation_memory: List[Dict] = []
+        self.total_tokens_used: int = 0  # Track tokens across all LLM calls
         bus.subscribe(agent_id, self._on_mcp)
+    
+    def get_tokens_used(self) -> int:
+        """Get total tokens used by this agent."""
+        return self.total_tokens_used
+    
+    def reset_tokens(self):
+        """Reset token counter."""
+        self.total_tokens_used = 0
         
     async def _on_mcp(self, msg: MCPMessage):
         """Override in subclasses to handle MCP messages."""
@@ -434,7 +443,7 @@ class BaseAgent:
         return None
     
     async def call_llm(self, messages: List[Dict], temperature: float = 0.6) -> Tuple[str, int]:
-        """Call LLM without provider specification."""
+        """Call LLM without provider specification. Tracks tokens automatically."""
         payload = {
             "model": MODEL,
             "messages": messages,
@@ -458,7 +467,10 @@ class BaseAgent:
         content = data["choices"][0]["message"]["content"]
         tokens = data.get("usage", {}).get("total_tokens", 0)
         
-        log_agent("llm", f"← {tokens} tokens | {content[:120]}...", self.project_id)
+        # Track tokens
+        self.total_tokens_used += tokens
+        
+        log_agent("llm", f"← {tokens} tokens (total: {self.total_tokens_used}) | {content[:120]}...", self.project_id)
         
         return content, tokens
     
@@ -510,7 +522,7 @@ class PlannerAgent(BaseAgent):
     "Rules:\n"
     "MANDATORY OUTPUT FORMAT: JSON OBJECT ONLY. Do NOT wrap in markdown blocks.\n"
     "{\n"
-    '  "assistant_message": "Sure I will build the ... application for you with...and...it will be...",\n'
+    '  "assistant_message": "Sure I will build the monkeychat application for you with...and...it will be...",\n'
     '  "tasks": [\n'
     '    "Step 1: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Create `App.tsx` to begint the process...",\n'
     '    "Step 2: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Modify `server.js` to setup API..."\n'
@@ -629,7 +641,7 @@ Output JSON with either type="plan" or type="questions"."""})
                     log_agent("planner", f"Asking {len(questions)} clarifying questions", self.project_id)
     
                     # Format questions into the assistant message so user sees them
-                    questions_formatted = "\n".join([f"\n**{i+1}.** {q}" for i, q in enumerate(questions)])
+                    questions_formatted = "\n".join([f"**\n{i+1}.** {q}" for i, q in enumerate(questions)])
                     full_message = f"{assistant_message}\n\n{questions_formatted}"
     
                     self.emit(
@@ -1417,6 +1429,26 @@ class AgentSwarm:
         
         log_agent("swarm", "🧠 Conversational agent swarm initialized", project_id)
     
+    def get_total_tokens(self) -> int:
+        """Get total tokens used by ALL agents in the swarm."""
+        agents = [
+            self.planner, self.reasoner, self.coder, self.reviewer, self.debugger,
+            self.ui_agent, self.api_agent, self.logic_agent
+        ]
+        total = sum(agent.get_tokens_used() for agent in agents)
+        log_agent("swarm", f"💰 Total tokens used: {total}", self.project_id)
+        return total
+    
+    def reset_all_tokens(self):
+        """Reset token counters for all agents."""
+        agents = [
+            self.planner, self.reasoner, self.coder, self.reviewer, self.debugger,
+            self.ui_agent, self.api_agent, self.logic_agent
+        ]
+        for agent in agents:
+            agent.reset_tokens()
+        log_agent("swarm", "🔄 Token counters reset", self.project_id)
+    
     async def solve(self, user_request: str, file_tree: Dict[str, str], 
                     agent_skills: Optional[Dict] = None,
                     skip_planner: bool = False) -> Dict[str, Any]:
@@ -1523,10 +1555,14 @@ class AgentSwarm:
         # Await any pending background tasks
         await self.bus.await_all_tasks(timeout=3.0)
         
+        # Get total tokens used by all agents
+        total_tokens = self.get_total_tokens()
+        
         return {
             "status": "complete",
             "assistant_message": assistant_message,
-            "operations": all_ops
+            "operations": all_ops,
+            "total_tokens": total_tokens
         }
     
     async def continue_with_clarification(self, answers: Dict[str, str], 
@@ -1705,10 +1741,13 @@ class Agent:
         # Await background tasks
         await swarm.bus.await_all_tasks(timeout=3.0)
         
+        # Get total tokens from ALL agents in the swarm
+        total_tokens = swarm.get_total_tokens()
+        
         return {
             "message": f"Completed {len(operations)} operations",
             "operations": operations,
-            "usage": {"total_tokens": 0}
+            "usage": {"total_tokens": total_tokens}
         }
     
     @staticmethod
