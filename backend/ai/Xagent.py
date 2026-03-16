@@ -35,6 +35,9 @@ OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/
 SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev").strip()
 SITE_NAME = os.getenv("SITE_NAME", "Gorilla Builder X")
 
+# Token multiplier for X-mode (9.3x)
+TOKEN_MULTIPLIER = 9.3
+
 if not OPENROUTER_API_KEY:
     raise RuntimeError("OPENROUTER_API_KEY must be configured in the environment")
 
@@ -91,7 +94,7 @@ def _render_token_limit_message() -> str:
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
         </div>
         <h2 style="color:#fff;font-size:24px;font-weight:700;margin:0 0 12px 0;letter-spacing:-0.5px;">Token Limit Reached</h2>
-        <p style="color:#94a3b8;font-size:14px;line-height:1.6;margin:0 0 28px 0;max-width:280px;">You've used all your monthly tokens. Upgrade to Premium for unlimited access.</p>
+        <p style="color:#94a3b8;font-size:14px;line-height:1.6;margin:0 0 28px 0;max-width:280px;">You\'ve used all your monthly tokens. Upgrade to Premium for unlimited access.</p>
         <a href="/pricing" style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#d946ef 0%,#a855f7 100%);color:white;text-decoration:none;padding:14px 32px;border-radius:12px;font-size:14px;font-weight:600;box-shadow:0 4px 20px rgba(217,70,239,0.4);">Upgrade to Premium</a>
     </div>
     <style>@keyframes pulse-glow{0%,100%{box-shadow:0 10px 40px rgba(217,70,239,0.4);}50%{box-shadow:0 10px 50px rgba(217,70,239,0.7);}}</style>
@@ -244,14 +247,14 @@ class MCPBus:
         target = msg.to_agent or "ALL"
         
         intent_emoji = {
-            Intent.QUESTION: "❓", Intent.CLARIFY: "💡", Intent.ARCHITECT: "🏗️",
-            Intent.PLAN: "📋", Intent.STRATEGIZE: "🧠", Intent.REVIEW: "👁️",
-            Intent.FEEDBACK: "💬", Intent.OPTIMIZE: "⚡", Intent.DEBUG_FIX: "🐛",
-            Intent.DONE: "✅", Intent.ERROR: "❌", Intent.PARTIAL: "⏳",
-            Intent.DELEGATE_UI: "🎨", Intent.DELEGATE_API: "🔌", Intent.DELEGATE_LOGIC: "⚙️",
+            Intent.QUESTION: "", Intent.CLARIFY: "", Intent.ARCHITECT: "",
+            Intent.PLAN: "", Intent.STRATEGIZE: "", Intent.REVIEW: "",
+            Intent.FEEDBACK: "", Intent.OPTIMIZE: "", Intent.DEBUG_FIX: "",
+            Intent.DONE: "", Intent.ERROR: "", Intent.PARTIAL: "",
+            Intent.DELEGATE_UI: "", Intent.DELEGATE_API: "", Intent.DELEGATE_LOGIC: "",
         }
-        emoji = intent_emoji.get(msg.intent, "→")
-        log_agent("mcp", f"{emoji} {msg.from_agent} → {target} | {msg.intent.value} (P{msg.priority}): {msg.reasoning[:60]}", self.project_id)
+        emoji = intent_emoji.get(msg.intent, "")
+        log_agent("mcp", f"{emoji} {msg.from_agent} -> {target} | {msg.intent.value} (P{msg.priority}): {msg.reasoning[:60]}", self.project_id)
         
         # Handle question-response
         if msg.intent == Intent.CLARIFY and msg.task_id in self.pending_questions:
@@ -338,7 +341,7 @@ SHARED_CONTEXT = {
 }
 
 # ============================================================================
-# BASE AGENT (Enhanced)
+# BASE AGENT (Enhanced with Token Multiplier)
 # ============================================================================
 
 class BaseAgent:
@@ -349,6 +352,7 @@ class BaseAgent:
         self.file_tree: Dict[str, str] = {}
         self.conversation_memory: List[Dict] = []
         self.total_tokens_used: int = 0
+        self.raw_tokens_used: int = 0  # Before multiplier
         self.success_count: int = 0
         self.error_count: int = 0
         bus.subscribe(agent_id, self._on_mcp)
@@ -378,7 +382,7 @@ class BaseAgent:
     
     async def call_llm(self, messages: List[Dict], temperature: float = 0.6, 
                        max_tokens: Optional[int] = None) -> Tuple[str, int]:
-        """Call LLM with Gemini model. Tracks tokens automatically."""
+        """Call LLM with Gemini model. Tracks tokens with 9.3x multiplier."""
         payload = {
             "model": MODEL,
             "messages": messages,
@@ -395,7 +399,7 @@ class BaseAgent:
         }
         
         last_msg = messages[-1].get('content', '')[:60] if messages else ""
-        log_agent(self.agent_id, f"🤖 → {len(messages)} msgs | {last_msg}...", self.project_id)
+        log_agent(self.agent_id, f" -> {len(messages)} msgs | {last_msg}...", self.project_id)
         
         async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(OPENROUTER_URL, json=payload, headers=headers)
@@ -403,14 +407,17 @@ class BaseAgent:
             data = resp.json()
             
         content = data["choices"][0]["message"]["content"]
-        tokens = data.get("usage", {}).get("total_tokens", 0)
+        raw_tokens = data.get("usage", {}).get("total_tokens", 0)
         
-        self.total_tokens_used += tokens
+        # Apply 9.3x multiplier
+        multiplied_tokens = int(raw_tokens * TOKEN_MULTIPLIER)
+        self.raw_tokens_used += raw_tokens
+        self.total_tokens_used += multiplied_tokens
         self.success_count += 1
         
-        log_agent(self.agent_id, f"🤖 ← {tokens} tokens (total: {self.total_tokens_used}) | {content[:100]}...", self.project_id)
+        log_agent(self.agent_id, f" <- {raw_tokens} tokens (x{TOKEN_MULTIPLIER} = {multiplied_tokens}) | {content[:100]}...", self.project_id)
         
-        return content, tokens
+        return content, multiplied_tokens
     
     def extract_json(self, text: str) -> Optional[Dict]:
         return _extract_json(text)
@@ -418,8 +425,12 @@ class BaseAgent:
     def get_tokens_used(self) -> int:
         return self.total_tokens_used
     
+    def get_raw_tokens(self) -> int:
+        return self.raw_tokens_used
+    
     def reset_tokens(self):
         self.total_tokens_used = 0
+        self.raw_tokens_used = 0
         self.success_count = 0
         self.error_count = 0
 
@@ -431,15 +442,36 @@ class ArchitectAgent(BaseAgent):
     """Creates high-level system architecture and component breakdown."""
     
     SYSTEM_PROMPT = (
-        "You are the System Architect. Create high-level designs with clear component boundaries.\n\n"
+        "You are the System Architect for Gorilla Builder X. Create high-level designs with clear component boundaries.\n\n"
+        "Your role:\n"
+        "1. Analyze user requirements and translate into system architecture\n"
+        "2. Define component boundaries and interfaces\n"
+        "3. Design data flows and API contracts\n"
+        "4. Identify potential bottlenecks and scalability concerns\n\n"
         "Output JSON:\n"
         "{\n"
         '  "system_design": "Overall architecture description",\n'
         '  "components": [{"name": "...", "purpose": "...", "tech": "..."}],\n'
         '  "data_flow": ["Step 1...", "Step 2..."],\n'
-        '  "api_contracts": [{"endpoint": "/api/...", "method": "POST", "payload": {...}}]\n'
+        '  "api_contracts": [{"endpoint": "/api/...", "method": "POST", "payload": {...}}],\n'
+        '  "recommendations": ["Consider caching...", "Use WebSockets for real-time..."]\n'
         "}"
     )
+
+    async def design(self, user_request: str, file_tree: Dict[str, str]) -> Dict[str, Any]:
+        """Create system architecture design."""
+        log_agent(self.agent_id, f"Designing architecture for: {user_request[:60]}...", self.project_id)
+        
+        messages = [
+            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "user", "content": f"User Request: {user_request}\n\nExisting Files: {list(file_tree.keys())[:20]}\n\nCreate architecture design. Output JSON only."}
+        ]
+        
+        raw, tokens = await self.call_llm(messages, temperature=0.4)
+        design = self.extract_json(raw) or {"system_design": "Standard React + Express setup", "components": []}
+        
+        log_agent(self.agent_id, f"Designed {len(design.get('components', []))} components", self.project_id)
+        return design
 
 # ============================================================================
 # STRATEGIST AGENT (Task Decomposition)
@@ -449,26 +481,48 @@ class StrategistAgent(BaseAgent):
     """Decomposes tasks into executable units with dependencies."""
     
     SYSTEM_PROMPT = (
-        "You are the Task Strategist. Break down work into executable tasks with clear dependencies.\n\n"
+        "You are the Task Strategist for Gorilla Builder X. Break down work into executable tasks with clear dependencies.\n\n"
+        "Your role:\n"
+        "1. Analyze the plan and break into atomic tasks\n"
+        "2. Identify task dependencies and execution order\n"
+        "3. Assign tasks to appropriate agent types\n"
+        "4. Estimate complexity for each task\n\n"
         "Output JSON:\n"
         "{\n"
+        '  "execution_strategy": "Parallel execution with...",\n'
         '  "tasks": [{\n'
         '    "id": 1,\n'
         '    "description": "Create component...",\n'
         '    "agent_type": "ui|api|logic|test",\n'
         '    "dependencies": [2, 3],\n'
         '    "estimated_complexity": "low|medium|high",\n'
-        '    "output_files": ["src/..."]\n'
+        '    "output_files": ["src/..."],\n'
+        '    "estimated_tokens": 500\n'
         '  }]\n'
         "}"
     )
 
+    async def strategize(self, plan: Dict[str, Any], file_tree: Dict[str, str]) -> Dict[str, Any]:
+        """Create execution strategy from plan."""
+        log_agent(self.agent_id, "Creating execution strategy...", self.project_id)
+        
+        messages = [
+            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "user", "content": f"Plan: {json.dumps(plan, indent=2)}\n\nExisting Files: {list(file_tree.keys())[:20]}\n\nCreate execution strategy. Output JSON only."}
+        ]
+        
+        raw, tokens = await self.call_llm(messages, temperature=0.4)
+        strategy = self.extract_json(raw) or {"tasks": [], "execution_strategy": "Sequential"}
+        
+        log_agent(self.agent_id, f"Created {len(strategy.get('tasks', []))} executable tasks", self.project_id)
+        return strategy
+
 # ============================================================================
-# PLANNER AGENT (Enhanced)
+# PLANNER AGENT (Enhanced with Extreme Reasoning)
 # ============================================================================
 
 class PlannerAgent(BaseAgent):
-    """Creates detailed implementation plans."""
+    """Creates detailed implementation plans with extreme reasoning."""
     
     def _build_system_prompt(self, agent_skills: Optional[Dict] = None) -> str:
         skills_addon = ""
@@ -486,7 +540,7 @@ class PlannerAgent(BaseAgent):
                 skills_addon += "- Expert-level, concise, minimal comments\n"
 
         return (
-    "You are the Lead Architect for a high-performance **Full-Stack** web application, you are the GOR://A BUILDER multi agent AI BUILDER. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in **React (Frontend)** AND **Node.js/Express (Backend)**. Strictly give NO CODE AT ALL, in no form. But you MUST REASON HARD.\n"
+    "You are the Lead Architect for a high-performance **Full-Stack** web application, you are the GOR://A BUILDER X multi agent AI BUILDER. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in **React (Frontend)** AND **Node.js/Express (Backend)**. Strictly give NO CODE AT ALL, in no form. But you MUST REASON HARD.\n"
     "CRITICAL CONTEXT: The AI Coder executes tasks in isolation. It has NO memory of previous files unless you provide context in *every single task description*.\n\n"
 
     "Rules:\n"
@@ -524,14 +578,13 @@ class PlannerAgent(BaseAgent):
     "   - Backend Imports: Use relative paths with `.js` extension.\n"
     "   - Never instruct to the coder to build a `vercel.json` file in the root of the project according to the project's requirements.\n"
     
-    # --- 🚨 PHASE 5: THE AI PROXY INJECTION 🚨 ---
     "2. **AI Integration Specs (USE THESE EXACTLY):**\n"
     "   - **Core Rule**: You MUST route all AI API calls through the Gorilla Proxy using `process.env.GORILLA_API_KEY`.\n"
-    "   - **High-Performance Logic (LLM)**: Set baseURL to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1 ` and use model `openai/gpt-oss-20b:free`.\n"
-    "   - **Image Generation**: Send POST request to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/generations ` with standard OpenAI payload.\n"
-    "   - **Voice (STT)**: Send POST to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/audio/transcriptions ` (OpenAI Whisper format).\n"
+    "   - **High-Performance Logic (LLM)**: Set baseURL to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1` and use model `openai/gpt-oss-20b:free`.\n"
+    "   - **Image Generation**: Send POST request to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/generations` with standard OpenAI payload.\n"
+    "   - **Voice (STT)**: Send POST to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/audio/transcriptions` (OpenAI Whisper format).\n"
     "   - **Voice (TTS)**: DO NOT USE AN API. Strictly use the browser's native `window.speechSynthesis` Web Speech API in frontend components.\n"
-    "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background `.\n"
+    "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background`.\n"
     
     "3. **Volume:** \n"
     "   - Always try to ask the user at least 2 questions to elaborate on their request, they should be obvious and add functionality to their app if they agree. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY OR ANY DEBUGGING QUESTIONS.\n"
@@ -544,7 +597,7 @@ class PlannerAgent(BaseAgent):
 
     async def plan(self, user_request: str, file_tree: Dict[str, str], 
                    agent_skills: Optional[Dict] = None) -> MCPMessage:
-        log_agent(self.agent_id, f"📋 Planning: {user_request[:60]}...", self.project_id)
+        log_agent(self.agent_id, f"Planning: {user_request[:60]}...", self.project_id)
         
         is_debug = any(w in user_request.lower() for w in ["error", "fix", "bug", "crash", "broken"])
         
@@ -582,7 +635,7 @@ Output JSON with type="plan" or type="questions"."""})
                 
                 if response_type == "questions":
                     questions = data.get("questions", [])
-                    questions_formatted = "\n".join([f"• {q}" for q in questions])
+                    questions_formatted = "\n".join([f" {q}" for q in questions])
                     full_message = f"{assistant_message}\n\n{questions_formatted}"
                     
                     self.emit(
@@ -594,7 +647,7 @@ Output JSON with type="plan" or type="questions"."""})
                     )
                 else:
                     tasks = data.get("tasks", [])
-                    log_agent(self.agent_id, f"✅ Generated {len(tasks)} tasks", self.project_id)
+                    log_agent(self.agent_id, f"Generated {len(tasks)} tasks", self.project_id)
                     
                     for i, t in enumerate(tasks, 1):
                         log_agent(self.agent_id, f"  {i}. {str(t)[:50]}...", self.project_id)
@@ -612,7 +665,7 @@ Output JSON with type="plan" or type="questions"."""})
                 return self.bus.messages[-1]
 
             except Exception as e:
-                log_agent(self.agent_id, f"❌ Attempt {attempt+1} failed: {str(e)[:60]}", self.project_id)
+                log_agent(self.agent_id, f"Attempt {attempt+1} failed: {str(e)[:60]}", self.project_id)
                 if attempt < 2:
                     await asyncio.sleep(1)
                 else:
@@ -739,7 +792,7 @@ class CoderAgent(BaseAgent):
         payload = plan_msg.payload
         tasks = payload.get("tasks", [])
         
-        log_agent(self.agent_id, f"🚀 Executing {len(tasks)} tasks", self.project_id)
+        log_agent(self.agent_id, f"Executing {len(tasks)} tasks", self.project_id)
         
         if not tasks:
             self.execution_complete = True
@@ -798,14 +851,14 @@ class CoderAgent(BaseAgent):
                 self.all_operations.extend(ops)
                 
                 for op in ops:
-                    log_agent(self.agent_id, f"  ✓ {op.get('action')}: {op.get('path')}", self.project_id)
+                    log_agent(self.agent_id, f"  {op.get('action')}: {op.get('path')}", self.project_id)
                 
                 _append_history(self.project_id, "user", f"Task: {task}")
                 _append_history(self.project_id, "assistant", raw)
                 return
 
             except Exception as e:
-                log_agent(self.agent_id, f"  ⚠️ Attempt {attempt+1} failed: {str(e)[:50]}", self.project_id)
+                log_agent(self.agent_id, f"  Attempt {attempt+1} failed: {str(e)[:50]}", self.project_id)
                 if attempt < 2:
                     messages.append({"role": "user", "content": f"Fix error: {str(e)[:100]}"})
                     await asyncio.sleep(1)
@@ -821,9 +874,9 @@ class CoderAgent(BaseAgent):
     async def _handle_feedback(self, msg: MCPMessage):
         issues = msg.payload.get("issues", [])
         if issues:
-            log_agent(self.agent_id, f"⚠️ Reviewer found {len(issues)} issues", self.project_id)
+            log_agent(self.agent_id, f"Reviewer found {len(issues)} issues", self.project_id)
         else:
-            log_agent(self.agent_id, "✅ Review passed", self.project_id)
+            log_agent(self.agent_id, "Review passed", self.project_id)
         
         self.execution_complete = True
         self.emit(
@@ -833,49 +886,54 @@ class CoderAgent(BaseAgent):
         )
 
 # ============================================================================
-# SUB-AGENTS
+# SUB-AGENTS (Enhanced)
 # ============================================================================
 
 class UISubAgent(BaseAgent):
     SYSTEM_PROMPT = (
-        "You are the UI Specialist. Create beautiful React components with Tailwind.\n\n"
-        "RULES:\n"
-        "1. Use Shadcn/UI from @/components/ui/ when appropriate\n"
-        "2. Make designs creative, non-bootstrappy\n"
-        "3. Use framer-motion for animations\n"
-        "4. NEVER use Inter font\n\n"
+        "You are the UI Specialist for Gorilla Builder X. Create beautiful React components with Tailwind.\n\n"
+        "Your expertise:\n"
+        "1. Create visually stunning, non-bootstrappy designs\n"
+        "2. Use framer-motion for smooth animations\n"
+        "3. Implement responsive layouts with Tailwind\n"
+        "4. NEVER use Inter font - use system fonts or creative alternatives\n"
+        "5. Use lucide-react for icons\n\n"
         "Output JSON: {\"message\": \"...\", \"operations\": [{\"action\": \"...\", \"path\": \"...\", \"content\": \"...\"}]}"
     )
 
 class APISubAgent(BaseAgent):
     SYSTEM_PROMPT = (
-        "You are the API Specialist. Create Express routes.\n\n"
-        "RULES:\n"
-        "1. Use ES modules (import/export)\n"
-        "2. Use .js extension for imports\n"
-        "3. Use async/await\n"
-        "4. Handle errors with try/catch\n\n"
+        "You are the API Specialist for Gorilla Builder X. Create Express routes.\n\n"
+        "Your expertise:\n"
+        "1. Design RESTful endpoints\n"
+        "2. Use ES modules (import/export)\n"
+        "3. Use .js extension for imports\n"
+        "4. Implement proper error handling with try/catch\n"
+        "5. Add input validation\n\n"
         "Output JSON: {\"message\": \"...\", \"operations\": [{\"action\": \"...\", \"path\": \"...\", \"content\": \"...\"}]}"
     )
 
 class LogicSubAgent(BaseAgent):
     SYSTEM_PROMPT = (
-        "You are the Logic Specialist. Create utility functions.\n\n"
-        "RULES:\n"
+        "You are the Logic Specialist for Gorilla Builder X. Create utility functions.\n\n"
+        "Your expertise:\n"
         "1. Write clean, reusable functions\n"
-        "2. Use TypeScript\n"
-        "3. Handle edge cases\n\n"
+        "2. Use TypeScript with proper types\n"
+        "3. Handle edge cases gracefully\n"
+        "4. Add comprehensive JSDoc comments\n\n"
         "Output JSON: {\"message\": \"...\", \"operations\": [{\"action\": \"...\", \"path\": \"...\", \"content\": \"...\"}]}"
     )
 
 class ReviewerAgent(BaseAgent):
     SYSTEM_PROMPT = (
-        "You are the Code Reviewer. Check for quality issues.\n\n"
+        "You are the Code Reviewer for Gorilla Builder X. Check for quality issues.\n\n"
         "Check for:\n"
         "- Missing imports\n"
         "- Syntax errors\n"
         "- Type mismatches\n"
-        "- Security issues\n\n"
+        "- Security issues (SQL injection, XSS)\n"
+        "- Performance concerns\n"
+        "- Best practice violations\n\n"
         "Output JSON: {\"passed\": true|false, \"issues\": [\"...\"]}"
     )
 
@@ -911,12 +969,17 @@ class ReviewerAgent(BaseAgent):
 
 class DebuggerAgent(BaseAgent):
     SYSTEM_PROMPT = (
-        "You are the Debugger. Fix errors with minimal changes.\n\n"
+        "You are the Debugger for Gorilla Builder X. Fix errors with minimal changes.\n\n"
+        "Your approach:\n"
+        "1. Analyze the error message carefully\n"
+        "2. Identify the root cause\n"
+        "3. Make the smallest fix possible\n"
+        "4. Verify the fix doesn't break other parts\n\n"
         "Output JSON: {\"message\": \"Fixed...\", \"operations\": [{\"action\": \"overwrite_file\", \"path\": \"...\", \"content\": \"...\"}]}"
     )
 
     async def debug(self, error: str, file_tree: Dict) -> List[Dict]:
-        log_agent(self.agent_id, f"🔧 Fixing: {error[:60]}...", self.project_id)
+        log_agent(self.agent_id, f"Fixing: {error[:60]}...", self.project_id)
         
         file_match = re.search(r'(?:in|at)\s+(\S+\.(?:tsx|ts|js|jsx))', error)
         relevant = file_match.group(1) if file_match else ""
@@ -933,12 +996,55 @@ class DebuggerAgent(BaseAgent):
         if data:
             ops = data.get("operations", [])
             for op in ops:
-                log_agent(self.agent_id, f"  ✓ {op.get('action')}: {op.get('path')}", self.project_id)
+                log_agent(self.agent_id, f"  {op.get('action')}: {op.get('path')}", self.project_id)
             return ops
         return []
 
 # ============================================================================
-# X-SWARM ORCHESTRATOR
+# ADDITIONAL SPECIALIZED AGENTS
+# ============================================================================
+
+class SecurityAgent(BaseAgent):
+    """Security specialist for vulnerability detection."""
+    
+    SYSTEM_PROMPT = (
+        "You are the Security Specialist for Gorilla Builder X.\n\n"
+        "Your role:\n"
+        "1. Scan code for security vulnerabilities\n"
+        "2. Check for XSS, CSRF, SQL injection risks\n"
+        "3. Verify proper input sanitization\n"
+        "4. Ensure secure API patterns\n\n"
+        "Output JSON: {\"vulnerabilities\": [{\"severity\": \"high|medium|low\", \"file\": \"...\", \"issue\": \"...\", \"fix\": \"...\"}]}"
+    )
+
+class PerformanceAgent(BaseAgent):
+    """Performance optimization specialist."""
+    
+    SYSTEM_PROMPT = (
+        "You are the Performance Specialist for Gorilla Builder X.\n\n"
+        "Your role:\n"
+        "1. Identify performance bottlenecks\n"
+        "2. Suggest React optimization patterns\n"
+        "3. Recommend efficient data fetching\n"
+        "4. Check for unnecessary re-renders\n\n"
+        "Output JSON: {\"optimizations\": [{\"file\": \"...\", \"suggestion\": \"...\", \"impact\": \"high|medium|low\"}]}"
+    )
+
+class DocsAgent(BaseAgent):
+    """Documentation specialist."""
+    
+    SYSTEM_PROMPT = (
+        "You are the Documentation Specialist for Gorilla Builder X.\n\n"
+        "Your role:\n"
+        "1. Generate JSDoc comments for functions\n"
+        "2. Create README files\n"
+        "3. Document API endpoints\n"
+        "4. Add inline code comments\n\n"
+        "Output JSON: {\"message\": \"...\", \"operations\": [{\"action\": \"...\", \"path\": \"...\", \"content\": \"...\"}]}"
+    )
+
+# ============================================================================
+# X-SWARM ORCHESTRATOR (Enhanced with 12+ Agents)
 # ============================================================================
 
 class XAgentSwarm:
@@ -961,28 +1067,45 @@ class XAgentSwarm:
         self.api_agent = APISubAgent("api_agent", self.bus, project_id)
         self.logic_agent = LogicSubAgent("logic_agent", self.bus, project_id)
         
-        # Register sub-agents
+        # Additional specialized agents
+        self.security_agent = SecurityAgent("security", self.bus, project_id)
+        self.performance_agent = PerformanceAgent("performance", self.bus, project_id)
+        self.docs_agent = DocsAgent("docs", self.bus, project_id)
+        
+        # Register sub-agents with coder
         self.coder.register_sub_agent(self.ui_agent)
         self.coder.register_sub_agent(self.api_agent)
         self.coder.register_sub_agent(self.logic_agent)
         
-        log_agent("swarm", "🚀 X-Agent Swarm initialized (Gemini-powered)", project_id)
+        log_agent("swarm", "X-Agent Swarm initialized (Gemini-powered, 12+ agents)", project_id)
     
     def get_total_tokens(self) -> int:
-        """Get total tokens from ALL agents."""
+        """Get total tokens from ALL agents (with 9.3x multiplier applied)."""
         agents = [
             self.architect, self.planner, self.strategist, self.coder,
-            self.reviewer, self.debugger, self.ui_agent, self.api_agent, self.logic_agent
+            self.reviewer, self.debugger, self.ui_agent, self.api_agent, self.logic_agent,
+            self.security_agent, self.performance_agent, self.docs_agent
         ]
         total = sum(a.get_tokens_used() for a in agents)
-        log_agent("swarm", f"💰 Total tokens: {total}", self.project_id)
+        raw_total = sum(a.get_raw_tokens() for a in agents)
+        log_agent("swarm", f"Total tokens: {total} (raw: {raw_total}, multiplier: {TOKEN_MULTIPLIER}x)", self.project_id)
         return total
+    
+    def get_raw_tokens(self) -> int:
+        """Get raw tokens before multiplier."""
+        agents = [
+            self.architect, self.planner, self.strategist, self.coder,
+            self.reviewer, self.debugger, self.ui_agent, self.api_agent, self.logic_agent,
+            self.security_agent, self.performance_agent, self.docs_agent
+        ]
+        return sum(a.get_raw_tokens() for a in agents)
     
     def reset_all_tokens(self):
         """Reset all token counters."""
         agents = [
             self.architect, self.planner, self.strategist, self.coder,
-            self.reviewer, self.debugger, self.ui_agent, self.api_agent, self.logic_agent
+            self.reviewer, self.debugger, self.ui_agent, self.api_agent, self.logic_agent,
+            self.security_agent, self.performance_agent, self.docs_agent
         ]
         for a in agents:
             a.reset_tokens()
@@ -992,10 +1115,11 @@ class XAgentSwarm:
         """Main entry point with full swarm execution."""
         
         for agent in [self.architect, self.planner, self.strategist, self.coder,
-                      self.reviewer, self.debugger, self.ui_agent, self.api_agent, self.logic_agent]:
+                      self.reviewer, self.debugger, self.ui_agent, self.api_agent, self.logic_agent,
+                      self.security_agent, self.performance_agent, self.docs_agent]:
             agent.file_tree = file_tree
         
-        log_agent("swarm", f"🎯 X-MODE: {user_request[:60]}...", self.project_id)
+        log_agent("swarm", f"X-MODE: {user_request[:60]}...", self.project_id)
         
         # Reset state
         self.coder.all_operations = []
@@ -1003,7 +1127,10 @@ class XAgentSwarm:
         self.coder.execution_complete = False
         self.bus.messages = []
         
-        # Phase 1: Planning
+        # Phase 1: Architecture Design
+        arch_design = await self.architect.design(user_request, file_tree)
+        
+        # Phase 2: Planning
         plan_result = await self.planner.plan(user_request, file_tree, agent_skills)
         assistant_message = plan_result.payload.get("assistant_message", "Building...")
         
@@ -1014,10 +1141,19 @@ class XAgentSwarm:
                 "assistant_message": assistant_message,
                 "questions": plan_result.payload.get("questions", []),
                 "operations": [],
-                "total_tokens": self.get_total_tokens()
+                "total_tokens": self.get_total_tokens(),
+                "raw_tokens": self.get_raw_tokens()
             }
         
-        # Phase 2: Wait for execution with stability detection
+        # Phase 3: Strategize (if we have tasks)
+        tasks = plan_result.payload.get("tasks", [])
+        if tasks:
+            strategy = await self.strategist.strategize(
+                {"tasks": tasks, "architecture": arch_design}, 
+                file_tree
+            )
+        
+        # Phase 4: Wait for execution with stability detection
         max_wait = 300
         waited = 0
         last_op_count = 0
@@ -1035,7 +1171,7 @@ class XAgentSwarm:
             if len(current_ops) == last_op_count and len(current_ops) > 0:
                 stable_count += 1
                 if stable_count >= 6 and not self.coder.pending_tasks:
-                    log_agent("swarm", f"✅ Stable: {len(current_ops)} ops", self.project_id)
+                    log_agent("swarm", f"Stable: {len(current_ops)} ops", self.project_id)
                     break
             else:
                 stable_count = 0
@@ -1055,9 +1191,9 @@ class XAgentSwarm:
                 seen[path] = op
         all_ops = list(seen.values())
         
-        log_agent("swarm", f"📦 Complete: {len(all_ops)} unique files", self.project_id)
+        log_agent("swarm", f"Complete: {len(all_ops)} unique files", self.project_id)
         for op in all_ops:
-            log_agent("swarm", f"  📄 {op.get('path')}", self.project_id)
+            log_agent("swarm", f"   {op.get('path')}", self.project_id)
         
         await self.bus.await_all_tasks(timeout=3.0)
         
@@ -1065,7 +1201,9 @@ class XAgentSwarm:
             "status": "complete",
             "assistant_message": assistant_message,
             "operations": all_ops,
-            "total_tokens": self.get_total_tokens()
+            "total_tokens": self.get_total_tokens(),
+            "raw_tokens": self.get_raw_tokens(),
+            "architecture": arch_design
         }
 
 # ============================================================================
@@ -1112,7 +1250,7 @@ class XAgent:
                     "assistant_message": assistant_message,
                     "plan": {"todo": [], "questions": result.payload.get("questions", [])},
                     "todo_md": "",
-                    "usage": {"total_tokens": swarm.get_total_tokens()},
+                    "usage": {"total_tokens": swarm.get_total_tokens(), "raw_tokens": swarm.get_raw_tokens()},
                     "needs_clarification": True
                 }
             
@@ -1125,7 +1263,7 @@ class XAgent:
                     "todo": tasks,
                 },
                 "todo_md": self._to_todo_md({"todo": tasks}, assistant_message),
-                "usage": {"total_tokens": swarm.get_total_tokens()}
+                "usage": {"total_tokens": swarm.get_total_tokens(), "raw_tokens": swarm.get_raw_tokens()}
             }
         finally:
             loop.close()
@@ -1163,11 +1301,12 @@ class XAgent:
                 if msg.intent == Intent.DONE and msg.from_agent == "coder":
                     ops = msg.payload.get("operations", [])
                     total_tokens = swarm.get_total_tokens()
+                    raw_tokens = swarm.get_raw_tokens()
                     await swarm.bus.await_all_tasks(timeout=2.0)
                     return {
                         "message": f"Completed {len(ops)} operations",
                         "operations": ops,
-                        "usage": {"total_tokens": total_tokens}
+                        "usage": {"total_tokens": total_tokens, "raw_tokens": raw_tokens}
                     }
         
         # Fallback collection
@@ -1177,12 +1316,13 @@ class XAgent:
                 all_ops.extend(msg.payload.get("operations", []))
         
         total_tokens = swarm.get_total_tokens()
+        raw_tokens = swarm.get_raw_tokens()
         await swarm.bus.await_all_tasks(timeout=2.0)
         
         return {
             "message": f"Completed {len(all_ops)} operations",
             "operations": all_ops,
-            "usage": {"total_tokens": total_tokens}
+            "usage": {"total_tokens": total_tokens, "raw_tokens": raw_tokens}
         }
     
     @staticmethod
