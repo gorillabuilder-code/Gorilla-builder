@@ -28,6 +28,7 @@ import httpx
 # --- Configuration for OpenRouter ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 MODEL = os.getenv("MODEL", "minimax/minimax-m2.7")
+VISION_MODEL = os.getenv("MODEL", "xiaomi/mimo-v2-omni")
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions").strip()
 SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev").strip()
 SITE_NAME = os.getenv("SITE_NAME", "Gorilla Builder")
@@ -455,6 +456,19 @@ class BaseAgent:
             "HTTP-Referer": SITE_URL,
             "X-Title": SITE_NAME,
         }
+    async def call_vision_llm(self, messages: List[Dict], temperature: float = 0.6) -> Tuple[str, int]:
+        """Call LLM without provider specification. Tracks tokens automatically."""
+        payload = {
+            "model": PLANNER_MODEL,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": SITE_URL,
+            "X-Title": SITE_NAME,
+        }
         
         last_msg_preview = messages[-1].get('content', '')[:80] if messages else ""
         log_agent("llm", f"→ {len(messages)} msgs | {last_msg_preview}...", self.project_id)
@@ -624,7 +638,7 @@ Output JSON with either type="plan" or type="questions"."""})
         max_retries = 2
         for attempt in range(max_retries + 1):
             try:
-                raw, tokens = await self.call_llm(messages, temperature=0.6)
+                raw, tokens = await self.call_vision_llm(messages, temperature=0.6)
                 data = self.extract_json(raw)
                 
                 if not data:
