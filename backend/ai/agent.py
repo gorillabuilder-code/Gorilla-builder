@@ -459,7 +459,7 @@ class BaseAgent:
     async def call_vision_llm(self, messages: List[Dict], temperature: float = 0.6) -> Tuple[str, int]:
         """Call LLM without provider specification. Tracks tokens automatically."""
         payload = {
-            "model": PLANNER_MODEL,
+            "model": VISION_MODEL,
             "messages": messages,
             "temperature": temperature,
         }
