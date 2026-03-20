@@ -443,7 +443,7 @@ class BaseAgent:
             return response.payload.get("answer") or response.payload.get("response")
         return None
     
-async def call_llm(self, messages: List[Dict], temperature: float = 0.6) -> Tuple[str, int]:
+    async def call_llm(self, messages: List[Dict], temperature: float = 0.6) -> Tuple[str, int]:
         """Call LLM without provider specification. Tracks tokens automatically."""
         payload = {
             "model": MODEL,
