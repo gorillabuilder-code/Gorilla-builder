@@ -1340,6 +1340,7 @@ import re
 import urllib.parse
 import asyncio
 import os
+import uuid  # <-- ADDED for Auth ID generation
 
 @app.post("/projects/create")
 async def create_project(
@@ -1486,9 +1487,13 @@ async def create_project(
                 "content": f"FIGMA DESIGN DATA: You MUST use this exact structural JSON to build the React/Tailwind UI. Do not hallucinate classes. Rely on the 'layoutMode', 'itemSpacing', and hex 'fills'. Data:\n{final_figma_json}"
             })
 
+        # --- ADDED: Generate Unique Auth ID for the App ---
+        gorilla_auth_id = str(uuid.uuid4())
+
         res = supabase.table("projects").insert({
             "owner_id": user["id"], 
             "name": project_name, 
+            "gorilla_auth_id": gorilla_auth_id, # <-- ADDED DB INSERTION
             "description": description or (final_prompt[:200] if final_prompt else ""),
             "prompt_image": final_image,
             "snapshot_b64": final_image, 
@@ -1512,6 +1517,15 @@ async def create_project(
 
         if os.path.isdir(bp_dir):
             files_to_insert = []
+            
+            # --- ADDED: Inject the .env file with the App Auth ID ---
+            files_to_insert.append({
+                "project_id": pid,
+                "path": ".env",
+                "content": f"VITE_GORILLA_AUTH_ID={gorilla_auth_id}\n"
+            })
+            # --------------------------------------------------------
+
             for root, dirs, files in os.walk(bp_dir):
                 dirs[:] = [d for d in dirs if d not in ["node_modules", ".git", "dist", "build"]]
                 for file in files:
@@ -2040,6 +2054,12 @@ from fastapi import Request, HTTPException
 # ==========================================================================
 # DEPLOY OPTIMIZE FIX
 # ==========================================================================
+import json
+import urllib.parse
+import httpx
+from fastapi import Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+
 @app.post("/api/project/{project_id}/deploy-optimize")
 async def optimize_for_vercel(request: Request, project_id: str):
     user = get_current_user(request)
@@ -2048,6 +2068,10 @@ async def optimize_for_vercel(request: Request, project_id: str):
     try:
         user_data = db_select_one("users", {"id": user["id"]}, "gorilla_api_key")
         api_key = user_data.get("gorilla_api_key", "") if user_data else ""
+
+        # FETCH THE UNIQUE AUTH ID FOR THIS PROJECT
+        project_data = db_select_one("projects", {"id": project_id}, "gorilla_auth_id")
+        auth_id = project_data.get("gorilla_auth_id", "") if project_data else ""
 
         vercel_json_content = {
             "version": 2,
@@ -2060,7 +2084,8 @@ async def optimize_for_vercel(request: Request, project_id: str):
                 {"source": "/(.*)", "destination": "/index.html"}
             ],
             "env": {
-                "GORILLA_API_KEY": api_key 
+                "GORILLA_API_KEY": api_key,
+                "VITE_GORILLA_AUTH_ID": auth_id  # <--- INJECTED FOR PRODUCTION APPS
             }
         }
         
@@ -2101,8 +2126,116 @@ async def optimize_for_vercel(request: Request, project_id: str):
         traceback.print_exc()
         raise HTTPException(500, detail=str(e))
 
-# 4. Push to GitHub
+# ==========================================================================
+# APP AUTH GATEWAY (For Generated Apps)
+# ==========================================================================
 
+@app.get("/api/v1/app-auth/login", response_class=HTMLResponse)
+async def app_auth_login_page(request: Request, auth_id: str, return_url: str = ""):
+    """Renders the Hosted Login Page for the generated app."""
+    proj = db_select_one("projects", {"gorilla_auth_id": auth_id}, "name")
+    if not proj:
+        return HTMLResponse("<h1>Invalid App Auth ID</h1>", status_code=404)
+    
+    request.session["app_auth_pending"] = {"auth_id": auth_id, "return_url": return_url}
+    
+    return templates.TemplateResponse("auth/appauth.html", {
+        "request": request,
+        "project_name": proj.get("name", "this app"),
+        "auth_id": auth_id,
+        "step": "login"
+    })
+
+@app.get("/api/v1/app-auth/{auth_id}/google")
+async def app_auth_google_init(request: Request, auth_id: str):
+    scope = "openid email profile"
+    site_url = os.getenv('SITE_URL', 'https://gorillabuilder.dev')
+    redirect_uri = urllib.parse.quote(f"{site_url}/api/v1/app-auth/google/callback")
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={GOOGLE_CLIENT_ID}&redirect_uri={redirect_uri}&scope={scope}&state={auth_id}"
+    return RedirectResponse(auth_url)
+
+@app.get("/api/v1/app-auth/{auth_id}/github")
+async def app_auth_github_init(request: Request, auth_id: str):
+    scope = "user:email"
+    site_url = os.getenv('SITE_URL', 'https://gorillabuilder.dev')
+    redirect_uri = urllib.parse.quote(f"{site_url}/api/v1/app-auth/github/callback")
+    auth_url = f"https://github.com/login/oauth/authorize?client_id={GITHUB_CLIENT_ID}&redirect_uri={redirect_uri}&scope={scope}&state={auth_id}"
+    return RedirectResponse(auth_url)
+
+@app.get("/api/v1/app-auth/google/callback")
+async def app_auth_google_callback(request: Request, code: str, state: str):
+    site_url = os.getenv('SITE_URL', 'https://gorillabuilder.dev')
+    async with httpx.AsyncClient() as client:
+        res = await client.post("https://oauth2.googleapis.com/token", data={
+            "code": code,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uri": f"{site_url}/api/v1/app-auth/google/callback",
+            "grant_type": "authorization_code",
+        })
+        tokens = res.json()
+        access_token = tokens.get("access_token")
+        
+        user_res = await client.get(
+            "https://www.googleapis.com/oauth2/v1/userinfo", 
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        google_user = user_res.json()
+        
+    user_payload = {
+        "id": google_user.get("id"),
+        "email": google_user.get("email"),
+        "name": google_user.get("name"),
+        "avatar": google_user.get("picture"),
+        "provider": "google"
+    }
+    
+    return templates.TemplateResponse("auth/appauth.html", {
+        "request": request,
+        "step": "success",
+        "user_data": json.dumps(user_payload)
+    })
+
+@app.get("/api/v1/app-auth/github/callback")
+async def app_auth_github_callback(request: Request, code: str, state: str):
+    site_url = os.getenv('SITE_URL', 'https://gorillabuilder.dev')
+    async with httpx.AsyncClient() as client:
+        res = await client.post(
+            "https://github.com/login/oauth/access_token", 
+            data={
+                "client_id": GITHUB_CLIENT_ID,
+                "client_secret": GITHUB_CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": f"{site_url}/api/v1/app-auth/github/callback"
+            },
+            headers={"Accept": "application/json"}
+        )
+        tokens = res.json()
+        access_token = tokens.get("access_token")
+        
+        user_res = await client.get(
+            "https://api.github.com/user", 
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        github_user = user_res.json()
+        
+    user_payload = {
+        "id": str(github_user.get("id")),
+        "email": github_user.get("email"),
+        "name": github_user.get("name") or github_user.get("login"),
+        "avatar": github_user.get("avatar_url"),
+        "provider": "github"
+    }
+    
+    return templates.TemplateResponse("auth/appauth.html", {
+        "request": request,
+        "step": "success",
+        "user_data": json.dumps(user_payload)
+    })
+
+# ==========================================================================
+# GITHUB PUBLISH
+# ==========================================================================
 @app.post("/projects/{project_id}/github/publish")
 async def publish_to_github(request: Request, project_id: str):
     try:
@@ -2161,6 +2294,7 @@ async def publish_to_github(request: Request, project_id: str):
                 # SAFETY NET: Check if the existing repo is completely empty!
                 branch_res = await client.get(f"https://api.github.com/repos/{full_name}/branches/main", headers=headers)
                 if branch_res.status_code == 404:
+                    import base64
                     # The repo exists but is empty! Initialize it manually via the Contents API
                     readme_content = base64.b64encode(b"# Init\n").decode("utf-8")
                     await client.put(

@@ -562,6 +562,7 @@ class PlannerAgent(BaseAgent):
 
     "TASK WRITING GUIDELINES:\n"
     "1. **No-Build Specifics:** \n"
+    "   - Simply instruct the coder to add auth (do not give many specifics at all) if the user asks and the coder will make the auth dynamically throught the gor://a auth gateway\n"
     "   - NEVER ask for `npm run dev` or `vite.config.js`.\n"
     "   - NEVER generate an `.env` file.\n"
     "   - Frontend Imports: Use `@/` aliases.\n"
@@ -839,6 +840,15 @@ class CoderAgent(BaseAgent):
         "- Use `framer-motion` for buttery smooth micro-interactions, page transitions, and element reveals.\n"
         "- Use `lucide-react` for crisp, consistent iconography.\n"
         "- Make it look like a premium, production-ready SaaS product right out of the gate. Don't settle for basic layouts!\n\n"
+
+        "AUTHENTICATION & GOOGLE/GITHUB SIGN-IN INSTRUCTIONS:\n"
+        "- If the planner or user asks to add authentication, login, or 'Sign in with Google/GitHub', DO NOT install Firebase, Supabase auth, Auth0, or write raw OAuth logic. A secure auth gateway is ALREADY provided.\n"
+        "- To implement Auth, strictly follow these steps in your React components:\n"
+        "  1. Import the utility: `import { login, onAuthStateChanged, logout } from '@/utils/auth';`\n"
+        "  2. Create state: `const [user, setUser] = useState<any>(null);`\n"
+        "  3. Set up the listener: `useEffect(() => { const unsubscribe = onAuthStateChanged((u) => setUser(u)); return () => unsubscribe(); }, []);`\n"
+        "  4. Trigger login: Use `onClick={() => login('google')}` or `onClick={() => login('github')}` on your buttons.\n"
+        "  5. Trigger logout: Use `onClick={() => logout()}`.\n\n"
 
         "STRICT IMPORT RULES:\n"
         "- **FRONTEND (`src/` files)**:\n"
