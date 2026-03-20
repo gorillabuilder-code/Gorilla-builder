@@ -443,7 +443,7 @@ class BaseAgent:
             return response.payload.get("answer") or response.payload.get("response")
         return None
     
-    async def call_llm(self, messages: List[Dict], temperature: float = 0.6) -> Tuple[str, int]:
+async def call_llm(self, messages: List[Dict], temperature: float = 0.6) -> Tuple[str, int]:
         """Call LLM without provider specification. Tracks tokens automatically."""
         payload = {
             "model": MODEL,
@@ -456,8 +456,27 @@ class BaseAgent:
             "HTTP-Referer": SITE_URL,
             "X-Title": SITE_NAME,
         }
+        
+        last_msg_preview = str(messages[-1].get('content', ''))[:80] if messages else ""
+        log_agent("llm", f"→ {len(messages)} msgs | {last_msg_preview}...", self.project_id)
+        
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(OPENROUTER_URL, json=payload, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            
+        content = data["choices"][0]["message"]["content"]
+        tokens = data.get("usage", {}).get("total_tokens", 0)
+        
+        # Track tokens
+        self.total_tokens_used += tokens
+        
+        log_agent("llm", f"← {tokens} tokens (total: {self.total_tokens_used}) | {content[:120]}...", self.project_id)
+        
+        return content, tokens
+
     async def call_vision_llm(self, messages: List[Dict], temperature: float = 0.6) -> Tuple[str, int]:
-        """Call LLM without provider specification. Tracks tokens automatically."""
+        """Call Vision LLM without provider specification. Tracks tokens automatically."""
         payload = {
             "model": VISION_MODEL,
             "messages": messages,
@@ -470,7 +489,8 @@ class BaseAgent:
             "X-Title": SITE_NAME,
         }
         
-        last_msg_preview = messages[-1].get('content', '')[:80] if messages else ""
+        # Wrapped in str() to prevent logger crashes if 'content' is a complex list (image payload)
+        last_msg_preview = str(messages[-1].get('content', ''))[:80] if messages else ""
         log_agent("llm", f"→ {len(messages)} msgs | {last_msg_preview}...", self.project_id)
         
         async with httpx.AsyncClient(timeout=120.0) as client:
