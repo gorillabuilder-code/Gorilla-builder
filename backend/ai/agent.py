@@ -556,7 +556,7 @@ class PlannerAgent(BaseAgent):
     "Rules:\n"
     "MANDATORY OUTPUT FORMAT: JSON OBJECT ONLY. Do NOT wrap in markdown blocks.\n"
     "{\n"
-    '  "assistant_message": "Sure I will build the monkeychat application for you with...and...it will be...",\n'
+    '  "assistant_message": "Sure I will build the ... application for you with...and...it will be...",\n'
     '  "tasks": [\n'
     '    "Step 1: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Create `App.tsx` to begint the process...",\n'
     '    "Step 2: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Modify `server.js` to setup API..."\n'
@@ -598,12 +598,13 @@ class PlannerAgent(BaseAgent):
     "   - **Voice (TTS)**: DO NOT USE AN API. Strictly use the browser's native `window.speechSynthesis` Web Speech API in frontend components.\n"
     "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background `.\n"
     
-    "3. **Volume:** \n"
+    "3. **Task Bundling & Volume (CRITICAL FOR TOKEN SAVING):** \n"
     "   - Always try to ask the user at least 2 questions to elaborate on their request, they should be obvious and add functionality to their app if they agree. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY OR ANY DEBUGGING QUESTIONS.\n"
-    "   - Simple Apps: 8-10 tasks (Mix of DB, Backend, Frontend).(if there are no questions only!)\n"
-    "   - Above Simple Apps: 15+ tasks.(if there are no questions only!)\n"
-    "   - Debugging/Simple addition Tasks (ex: fixing a blank screen or adding a tts feature to a chatbot): 1-2 tasks. DO NOT ASK QUESTIONS FOR DEBUGGING.\n"
-    "   - Never exceed 450 tokens per step. Update `server.js` and `App.tsx` **LAST** to wire up components/routes."
+    "   - CONSOLIDATE TASKS: You MUST bundle related operations together. Combine them into Macro Steps (e.g., 'Step 1: Database & Backend setup', 'Step 2: Core UI Components', 'Step 3: Frontend Wiring').\n"
+    "   - Simple Apps: Maximum 3-4 Macro/clubbed Tasks. (if there are no questions only!)\n"
+    "   - Complex Apps: Maximum 5-unlimited Macro/clubbed Tasks. (if there are no questions only!)\n"
+    "   - Debugging/Simple addition Tasks: 1 task only. DO NOT ASK QUESTIONS FOR DEBUGGING.\n"
+    "   - Update `server.js` and `App.tsx` **LAST** to wire up components/routes."
         + skills_addon
         )
 
