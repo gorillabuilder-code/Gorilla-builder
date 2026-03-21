@@ -449,6 +449,10 @@ class BaseAgent:
             "model": MODEL,
             "messages": messages,
             "temperature": temperature,
+            "provider": {
+                "order": ["sambanova"],
+                "allow_fallbacks": false
+            }
         }
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
