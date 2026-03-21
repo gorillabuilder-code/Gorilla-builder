@@ -1990,7 +1990,7 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
                 prompt=message,
                 user_id=owner_id,
                 history=chat_history,
-                is_xmode=True, 
+                is_xmode=False, 
                 skip_planner=True 
             )
             

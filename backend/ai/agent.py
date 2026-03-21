@@ -27,7 +27,7 @@ import httpx
 
 # --- Configuration for OpenRouter ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("MODEL", "minimax/minimax-m2.7")
+MODEL = os.getenv("MODEL", "inception/mercury-2")
 VISION_MODEL = os.getenv("MODEL", "xiaomi/mimo-v2-omni")
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions").strip()
 SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev").strip()
@@ -582,7 +582,7 @@ class PlannerAgent(BaseAgent):
 
     "TASK WRITING GUIDELINES:\n"
     "1. **No-Build Specifics:** \n"
-    "   - Simply instruct the coder to add auth (do not give many specifics at all) if the user asks and the coder will make the auth dynamically throught the gor://a auth gateway\n"
+    "   - Simply instruct the coder to add auth (do not give many specifics at all) if the user asks, even if they specify google auth or other forms SIMLPY INTRUCT THE CODER TO ADD AUTH, and the coder will make the auth dynamically throught the gor://a auth gateway\n"
     "   - NEVER ask for `npm run dev` or `vite.config.js`.\n"
     "   - NEVER generate an `.env` file.\n"
     "   - Frontend Imports: Use `@/` aliases.\n"
@@ -592,14 +592,14 @@ class PlannerAgent(BaseAgent):
     # --- 🚨 PHASE 5: THE AI PROXY INJECTION 🚨 ---
     "2. **AI Integration Specs (USE THESE EXACTLY):**\n"
     "   - **Core Rule**: You MUST route all AI API calls through the Gorilla Proxy using `process.env.GORILLA_API_KEY`.\n"
-    "   - **High-Performance Logic (LLM)**: Set baseURL to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1 ` and use model `openai/gpt-oss-20b:free`.\n"
+    "   - **High-Performance Logic (LLM)**: Use `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/chat/completetions` with the process.env GORILLA_API_KEY, DO NOT SPECIFY THE MODEL OR ANY OTHER VALUES LIKE TEMPERATURE... NO MATTER WHAT.\n"
     "   - **Image Generation**: Send POST request to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/generations ` with standard OpenAI payload.\n"
     "   - **Voice (STT)**: Send POST to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/audio/transcriptions ` (OpenAI Whisper format).\n"
     "   - **Voice (TTS)**: DO NOT USE AN API. Strictly use the browser's native `window.speechSynthesis` Web Speech API in frontend components.\n"
     "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background `.\n"
     
     "3. **Task Bundling & Volume (CRITICAL FOR TOKEN SAVING):** \n"
-    "   - Always try to ask the user at least 2 questions to elaborate on their request, they should be obvious and add functionality to their app if they agree. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY OR ANY DEBUGGING QUESTIONS.\n"
+    "   - Always try to ask the user at least 1 questions to elaborate on their request, they should be obvious and add functionality to their app if they agree. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY QUESTIONS IF THEY DONT FEEL LIKE IT OR ANY DEBUGGING QUESTIONS.\n"
     "   - CONSOLIDATE TASKS: You MUST bundle related operations together. Combine them into Macro Steps (e.g., 'Step 1: Database & Backend setup', 'Step 2: Core UI Components', 'Step 3: Frontend Wiring').\n"
     "   - Simple Apps: Maximum 3-4 Macro/clubbed Tasks. (if there are no questions only!)\n"
     "   - Complex Apps: Maximum 5-unlimited Macro/clubbed Tasks. (if there are no questions only!)\n"

@@ -198,13 +198,16 @@ export class WebRunner {
 
         const serverErrorTracker = this._createDebouncedLogger(logger, "Runtime/Server", projectId);
 
-        // 🛑 Listen for Browser errors from our injected script
-        window.addEventListener("message", (e) => {
-            if (e.data && e.data.type === 'iframe_error') {
-                console.info("🔴 [BROWSER ERROR CAUGHT]", e.data.message);
-                serverErrorTracker.push(e.data.message);
-            }
-        });
+            // 🛑 Listen for Browser errors from our injected script
+        window.addEventListener("message", (e) => {
+            if (e.data && e.data.type === 'iframe_error') {
+                // Filter out the empty "Console Error: {}" messages
+                if (e.data.message !== "Console Error: {}") {
+                    console.info("🔴 [BROWSER ERROR CAUGHT]", e.data.message);
+                    serverErrorTracker.push(e.data.message);
+                }
+            }
+        });
 
         // 🛑 Zombie Server Auto-Restarter
         const bootServer = async () => {
