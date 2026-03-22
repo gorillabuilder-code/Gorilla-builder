@@ -2412,22 +2412,45 @@ async def get_file_content(request: Request, project_id: str, path: str):
     except Exception as e:
         return JSONResponse({"content": f"// Error loading file: {e}"})
 
+import base64
+import mimetypes
+from fastapi import Request, Form, UploadFile, File
+
 @app.post("/api/project/{project_id}/save")
 async def save_file(
     request: Request, 
     project_id: str, 
-    file: str = Form(...), 
-    content: str = Form(...)
+    file: str = Form(...),            # The file path/name (e.g., "src/logo.png")
+    content: UploadFile = File(...)   # Upgraded to accept raw file/blob data
 ):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
+    # 1. Read the raw bytes from the upload
+    file_bytes = await content.read()
+    
+    # 2. Guess the mime type based on the file extension (e.g., .png -> image/png)
+    mime_type, _ = mimetypes.guess_type(file)
+    
+    # 3. Route the encoding based on the file type
+    if mime_type and mime_type.startswith('image/'):
+        # Convert binary image to a base64 string
+        encoded_str = base64.b64encode(file_bytes).decode('utf-8')
+        # Prepend the data URI scheme so it works perfectly in <img src="..."> tags
+        final_content = f"data:{mime_type};base64,{encoded_str}"
+    else:
+        # Assume it's code/text and decode to a standard string
+        final_content = file_bytes.decode('utf-8')
+        
+    # 4. Save to database
     db_upsert(
         "files", 
-        {"project_id": project_id, "path": file, "content": content}, 
+        {"project_id": project_id, "path": file, "content": final_content}, 
         on_conflict="project_id,path"
     )
+    
     supabase.table("projects").update({"updated_at": "now()"}).eq("id", project_id).execute()
+    
     return {"success": True}
 
 
