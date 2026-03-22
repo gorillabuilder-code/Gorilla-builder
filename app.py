@@ -1190,16 +1190,61 @@ async def spin_wheel(request: Request):
 # ==========================================================================
 # SETTINGS & AGENT SKILLS ROUTES
 # ==========================================================================
+import secrets
+from fastapi import Request, Form
+from fastapi.responses import HTMLResponse, RedirectResponse
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     user = get_current_user(request)
+    
     try:
-        res = supabase.table("users").select("plan").eq("id", user["id"]).single().execute()
-        user["plan"] = res.data.get("plan", "free") if res.data else "free"
-    except Exception:
-        user["plan"] = "free"
+        # 🛑 Purged 'name' from the query to match your DB schema
+        res = supabase.table("users").select(
+            "plan, email, gorilla_api_key, github_access_token, figma_access_token"
+        ).eq("id", user["id"]).single().execute()
         
-    return templates.TemplateResponse("dashboard/settings.html", {"request": request, "user": user})
+        if res and res.data:
+            db_user = res.data
+            
+            raw_plan = db_user.get("plan") or "free"
+            user["plan"] = str(raw_plan).lower().strip()
+            
+            user["email"] = db_user.get("email") or user.get("email", "")
+            user["gorilla_api_key"] = db_user.get("gorilla_api_key") or ""
+            user["has_github"] = bool(db_user.get("github_access_token"))
+            user["has_figma"] = bool(db_user.get("figma_access_token"))
+        else:
+            user["plan"] = "free"
+            user["gorilla_api_key"] = ""
+            
+    except Exception as e:
+        print(f"Error loading settings: {e}")
+        user["plan"] = "free"
+        user["gorilla_api_key"] = ""
+        
+    success_msg = request.query_params.get("success")
+    error_msg = request.query_params.get("error")
+        
+    return templates.TemplateResponse("dashboard/settings.html", {
+        "request": request, 
+        "user": user,
+        "success": success_msg,
+        "error": error_msg
+    })
+
+
+# 3. REGENERATE API KEY ROUTE
+@app.post("/api/user/regenerate-key")
+async def regenerate_api_key(request: Request):
+    user = get_current_user(request)
+    new_key = f"gb_live_{secrets.token_hex(24)}"
+    try:
+        supabase.table("users").update({"gorilla_api_key": new_key}).eq("id", user["id"]).execute()
+        return RedirectResponse("/settings?success=API+Key+regenerated+successfully", status_code=303)
+    except Exception as e:
+        return RedirectResponse("/settings?error=Failed+to+regenerate+key", status_code=303)
+
 
 @app.get("/settings/skills", response_class=HTMLResponse)
 async def agent_skills_page(request: Request):
@@ -1952,7 +1997,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             emit_file_changed(project_id, path)
 
         # Save History when done
-        db_history.append({"role": "assistant", "content": assistant_msg})
+        db_history.append({"role": "assistant", "content": assistant_msg if assistant_msg else "The app is now being worked on!"})
         supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
 
         emit_status(project_id, "Done")

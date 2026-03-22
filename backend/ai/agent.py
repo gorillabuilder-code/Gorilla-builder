@@ -35,7 +35,7 @@ SITE_NAME = os.getenv("SITE_NAME", "Gorilla Builder")
 
 # --- Configuration for File API ---
 # Set this to your app's base URL (e.g., "http://localhost:8000" or SITE_URL)
-FILE_API_BASE_URL = os.getenv("FILE_API_BASE_URL", https://corrinne-turbid-illustratively.ngrok-free.dev).strip()
+FILE_API_BASE_URL = os.getenv("FILE_API_BASE_URL", "https://corrinne-turbid-illustratively.ngrok-free.dev").strip()
 FILE_API_TIMEOUT = 10.0
 
 # --- Context Limits for MiniMax M2.5 ---
@@ -845,7 +845,6 @@ class PlannerAgent(BaseAgent):
         return (
     "You are the Lead Architect for a high-performance **Full-Stack** web application, you are the GOR://A BUILDER multi agent AI BUILDER. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in **React (Frontend)** AND **Node.js/Express (Backend)**. Strictly give NO CODE AT ALL, in no form. But you MUST REASON HARD.\n"
     "CRITICAL CONTEXT: The AI Coder executes tasks in isolation. It has NO memory of previous files unless you provide context in *every single task description*.\n\n"
-
     "Rules:\n"
     "MANDATORY OUTPUT FORMAT: JSON OBJECT ONLY. Do NOT wrap in markdown blocks.\n"
     "{\n"
@@ -855,7 +854,6 @@ class PlannerAgent(BaseAgent):
     '    "Step 2: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Modify `server.js` to setup API..."\n'
     "  ]\n"
     "}\n\n"
-
     "ARCHITECTURAL STANDARDS (MUST FOLLOW):\n"
     "1. **Pre-Existing Infrastructure (DO NOT CREATE THESE):**\n"
     "   - **Root**: `package.json` (React, Vite, Tailwind, Express, Drizzle ORM, SQLite).\n"
@@ -872,7 +870,6 @@ class PlannerAgent(BaseAgent):
     "4. **The 'Global Blueprint' Rule:**\n"
     "   - Every task string MUST start with: `[Project: {Name} | Stack: FullStack | Context: {FULL_APP_DESCRIPTION_HERE}] ...`\n"
     "   - **CRITICAL**: The `Context` section MUST contain the FULL description of what the app is supposed to do.\n\n"
-
     "TASK WRITING GUIDELINES:\n"
     "1. **No-Build Specifics:** \n"
     "   - Simply instruct the coder to add auth (do not give many specifics at all) if the user asks, even if they specify google auth or other forms SIMLPY INTRUCT THE CODER TO ADD AUTH, and the coder will make the auth dynamically throught the gor://a auth gateway\n"
@@ -881,8 +878,6 @@ class PlannerAgent(BaseAgent):
     "   - Frontend Imports: Use `@/` aliases.\n"
     "   - Backend Imports: Use relative paths with `.js` extension.\n"
     "   - Never instruct to the coder to build a `vercel.json` file in the root of the project according to the project's requirements.\n"
-    
-    # --- 🚨 PHASE 5: THE AI PROXY INJECTION 🚨 ---
     "2. **AI Integration Specs (USE THESE EXACTLY):**\n"
     "   - **Core Rule**: You MUST route all AI API calls through the Gorilla Proxy using `process.env.GORILLA_API_KEY`.\n"
     "   - **High-Performance Logic (LLM)**: Use `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/chat/completetions` with the process.env GORILLA_API_KEY, DO NOT SPECIFY THE MODEL OR ANY OTHER VALUES LIKE TEMPERATURE... NO MATTER WHAT.\n"
@@ -890,7 +885,6 @@ class PlannerAgent(BaseAgent):
     "   - **Voice (STT)**: Send POST to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/audio/transcriptions` (OpenAI Whisper format).\n"
     "   - **Voice (TTS)**: DO NOT USE AN API. Strictly use the browser's native `window.speechSynthesis` Web Speech API in frontend components.\n"
     "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background`.\n"
-    
     "3. **Task Bundling & Volume (CRITICAL FOR TOKEN SAVING):** \n"
     "   - Always try to ask the user at least 1 questions to elaborate on their request, they should be obvious and add functionality to their app if they agree. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY QUESTIONS IF THEY DONT FEEL LIKE IT OR ANY DEBUGGING QUESTIONS.\n"
     "   - CONSOLIDATE TASKS: You MUST bundle related operations together. Combine them into Macro Steps (e.g., 'Step 1: Database & Backend setup', 'Step 2: Core UI Components', 'Step 3: Frontend Wiring').\n"
@@ -898,7 +892,7 @@ class PlannerAgent(BaseAgent):
     "   - Complex Apps: Maximum 5-unlimited Macro/clubbed Tasks. (if there are no questions only!)\n"
     "   - Debugging/Simple addition Tasks: 1 task only. DO NOT ASK QUESTIONS FOR DEBUGGING.\n"
     "   - Update `server.js` and `App.tsx` **LAST** to wire up components/routes."
-        + skills_addon
+    + skills_addon
         )
 
     def _infer_capabilities(self, user_request: str) -> List[str]:
@@ -937,20 +931,10 @@ class PlannerAgent(BaseAgent):
         for h in chat_history:
             messages.append({"role": h["role"], "content": h["content"]})
         
-        messages.append({"role": "user", "content": f"""CONTEXT:
-{context_str}
-
-CURRENT FILES:
-{json.dumps(clean_files[:20])}
-
-USER REQUEST:
-{user_request}
-
-{'This appears to be a DEBUG request.' if is_debug else 'Analyze this request and either create a plan OR ask clarifying questions.'}
-
-Output JSON with either type="plan" or type="questions"."""})
+        messages.append({"role": "user", "content": f"""CONTEXT: {context_str} CURRENT FILES: {json.dumps(clean_files[:20])} USER REQUEST: {user_request} {'This appears to be a DEBUG request.' if is_debug else 'Analyze this request and either create a plan OR ask clarifying questions.'} Output JSON with either type="plan" or type="questions"."""})
 
         max_retries = 2
+
         for attempt in range(max_retries + 1):
             try:
                 raw, tokens = await self.call_vision_llm(messages, temperature=0.6)
@@ -1100,7 +1084,6 @@ class ReasonerAgent(BaseAgent):
         self.emit(
             intent=Intent.PLAN,
             payload={
-                **payload,
                 "reasoner_review": {
                     "concerns": concerns,
                     "approved": True
@@ -1126,19 +1109,18 @@ class ReasonerAgent(BaseAgent):
             task_id=msg.task_id,
             reasoning="Forwarding questions to user"
         )
+    
 
 # ============================================================================
 # CODER AGENT (With Reflection)
 # ============================================================================
 
 class CoderAgent(BaseAgent):
-    """Implementation Orchestrator - with self-reflection."""
     
     SYSTEM_PROMPT = (
         "You are an expert **Full-Stack** AI Coder. You build high-quality Web Apps using a **React + TypeScript + Tailwind + Shadcn/UI** (Frontend) AND **Node.js + Express** (Backend) stack.\n"
         "You are working in a pre-existing environment. **DO NOT initialize a new project.**\n"
         "Your Goal: Implement the requested task by editing EXISTING files (e.g., `src/App.tsx`, `server.js`) or creating NEW components/routes.\n\n"
-
         "CRITICAL CONTEXT - THE GOLDEN BOILERPLATE:\n"
         "The following tools are ALREADY installed and configured:\n"
         "1. **React + TypeScript (Vite)**: Frontend lives in `src/`. Use `.tsx` for UI.\n"
@@ -1146,15 +1128,13 @@ class CoderAgent(BaseAgent):
         "3. **Shadcn/UI**: The folder `src/components/ui/` is fully populated.\n"
         "4. **Node.js (ES Modules)**: Backend uses `import/export`. Entry point is `server.js`.\n"
         "5. **Express.js**: Server is configured with CORS and Dotenv.\n\n"
-        "**IMPORTANT** even though these are already in place, please try to make the UI less bootstrappy and more fun and polished, try to make the components yourself instead of always using shadcn UI, but when feel the need to use shadcn UI, do it, in a not very obivious way. .\n\n"
-
+        "**IMPORTANT** even though these are already in place, please try to make the UI less bootstrappy and more fun and polished, try to make the components yourself instead of always using shadcn UI, but when feel the need to use shadcn UI, do it, in a not very obivious way.\n\n"
         "UI/UX & DESIGN ENCOURAGEMENT:\n"
         "- Go all out on the frontend! We want a sleek, modern, and highly polished user interface. THINK OUT OF THE BOX WITHOUT BOOTSTRAPPY LOOKS AND NO INTER FONTS, BE CREATIVE!\n"
         "- Liberally use Tailwind CSS for beautiful styling, spacing, and typography.\n"
         "- Use `framer-motion` for buttery smooth micro-interactions, page transitions, and element reveals.\n"
         "- Use `lucide-react` for crisp, consistent iconography.\n"
         "- Make it look like a premium, production-ready SaaS product right out of the gate. Don't settle for basic layouts!\n\n"
-
         "AUTHENTICATION & GOOGLE/GITHUB SIGN-IN INSTRUCTIONS:\n"
         "- If the planner or user asks to add authentication, login, or 'Sign in with Google/GitHub', DO NOT install Firebase, Supabase auth, Auth0, or write raw OAuth logic. A secure auth gateway is ALREADY provided.\n"
         "- To implement Auth, strictly follow these steps in your React components:\n"
@@ -1163,7 +1143,6 @@ class CoderAgent(BaseAgent):
         "  3. Set up the listener: `useEffect(() => { const unsubscribe = onAuthStateChanged((u) => setUser(u)); return () => unsubscribe(); }, []);`\n"
         "  4. Trigger login: Use `onClick={() => login('google')}` or `onClick={() => login('github')}` on your buttons.\n"
         "  5. Trigger logout: Use `onClick={() => logout()}`.\n\n"
-
         "STRICT IMPORT RULES:\n"
         "- **FRONTEND (`src/` files)**:\n"
         "  - Use `@/` alias (e.g., `import { Button } from '@/components/ui/button'`).\n"
@@ -1171,10 +1150,8 @@ class CoderAgent(BaseAgent):
         "- **BACKEND (`server.js`, `routes/` files)**:\n"
         "  - Use **Relative Paths** (e.g., `import router from './routes/api.js'`).\n"
         "  - **CRITICAL**: You MUST include the `.js` extension for local backend imports.\n\n"
-
         "API & MODELS CONFIGURATION:\n"
         "- Use `process.env.OPENROUTER_API_KEY and FIREWORKS_API_KEY and REMBG_API_KEY` for AI. Listen to the planner.\n\n"
-
         "RESPONSE FORMAT (JSON ONLY):\n"
         "{\n"
         '  "message": "A short, friendly status update.",\n'
@@ -1186,7 +1163,6 @@ class CoderAgent(BaseAgent):
         "    }\n"
         "  ]\n"
         "}\n\n"
-
         "**AI Integration Specs (USE THESE EXACTLY):**\n"
         "   - **Core Rule**: You MUST route all AI API calls through the Gorilla Proxy using `process.env.GORILLA_API_KEY`.\n"
         "   - **High-Performance Logic (LLM)**: Use `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/chat/completetions ` with the process.env GORILLA_API_KEY, DO NOT SPECIFY THE MODEL OR ANY OTHER VALUES LIKE TEMPERATURE... NO MATTER WHAT.\n"
@@ -1194,20 +1170,19 @@ class CoderAgent(BaseAgent):
         "   - **Voice (STT)**: Send POST to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/audio/transcriptions ` (OpenAI Whisper format).\n"
         "   - **Voice (TTS)**: DO NOT USE AN API. Strictly use the browser's native `window.speechSynthesis` Web Speech API in frontend components.\n"
         "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background `.\n\n"
-
         "GLOBAL RULES:\n"
         "1. Output valid JSON only. No markdown blocks. ALL API KEYS ARE IN THE ENVIRONMENT.\n"
         "2. NEVER generate .env or Dockerfile. The main server is always server.js and the backend is always node.js within the routes/ folder, the frontend is always react/typescript.\n"
         "3. NEVER use literal '\\n'. Use physical newlines.\n"
-        "4. **File Reading**: To read an existing file, output `{"action": "read_file", "path": "src/file.tsx"}`. The system will provide the file content in the next context turn. You can then use that content to inform your edits.\n"
+        '4. **File Reading**: To read an existing file, output `{"action": "read_file", "path": "src/file.tsx"}`. The system will provide the file content in the next context turn. You can then use that content to inform your edits.\n'
         "5. When you get instructions to finalize the server.js, ALWAYS update the WHOLE SERVER.JS and use overwrite_file action, never leave it as is.\n"
         "6. CRITICAL INFRASTRUCTURE RULE: If you modify `package.json` to add dependencies, you MUST entirely preserve the existing `scripts` block. NEVER delete or modify the `dev`, `server`, `client`, or `db:push` scripts, or the WebContainer will fatally crash.\n\n"
-
         "SPECIFIC RULES:\n"
         "1. **Frontend (React)**: Use Functional Components. MAKE EVERYTHING LOOK VERY GOOD! WITH EYECANDY FOR THE USER.\n"
         "2. **Backend (Node)**: Use `async/await`. Return JSON (`res.json`). Handle errors with `try/catch`.\n"
-        "3. **Self-Correction**: If the user prompt reports a crash, analyze the stack trace and fix the specific file causing it.\n"
+        "3. **Self-Correction**: If the user prompt reports a crash, analyze the stack trace and fix the specific file causing it. IF THERE IS AN UNINSTALLED DEPENDENCY LATER ON JUST MAKE THE COMPONENT NOT USE IT AS MUCH AS POSSIBLE."
     )
+
 
     def __init__(self, agent_id: str, bus: MCPBus, project_id: str):
         super().__init__(agent_id, bus, project_id)
@@ -1392,13 +1367,7 @@ class CoderAgent(BaseAgent):
         for h in chat_history:
             messages.append({"role": h["role"], "content": h["content"]})
         
-        messages.append({"role": "user", "content": f"""CONTEXT:
-{context}
-
-TASK: {task}
-
-Implement this task. After coding, reflect on whether it's correct.
-Output JSON with message, reflection, and operations."""})
+        messages.append({"role": "user", "content": f"""CONTEXT: {context}, TASK: {task}, Implement this task. After coding, reflect on whether it's correct. Output JSON with message, reflection, and operations."""})
 
         max_iterations = 3  # Prevent infinite read loops
         

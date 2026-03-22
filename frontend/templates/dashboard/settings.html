@@ -4,155 +4,287 @@
   <meta charset="UTF-8" />
   <title>Settings · Gor://a Builder</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script src="https://unpkg.com/@phosphor-icons/web"></script>
 
   <style>
     @font-face { font-family: 'din-next-w01-light'; font-style: normal; font-weight: 400; src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2'); font-display: swap; }
-    :root { --bg: #050505; --sidebar-bg: rgba(10, 10, 12, 0.6); --panel: rgba(20, 20, 25, 0.4); --border: rgba(255, 255, 255, 0.08); --border-hover: rgba(255, 255, 255, 0.15); --accent: #3b6cff; --accent-glow: rgba(59, 108, 255, 0.25); --text: #ffffff; --text-muted: #8a8a93; --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E"); --ease-out: cubic-bezier(0.16, 1, 0.3, 1); }
+    :root { --bg: #050505; --sidebar-bg: rgba(10, 10, 12, 0.6); --panel: rgba(20, 20, 25, 0.4); --border: rgba(255, 255, 255, 0.08); --border-hover: rgba(255, 255, 255, 0.15); --accent: #3b6cff; --accent-glow: rgba(59, 108, 255, 0.25); --text: #ffffff; --text-muted: #8a8a93; --ease-out: cubic-bezier(0.16, 1, 0.3, 1); }
+    
     body.premium { --accent: #ffd700; --accent-glow: rgba(255, 215, 0, 0.2); }
+    
     * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, sans-serif; outline: none; }
     body { margin: 0; background: var(--bg); color: var(--text); height: 100vh; display: flex; overflow: hidden; }
 
     /* App Shell Base */
-    .noise-overlay { position: fixed; inset: 0; background-image: var(--noise); pointer-events: none; z-index: 0; }
     .glow-spot { position: fixed; width: 600px; height: 600px; background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%); opacity: 0.4; pointer-events: none; z-index: 0; top: -200px; left: 20%; filter: blur(80px); }
     
     aside { width: 260px; background: var(--sidebar-bg); backdrop-filter: blur(20px); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 24px 16px; z-index: 10; position: relative; }
-    .logo { font-size: 22px; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 12px; margin-bottom: 40px; padding-left: 12px; letter-spacing: -0.5px; }
+    .logo { font-size: 22px; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 12px; margin-bottom: 40px; padding-left: 12px; letter-spacing: -0.5px; text-decoration: none;}
     .logo svg { color: var(--accent); width: 24px; height: 24px; }
     .premium-badge { font-size: 10px; background: var(--accent); color: #000; padding: 2px 6px; border-radius: 4px; font-weight: 800; display: none; transform: translateY(-1px); }
     body.premium .premium-badge { display: inline-block; }
+    
     nav { display: flex; flex-direction: column; gap: 4px; flex: 1; }
     nav a { color: var(--text-muted); text-decoration: none; padding: 10px 12px; border-radius: 10px; font-size: 14px; transition: all 0.2s var(--ease-out); display: flex; align-items: center; gap: 12px; }
     nav a:hover { background: rgba(255,255,255,0.05); color: #fff; }
     nav a.active { background: rgba(255,255,255,0.08); color: #fff; font-weight: 500; }
-    nav a i { font-size: 18px; opacity: 0.7; }
-    nav a:hover i, nav a.active i { opacity: 1; color: var(--accent); }
+    nav a svg { width: 18px; height: 18px; opacity: 0.7; transition: all 0.2s; }
+    nav a:hover svg, nav a.active svg { opacity: 1; color: var(--accent); }
+    
     .profile-container { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border); }
     .user-profile { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 12px; cursor: pointer; transition: background 0.2s; }
     .user-profile:hover { background: rgba(255,255,255,0.05); }
-    .avatar { width: 36px; height: 36px; background: linear-gradient(135deg, #2a2a30, #151518); border: 1px solid var(--border); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; color: #fff; position: relative; }
+    .avatar { width: 36px; height: 36px; background: linear-gradient(135deg, #2a2a30, #151518); border: 1px solid var(--border); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; color: #fff; position: relative; text-transform: uppercase;}
     .avatar::after { content: ''; position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: #10b981; border: 2px solid var(--bg); border-radius: 50%; }
     .user-info { display: flex; flex-direction: column; font-size: 13px; line-height: 1.3; }
     .user-name { color: #fff; font-weight: 500; }
     .user-plan { color: var(--text-muted); font-size: 11px; text-transform: capitalize; }
 
     main { flex: 1; overflow-y: auto; padding: 40px 60px; position: relative; z-index: 1; }
-    main::-webkit-scrollbar { width: 6px; }
-    main::-webkit-scrollbar-track { background: transparent; }
-    main::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-
-    @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-    .animate-entry { animation: slideUp 0.6s var(--ease-out) forwards; opacity: 0; }
-
-    /* Header */
+    
     .page-header { margin-bottom: 40px; }
     .page-header h1 { font-size: 32px; font-weight: 300; margin: 0 0 8px; color: #fff; }
     .page-header p { color: var(--text-muted); margin: 0; font-size: 15px; }
 
-    /* Settings Sections */
-    .settings-grid { display: flex; flex-direction: column; gap: 32px; max-width: 700px; }
-    
+    .settings-grid { display: flex; flex-direction: column; gap: 32px; max-width: 700px; padding-bottom: 60px;}
     .settings-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 30px; }
-    .card-title { font-size: 18px; font-weight: 500; color: #fff; margin: 0 0 24px; display: flex; align-items: center; gap: 8px; }
-    .card-title i { color: var(--accent); }
+    .card-title { font-size: 18px; font-weight: 500; color: #fff; margin: 0 0 24px; display: flex; align-items: center; gap: 10px; }
+    .card-title svg { color: var(--accent); width: 22px; height: 22px; }
 
     .form-group { margin-bottom: 20px; }
     .form-group label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 8px; font-weight: 500; }
     
     .input-box { background: rgba(15, 15, 20, 0.6); border: 1px solid var(--border); border-radius: 12px; display: flex; align-items: center; padding: 0 16px; transition: 0.2s; }
     .input-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-    .input-box input { flex: 1; background: transparent; border: none; color: #fff; height: 44px; font-size: 14px; }
+    .input-box input { flex: 1; background: transparent; border: none; color: #fff; height: 44px; font-size: 14px; width: 100%;}
     .input-box input:disabled { opacity: 0.5; cursor: not-allowed; }
     
-    .btn-save { background: rgba(255,255,255,0.05); color: #fff; border: 1px solid var(--border); padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; transition: 0.2s; }
+    .api-key-display { font-family: monospace; color: var(--accent); font-size: 14px; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; filter: blur(4px); transition: filter 0.3s ease; user-select: none;}
+    .input-box:hover .api-key-display { filter: blur(0px); user-select: auto;}
+
+    .btn-save { background: rgba(255,255,255,0.05); color: #fff; border: 1px solid var(--border); padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; transition: 0.2s; text-decoration: none; display: inline-block; }
     .btn-save:hover { background: #fff; color: #000; }
 
+    .action-row { display: flex; align-items: center; justify-content: space-between; padding: 16px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 12px; }
+    .action-row-info { display: flex; align-items: center; gap: 12px; }
+    .action-row-text h4 { margin: 0 0 4px 0; font-size: 14px; font-weight: 500; color: #fff; }
+    .action-row-text p { margin: 0; font-size: 12px; color: var(--text-muted); }
+
     .danger-zone { border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.05); }
-    .danger-zone .card-title i { color: #ef4444; }
-    .btn-danger { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 10px 20px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: 0.2s; }
+    .danger-zone .card-title svg { color: #ef4444; }
+    .btn-danger { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 10px 20px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: 0.2s; text-decoration: none; display: inline-block;}
     .btn-danger:hover { background: #ef4444; color: #fff; }
 
+    .toast { position: fixed; bottom: 30px; right: 30px; background: #fff; color: #000; padding: 12px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; box-shadow: 0 10px 30px rgba(0,0,0,0.3); transform: translateY(100px); opacity: 0; transition: all 0.4s var(--ease-out); z-index: 100; display: flex; align-items: center; gap: 8px; }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.error { background: #ef4444; color: #fff; }
   </style>
 </head>
-<body class="{% if user.plan == 'premium' %}premium{% endif %}">
 
-  <div class="noise-overlay"></div>
+<body class="{% if user.get('plan') in ['premium', 'pro'] %}premium{% endif %}">
+
   <div class="glow-spot"></div>
 
   <aside>
-    <div class="logo">
-      <svg viewBox="0 0 600 550" preserveAspectRatio="xMidYMid meet"> <g transform="translate(0.000000,603.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none"> <path d="M1497 6023 c827 -2 2179 -2 3005 0 827 1 151 2 -1502 2 -1653 0 -2329 -1 -1503 -2z"/> <path d="M2802 5273 c-43 -24 -131 -143 -182 -246 -99 -202 -106 -410 -19 -598 59 -128 153 -189 246 -158 56 18 81 37 108 84 34 57 32 112 -6 216 -54 145 -51 327 7 490 41 113 27 176 -46 214 -38 20 -68 19 -108 -2z"/> <path d="M3290 5268 c-74 -50 -185 -230 -228 -369 -44 -142 -37 -293 19 -440 52 -134 141 -208 234 -195 131 20 194 151 136 281 -67 150 -67 316 0 522 26 80 29 98 20 126 -28 83 -116 119 -181 75z"/> <path d="M685 4560 c-171 -34 -283 -139 -331 -306 -15 -50 -18 -129 -23 -519 -4 -321 -10 -466 -18 -480 -32 -56 -64 -70 -205 -90 -26 -4 -46 -17 -72 -45 -33 -36 -36 -45 -36 -99 0 -98 62 -161 157 -161 59 0 119 -26 146 -64 22 -31 22 -35 28 -496 5 -424 8 -471 26 -531 11 -37 31 -87 46 -111 72 -124 228 -198 418 -198 125 0 200 111 151 223 -26 59 -64 82 -148 90 -73 7 -116 27 -148 70 -20 28 -21 41 -27 490 -6 505 -8 526 -68 632 l-28 50 28 50 c60 106 62 128 68 630 6 427 7 462 25 491 26 44 68 65 139 71 81 7 131 35 157 88 26 53 25 91 -2 145 -32 61 -73 80 -168 79 -41 -1 -93 -5 -115 -9z"/> <path d="M5102 4550 c-68 -42 -92 -135 -54 -209 26 -52 60 -72 140 -81 83 -9 128 -32 157 -80 19 -33 20 -56 26 -500 6 -505 6 -513 66 -621 l26 -45 -26 -45 c-59 -103 -61 -113 -67 -619 -5 -461 -5 -465 -28 -501 -28 -45 -72 -67 -156 -77 -111 -14 -160 -66 -153 -165 4 -66 26 -103 78 -130 28 -15 50 -18 124 -13 218 12 351 101 416 278 22 61 23 74 28 533 6 503 6 500 58 547 19 18 78 34 155 43 33 4 56 15 78 35 29 27 30 31 30 118 0 88 -1 91 -31 116 -33 28 -45 32 -127 40 -66 7 -110 31 -137 76 -19 33 -20 56 -26 505 -6 496 -6 500 -55 598 -70 138 -221 217 -414 217 -57 0 -83 -5 -108 -20z"/> <path d="M1965 3849 c-113 -9 -166 -24 -280 -79 -312 -150 -493 -462 -471 -810 13 -209 89 -379 238 -529 161 -163 321 -236 545 -248 269 -14 478 70 667 267 61 65 95 111 130 179 70 136 89 217 89 386 0 124 -3 151 -27 230 -53 176 -145 314 -282 425 -174 139 -372 197 -609 179z m214 -324 c173 -46 319 -185 372 -354 23 -76 28 -212 9 -282 -50 -186 -208 -340 -391 -384 -181 -42 -372 15 -499 152 -100 106 -144 218 -143 363 1 290 228 517 518 519 44 0 104 -6 134 -14z"/> <path d="M3880 3849 c-190 -17 -341 -86 -488 -224 -112 -104 -200 -249 -239 -395 -25 -92 -25 -339 0 -430 78 -281 316 -519 597 -597 101 -28 339 -25 443 5 152 44 285 128 397 250 146 158 211 332 212 557 0 244 -82 436 -259 606 -181 175 -402 251 -663 228z m213 -324 c282 -73 454 -362 382 -640 -45 -171 -179 -312 -355 -371 -80 -27 -243 -25 -324 5 -202 73 -337 252 -353 466 -17 243 150 475 388 539 71 19 191 20 262 1z"/> </g> </svg>
+    <a href="/dashboard" class="logo">
       Gor://a
       <span class="premium-badge">PRO</span>
-    </div>
+    </a>
 
     <nav>
-      <a href="/dashboard"><i class="ph ph-squares-four"></i> Projects</a>
-      <a href="/docs/into"><i class="ph ph-book-open"></i> Docs</a>
-      <a href="/settings/skills"><i class="ph ph-brain"></i> Agent Skills</a>
-      <a href="/settings" class="active"><i class="ph-fill ph-gear"></i> Settings</a>
+      <a href="/dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+        Projects
+      </a>
+      <a href="/docs/intro">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        Docs
+      </a>
+      <a href="/settings/skills">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/></svg>
+        Agent Skills
+      </a>
+      <a href="/settings" class="active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+        Settings
+      </a>
     </nav>
 
     <div class="profile-container">
       <div class="user-profile">
-        <div class="avatar">{{ user.email[0].upper() if user.email else 'U' }}</div>
+        <div class="avatar">
+          {% if user.get('email') %}{{ user.get('email')[0]|upper }}{% else %}U{% endif %}
+        </div>
         <div class="user-info">
-          <span class="user-name">{% if user.email %}{{ user.email.split('@')[0] }}{% else %}User{% endif %}</span>
-          <span class="user-plan">{{ user.plan|capitalize }} Plan</span>
+          <span class="user-name">{% if user.get('email') %}{{ user.get('email').split('@')[0] }}{% else %}User{% endif %}</span>
+          <span class="user-plan">{{ user.get('plan', 'free')|capitalize }} Plan</span>
         </div>
       </div>
     </div>
   </aside>
 
   <main>
-    <div class="page-header animate-entry">
+    <div class="page-header">
       <h1>Account Settings</h1>
-      <p>Manage your profile, billing, and security preferences.</p>
+      <p>Manage your profile, integrations, and security preferences.</p>
     </div>
 
-    <div class="settings-grid animate-entry" style="animation-delay: 100ms;">
+    <div class="settings-grid">
       
       <section class="settings-card">
-        <h2 class="card-title"><i class="ph-bold ph-user"></i> Profile</h2>
-        
+        <h2 class="card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          Profile
+        </h2>
         <div class="form-group">
           <label>Email Address</label>
           <div class="input-box">
-            <input type="text" value="{{ user.email }}" disabled>
+            <input type="text" value="{{ user.get('email', '') }}" disabled>
           </div>
         </div>
-
-        <button class="btn-save">Update Profile</button>
       </section>
 
       <section class="settings-card">
-        <h2 class="card-title"><i class="ph-bold ph-credit-card"></i> Subscription</h2>
+        <h2 class="card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          Developer API Key
+        </h2>
+        <p style="color: var(--text-muted); font-size: 13px; margin-top: 0; margin-bottom: 20px;">
+          This is your master <code>gb_live_</code> key used for programmatic access to the Gor://a proxy gateway. Hover to reveal.
+        </p>
         
         <div class="form-group">
-          <label>Current Plan</label>
-          <div class="input-box">
-            <input type="text" value="{{ user.plan|capitalize }} Plan" disabled>
+          <div class="input-box" style="justify-content: space-between; padding: 10px 16px;">
+            <span class="api-key-display" id="api-key-text">{% if user.get('gorilla_api_key') %}{{ user.get('gorilla_api_key') }}{% else %}No Key Generated{% endif %}</span>
+            
+            <button type="button" class="btn-save" style="border: none; background: transparent; padding: 5px; margin-left: 10px;" onclick="copyApiKey('{{ user.get('gorilla_api_key', '') }}')">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+            </button>
           </div>
         </div>
 
-        {% if user.plan != 'premium' %}
-          <button class="btn-save" style="background: var(--accent); color: #fff; border:none;" onclick="window.location.href='/pricing'">Upgrade to Pro</button>
+        <form method="POST" action="/api/user/regenerate-key" onsubmit="return confirm('Are you sure? Any existing apps using the old key will break.');">
+          <button type="submit" class="btn-save" style="background: rgba(255,255,255,0.1);">Regenerate Key</button>
+        </form>
+      </section>
+
+      <section class="settings-card">
+        <h2 class="card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 10 9 23"/></svg>
+          Connected Accounts
+        </h2>
+        
+        <div class="action-row">
+          <div class="action-row-info">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2A10 10 0 0 0 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.45-1.15-1.11-1.46-1.11-1.46-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z"/></svg>
+            <div class="action-row-text">
+              <h4>GitHub Integration</h4>
+              <p>{% if user.get('has_github') %}Connected and active{% else %}Required for Vercel 1-click deploys{% endif %}</p>
+            </div>
+          </div>
+          {% if user.get('has_github') %}
+            <span style="color: #10b981; font-size: 13px; font-weight: 500; display:flex; gap:6px; align-items:center;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>
+              Connected
+            </span>
+          {% else %}
+            <a href="/auth/github/link" class="btn-save">Connect</a>
+          {% endif %}
+        </div>
+
+        <div class="action-row">
+          <div class="action-row-info">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5.5A3.5 3.5 0 0 1 8.5 2H12v7H8.5A3.5 3.5 0 0 1 5 5.5z"/><path d="M12 2h3.5a3.5 3.5 0 1 1 0 7H12V2z"/><path d="M12 12.5a3.5 3.5 0 1 1 7 0 3.5 3.5 0 1 1-7 0z"/><path d="M5 19.5A3.5 3.5 0 0 1 8.5 16H12v3.5a3.5 3.5 0 1 1-7 0z"/><path d="M5 12.5A3.5 3.5 0 0 1 8.5 9H12v7H8.5A3.5 3.5 0 0 1 5 12.5z"/></svg>
+            <div class="action-row-text">
+              <h4>Figma Account</h4>
+              <p>{% if user.get('has_figma') %}Connected and active{% else %}Required for zero-shot compiler{% endif %}</p>
+            </div>
+          </div>
+          {% if user.get('has_figma') %}
+            <span style="color: #10b981; font-size: 13px; font-weight: 500; display:flex; gap:6px; align-items:center;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>
+              Connected
+            </span>
+          {% else %}
+            <a href="/auth/figma" class="btn-save">Connect</a>
+          {% endif %}
+        </div>
+      </section>
+
+      <section class="settings-card">
+        <h2 class="card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+          Subscription
+        </h2>
+        <div class="form-group">
+          <label>Current Plan</label>
+          <div class="input-box">
+            <input type="text" value="{{ user.get('plan', 'free')|capitalize }} Plan" disabled>
+          </div>
+        </div>
+
+        {% if user.get('plan') not in ['premium', 'pro'] %}
+          <a href="/pricing" class="btn-save" style="background: var(--accent); color: var(--bg); border:none; font-weight: 600;">Upgrade to Pro</a>
         {% else %}
-          <button class="btn-save" onclick="window.location.href='/pricing'">Manage Billing</button>
+          <a href="/pricing" class="btn-save">Manage Billing</a>
         {% endif %}
       </section>
 
       <section class="settings-card danger-zone">
-        <h2 class="card-title"><i class="ph-bold ph-warning"></i> Danger Zone</h2>
+        <h2 class="card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/></svg>
+          Danger Zone
+        </h2>
         <p style="color: var(--text-muted); font-size: 13px; margin-top: 0; margin-bottom: 20px;">
-          Once you delete your account, there is no going back. Please be certain.
+          Once you delete your account, there is no going back. All projects and files will be permanently wiped.
         </p>
-        <button class="btn-danger">Delete Account</button>
+        <button class="btn-danger" onclick="alert('Please contact support to delete your account.');">Delete Account</button>
       </section>
 
     </div>
   </main>
 
+  <div id="toast" class="toast">
+    <span id="toast-message">Success!</span>
+  </div>
+
+  <script>
+    function copyApiKey(key) {
+      if (!key || key === 'None') return showToast("No key to copy!", true);
+      navigator.clipboard.writeText(key).then(() => {
+        showToast("API Key copied to clipboard!");
+      });
+    }
+
+    function showToast(message, isError = false) {
+      const toast = document.getElementById('toast');
+      const msgEl = document.getElementById('toast-message');
+      
+      msgEl.innerText = message;
+      
+      if (isError) {
+        toast.classList.add('error');
+      } else {
+        toast.classList.remove('error');
+      }
+
+      toast.classList.add('show');
+      
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 3000);
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      {% if success %}
+        showToast("{{ success }}");
+        window.history.replaceState({}, document.title, "/settings");
+      {% endif %}
+      
+      {% if error %}
+        showToast("{{ error }}", true);
+        window.history.replaceState({}, document.title, "/settings");
+      {% endif %}
+    });
+  </script>
 </body>
 </html>
