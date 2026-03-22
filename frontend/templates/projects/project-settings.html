@@ -38,7 +38,7 @@ body.premium {
 *{box-sizing:border-box;font-family:'din-next-w01-light',system-ui,-apple-system,BlinkMacSystemFont,sans-serif}
 body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
 
-.wrap{max-width:980px;margin:0 auto;padding:22px}
+.wrap{max-width:700px;margin:0 auto;padding:22px} /* Narrowed for single column */
 
 .top{
   display:flex;align-items:center;justify-content:space-between;gap:12px;
@@ -76,54 +76,68 @@ body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
   box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
 
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
-
 .card{
   border:1px solid var(--border);
   background:rgba(255,255,255,.03);
   border-radius:16px;
-  padding:16px;
+  padding:24px;
+  margin-top:14px;
 }
-.card h2{font-size:13px;margin:0 0 10px 0;color:rgba(255,255,255,.85); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;}
+.card h2{font-size:13px;margin:0 0 16px 0;color:rgba(255,255,255,.85); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;}
 
-label{font-size:12px;color:var(--muted);display:block;margin:12px 0 6px}
+label{font-size:12px;color:var(--muted);display:block;margin:16px 0 8px}
 
-input, textarea, select{
+input[type="text"], textarea, select{
   width:100%;
   border:1px solid rgba(255,255,255,.12);
   background:rgba(0,0,0,.2);
   color:#fff;
   border-radius:8px;
-  padding:10px 12px;
+  padding:12px;
   outline:none;
-  font-size:13px;
+  font-size:14px;
   transition: border-color 0.2s;
 }
-input:focus, textarea:focus, select:focus { border-color: var(--accent); }
-input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
+input[type="text"]:focus, textarea:focus, select:focus { border-color: var(--accent); }
 
-textarea{min-height:110px;resize:vertical}
+/* File Input Styling */
+input[type="file"] {
+  width:100%;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 8px 0;
+}
+input[type="file"]::file-selector-button {
+  background: rgba(255,255,255,.04);
+  border: 1px solid var(--border);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-right: 12px;
+  transition: all 0.2s;
+}
+input[type="file"]::file-selector-button:hover {
+  background: rgba(255,255,255,.08);
+}
 
-.note{font-size:12px;color:rgba(255,255,255,.55);margin-top:10px;line-height:1.4}
-hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:14px 0}
-.footer{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+textarea{min-height:120px;resize:vertical}
+
+.image-preview {
+  width: 100%;
+  max-width: 300px;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  margin-bottom: 12px;
+  display: block;
+  background: #000;
+  aspect-ratio: 16/9;
+  object-fit: cover;
+}
+
+.footer{display:flex;justify-content:flex-end;gap:10px;margin-top:24px; padding-top: 16px; border-top: 1px solid var(--border);}
 .small{font-size:12px;color:rgba(255,255,255,.55)}
-
-.premium-lock {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 10px; color: #ffd700; border: 1px solid rgba(255,215,0,0.3);
-  padding: 2px 6px; border-radius: 4px; background: rgba(255,215,0,0.05);
-  margin-bottom: 8px;
-}
-
-.url-preview {
-    font-family: monospace;
-    font-size: 12px;
-    color: var(--accent);
-    margin-top: 4px;
-    display: block;
-    word-break: break-all;
-}
 </style>
 </head>
 
@@ -137,7 +151,6 @@ hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:14px 0}
     </div>
     <div style="display:flex;gap:10px">
       <a class="btn" href="/projects/{{ project_id }}/editor">← Back to editor</a>
-      <a class="btn" href="/projects/{{ project_id }}/deploy" target="_blank">Deploy</a>
     </div>
   </div>
 
@@ -148,33 +161,28 @@ hr{border:none;border-top:1px solid rgba(255,255,255,.08);margin:14px 0}
   </div>
   {% endif %}
 
-  <div class="grid">
-    <div class="card">
-      <h2>General</h2>
+  <form class="card" method="post" action="/projects/{{ project_id }}/settings" enctype="multipart/form-data">
+    <h2>General Info</h2>
+    
+    <label>Project Snapshot Image</label>
+    {% if project and project.snapshot_b64 %}
+      <img src="{{ project.snapshot_b64 }}" class="image-preview" alt="Project Snapshot" />
+    {% else %}
+      <div class="image-preview" style="display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;">No image uploaded</div>
+    {% endif %}
+    <input type="file" name="snapshot" accept="image/png, image/jpeg, image/webp" />
 
-      <form method="post" action="/projects/{{ project_id }}/settings">
-        <label>Project Name</label>
-        <input name="name" value="{{ project.name if project else '' }}" placeholder="My Awesome App" required />
+    <label>Project Name</label>
+    <input type="text" name="name" value="{{ project.name if project else '' }}" placeholder="My Awesome App" required />
 
-        <label>Description</label>
-        <textarea name="description" placeholder="What does this project do?">{{ project.description if project else '' }}</textarea>
+    <label>Description</label>
+    <textarea name="description" placeholder="What does this project do?">{{ project.description if project else '' }}</textarea>
 
-        <div class="footer">
-          <button class="btn primary" type="submit">Save Changes</button>
-        </div>
-      </form>
+    <div class="footer">
+      <button class="btn primary" type="submit">Save Changes</button>
     </div>
+  </form>
 
-    <div class="card">
-      <h2>Deployment & Hosting</h2>
-
-      <label>Live URL (Slug)</label>
-      <input type="text" value="{{ project.subdomain if project.subdomain else project_id }}" disabled style="opacity:0.7; cursor:text;" />
-      <span class="url-preview">https://gorillabuilder.dev/app/{{ project.subdomain if project.subdomain else project_id }}</span>
-      <div class="note">This is your permanent public URL. It automatically wakes up your app when visited.</div>
-
-    </div>
-  </div>
 </div>
 
 </body>

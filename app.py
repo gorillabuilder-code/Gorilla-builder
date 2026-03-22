@@ -1664,6 +1664,13 @@ async def project_preview(request: Request, project_id: str):
     )
 
 # 6. SETTINGS PAGE
+import base64
+import mimetypes
+from typing import Optional
+from fastapi import Request, Form, UploadFile, File
+from fastapi.responses import HTMLResponse, RedirectResponse
+
+# 6. SETTINGS PAGE (GET Route remains exactly the same)
 @app.get("/projects/{project_id}/settings", response_class=HTMLResponse)
 async def project_settings(request: Request, project_id: str):
     user = get_current_user(request)
@@ -1677,22 +1684,42 @@ async def project_settings(request: Request, project_id: str):
         
     return templates.TemplateResponse(
         "projects/project-settings.html",
-        {"request": request, "project_id": project_id, "project": project, "project_name": project.get("name", "Untitled Project") if project else "Untitled Project", "user": user}
+        {
+            "request": request, 
+            "project_id": project_id, 
+            "project": project, 
+            "project_name": project.get("name", "Untitled Project") if project else "Untitled Project", 
+            "user": user
+        }
     )
 
+# UPGRADED: Save Route with Base64 Image Processing
 @app.post("/projects/{project_id}/settings")
 async def project_settings_save(
     request: Request, 
     project_id: str, 
     name: str = Form(...), 
-    description: str = Form("")
+    description: str = Form(""),
+    snapshot: Optional[UploadFile] = File(None)  # Added the file catcher
 ):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     
-    supabase.table("projects").update(
-        {"name": name, "description": description}
-    ).eq("id", project_id).execute()
+    update_data = {
+        "name": name, 
+        "description": description
+    }
+
+    # If the user uploaded a new image, process it into Base64
+    if snapshot and snapshot.filename:
+        file_bytes = await snapshot.read()
+        mime_type, _ = mimetypes.guess_type(snapshot.filename)
+        
+        if mime_type and mime_type.startswith('image/'):
+            encoded_str = base64.b64encode(file_bytes).decode('utf-8')
+            update_data["snapshot_b64"] = f"data:{mime_type};base64,{encoded_str}"
+    
+    supabase.table("projects").update(update_data).eq("id", project_id).execute()
     
     return RedirectResponse(f"/projects/{project_id}/settings", status_code=303)
 
