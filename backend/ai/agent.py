@@ -27,16 +27,26 @@ import httpx
 
 # --- Configuration for OpenRouter ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("MODEL", "inception/mercury-2")
+MODEL = os.getenv("MODEL", "minimax/minimax-m2.5")
 VISION_MODEL = os.getenv("MODEL", "xiaomi/mimo-v2-omni")
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions").strip()
 SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev").strip()
 SITE_NAME = os.getenv("SITE_NAME", "Gorilla Builder")
 
+# --- Configuration for File API ---
+# Set this to your app's base URL (e.g., "http://localhost:8000" or SITE_URL)
+FILE_API_BASE_URL = os.getenv("FILE_API_BASE_URL", https://corrinne-turbid-illustratively.ngrok-free.dev).strip()
+FILE_API_TIMEOUT = 10.0
+
+# --- Context Limits for MiniMax M2.5 ---
+MINIMAX_MAX_CONTEXT = 200000  # 200k context limit
+MINIMAX_SAFE_THRESHOLD = 180000  # Start shortening at 180k to leave room for response
+CHARS_PER_TOKEN_ESTIMATE = 4  # Rough estimate: 4 chars ≈ 1 token
+
 if not OPENROUTER_API_KEY:
     raise RuntimeError("OPENROUTER_API_KEY must be configured in the environment")
 
-ALLOWED_ACTIONS = {"create_file", "overwrite_file"}
+ALLOWED_ACTIONS = {"create_file", "overwrite_file", "read_file"}
 ACTION_NORMALIZE = {
     "update_file": "overwrite_file",
     "replace_file": "overwrite_file",
@@ -47,6 +57,7 @@ ACTION_NORMALIZE = {
     "overwrite": "overwrite_file",
     "patch": "overwrite_file",
     "patch_file": "overwrite_file",
+    "see_file": "read_file",
 }
 
 # --- Terminal Logging ---
@@ -238,6 +249,136 @@ def _extract_json(text: str) -> Any:
         pass
         
     return None
+
+# ============================================================================
+# CONTEXT LENGTH MANAGEMENT FOR MINIMAX M2.5
+# ============================================================================
+
+class ContextManager:
+    """Manages context length to stay within MiniMax M2.5's 200k token limit."""
+    
+    @staticmethod
+    def estimate_tokens(text: str) -> int:
+        """Rough token estimation (4 chars ≈ 1 token for MiniMax)."""
+        if not text:
+            return 0
+        # MiniMax uses similar tokenization to GPT, ~4 chars per token on average
+        return len(text) // CHARS_PER_TOKEN_ESTIMATE
+    
+    @staticmethod
+    def count_message_tokens(message: Dict[str, Any]) -> int:
+        """Count tokens in a single message (handles text and multimodal)."""
+        content = message.get("content", "")
+        
+        if isinstance(content, str):
+            return ContextManager.estimate_tokens(content)
+        elif isinstance(content, list):
+            # Multimodal content (images, etc.)
+            total = 0
+            for item in content:
+                if isinstance(item, dict):
+                    if item.get("type") == "text":
+                        total += ContextManager.estimate_tokens(item.get("text", ""))
+                    elif item.get("type") == "image_url":
+                        # Vision models typically charge ~1000-1500 tokens per image
+                        total += 1000
+            return total
+        return 0
+    
+    @classmethod
+    def count_messages_tokens(cls, messages: List[Dict[str, Any]]) -> int:
+        """Count total tokens in all messages."""
+        return sum(cls.count_message_tokens(msg) for msg in messages)
+    
+    @classmethod
+    def shorten_context(
+        cls, 
+        messages: List[Dict[str, Any]], 
+        max_tokens: int = MINIMAX_SAFE_THRESHOLD,
+        preserve_recent: int = 4
+    ) -> List[Dict[str, Any]]:
+        """
+        Intelligently shorten context to fit within token limit.
+        
+        Strategy:
+        1. Always keep system message (first message if role == system)
+        2. Always keep most recent N messages (default 4)
+        3. Summarize or drop middle messages
+        4. Add a truncation notice
+        """
+        if not messages:
+            return messages
+        
+        current_tokens = cls.count_messages_tokens(messages)
+        if current_tokens <= max_tokens:
+            return messages
+        
+        log_agent("context", f"Context too long ({current_tokens} tokens), shortening...", "")
+        
+        # Extract system message if present
+        system_msg = None
+        start_idx = 0
+        if messages[0].get("role") == "system":
+            system_msg = messages[0]
+            start_idx = 1
+        
+        # Always keep the last N messages
+        recent_messages = messages[-preserve_recent:] if len(messages) > preserve_recent else []
+        middle_messages = messages[start_idx:-preserve_recent] if len(messages) > preserve_recent + start_idx else []
+        
+        # Build result starting with system message
+        result = []
+        if system_msg:
+            result.append(system_msg)
+        
+        # Add recent messages first to check if they alone exceed limit
+        current_count = sum(cls.count_message_tokens(msg) for msg in result + recent_messages)
+        if current_count > max_tokens:
+            # Even recent messages are too much - keep only system + last 2
+            recent_messages = recent_messages[-2:] if len(recent_messages) > 2 else recent_messages
+            result = ([system_msg] if system_msg else []) + recent_messages
+            
+            # Add truncation notice
+            truncation_notice = {
+                "role": "system", 
+                "content": f"[Context truncated: Only most recent messages kept due to length]"
+            }
+            if system_msg:
+                result.insert(1, truncation_notice)
+            else:
+                result.insert(0, truncation_notice)
+            
+            log_agent("context", f"Aggressive truncation: kept {len(result)} messages", "")
+            return result
+        
+        # Add middle messages from oldest to newest until we hit limit
+        kept_middle = []
+        for msg in middle_messages:
+            msg_tokens = cls.count_message_tokens(msg)
+            if current_count + msg_tokens > max_tokens:
+                break
+            kept_middle.append(msg)
+            current_count += msg_tokens
+        
+        # Assemble final result
+        result.extend(kept_middle)
+        result.extend(recent_messages)
+        
+        # Add truncation notice if we removed anything
+        removed_count = len(messages) - len(result)
+        if removed_count > 0:
+            truncation_notice = {
+                "role": "system",
+                "content": f"[Context shortened: {removed_count} older messages removed to fit within {max_tokens} token limit. Focus on recent conversation.]"
+            }
+            # Insert after system message or at beginning
+            insert_pos = 1 if (system_msg and result[0].get("role") == "system") else 0
+            result.insert(insert_pos, truncation_notice)
+        
+        final_tokens = cls.count_messages_tokens(result)
+        log_agent("context", f"Shortened from {len(messages)} to {len(result)} messages (~{final_tokens} tokens)", "")
+        
+        return result
 
 # ============================================================================
 # CONVERSATIONAL MCP PROTOCOL
@@ -443,15 +584,154 @@ class BaseAgent:
             return response.payload.get("answer") or response.payload.get("response")
         return None
     
+    # ============================================================================
+    # FILE READING CAPABILITIES
+    # ============================================================================
+    
+    async def read_file(self, path: str, project_id: Optional[str] = None) -> Optional[str]:
+        """
+        Read a specific file from the project via the File API.
+        
+        Args:
+            path: File path (e.g., "src/App.tsx")
+            project_id: Optional override project ID (uses self.project_id if not provided)
+            
+        Returns:
+            File content as string, or None if not found/error
+        """
+        pid = project_id or self.project_id
+        if not pid:
+            log_agent(self.agent_id, "Cannot read file: no project_id", self.project_id)
+            return None
+        
+        # Check local file_tree first (cached)
+        if hasattr(self, 'file_tree') and path in self.file_tree:
+            return self.file_tree[path]
+        
+        # Fetch from API
+        try:
+            url = f"{FILE_API_BASE_URL}/api/project/{pid}/file"
+            headers = {}
+            
+            # If running in same process as app, we might not need auth
+            # But if external, you'd add: "Authorization": f"Bearer {API_TOKEN}"
+            
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    url, 
+                    params={"path": path},
+                    headers=headers,
+                    timeout=FILE_API_TIMEOUT
+                )
+                
+                if resp.status_code == 200:
+                    data = resp.json()
+                    content = data.get("content")
+                    if content is not None:
+                        # Update local cache
+                        if hasattr(self, 'file_tree'):
+                            self.file_tree[path] = content
+                        log_agent(self.agent_id, f"Read file: {path} ({len(content)} chars)", pid)
+                        return content
+                elif resp.status_code == 404:
+                    log_agent(self.agent_id, f"File not found: {path}", pid)
+                else:
+                    log_agent(self.agent_id, f"Error reading {path}: HTTP {resp.status_code}", pid)
+                    
+        except Exception as e:
+            log_agent(self.agent_id, f"Failed to read file {path}: {str(e)[:60]}", pid)
+        
+        return None
+    
+    async def read_all_files(self, project_id: Optional[str] = None) -> Dict[str, str]:
+        """
+        Read all project files via the File API.
+        
+        Args:
+            project_id: Optional override project ID
+            
+        Returns:
+            Dictionary of {path: content}
+        """
+        pid = project_id or self.project_id
+        if not pid:
+            log_agent(self.agent_id, "Cannot read files: no project_id", self.project_id)
+            return {}
+        
+        # Return cached if available
+        if hasattr(self, 'file_tree') and self.file_tree:
+            return dict(self.file_tree)
+        
+        try:
+            url = f"{FILE_API_BASE_URL}/api/project/{pid}/files"
+            headers = {}
+            
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, headers=headers, timeout=FILE_API_TIMEOUT)
+                
+                if resp.status_code == 200:
+                    data = resp.json()
+                    files = data.get("files", [])
+                    file_dict = {f["path"]: f["content"] for f in files if "path" in f}
+                    
+                    # Update local cache
+                    if hasattr(self, 'file_tree'):
+                        self.file_tree.update(file_dict)
+                    
+                    log_agent(self.agent_id, f"Fetched {len(file_dict)} files", pid)
+                    return file_dict
+                else:
+                    log_agent(self.agent_id, f"Error fetching files: HTTP {resp.status_code}", pid)
+                    
+        except Exception as e:
+            log_agent(self.agent_id, f"Failed to fetch files: {str(e)[:60]}", pid)
+        
+        return {}
+    
+    async def read_files_batch(self, paths: List[str], project_id: Optional[str] = None) -> Dict[str, Optional[str]]:
+        """
+        Read multiple files efficiently (concurrent requests).
+        
+        Args:
+            paths: List of file paths
+            project_id: Optional override project ID
+            
+        Returns:
+            Dictionary of {path: content or None}
+        """
+        # Create tasks for all files
+        tasks = [self.read_file(path, project_id) for path in paths]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        return {
+            path: result if not isinstance(result, Exception) else None 
+            for path, result in zip(paths, results)
+        }
+    
+    # ============================================================================
+    # LLM CALLS WITH AUTOMATIC CONTEXT SHORTENING
+    # ============================================================================
+    
     async def call_llm(self, messages: List[Dict], temperature: float = 0.6) -> Tuple[str, int]:
-        """Call LLM without provider specification. Tracks tokens automatically."""
+        """
+        Call LLM with automatic context length management.
+        
+        Automatically shortens context if it exceeds MiniMax M2.5's safe threshold.
+        """
+        # Check and shorten context before sending
+        original_count = len(messages)
+        messages = ContextManager.shorten_context(messages, MINIMAX_SAFE_THRESHOLD)
+        
+        if len(messages) < original_count:
+            log_agent(self.agent_id, f"Context auto-shortened: {original_count} → {len(messages)} messages", self.project_id)
+        
         payload = {
             "model": MODEL,
             "messages": messages,
             "temperature": temperature,
             "provider": {
                 "order": ["sambanova"],
-                "allow_fallbacks": false
+                "allow_fallbacks": False
             }
         }
         headers = {
@@ -480,7 +760,16 @@ class BaseAgent:
         return content, tokens
 
     async def call_vision_llm(self, messages: List[Dict], temperature: float = 0.6) -> Tuple[str, int]:
-        """Call Vision LLM without provider specification. Tracks tokens automatically."""
+        """
+        Call Vision LLM with automatic context length management.
+        """
+        # Check and shorten context before sending
+        original_count = len(messages)
+        messages = ContextManager.shorten_context(messages, MINIMAX_SAFE_THRESHOLD)
+        
+        if len(messages) < original_count:
+            log_agent(self.agent_id, f"Vision context auto-shortened: {original_count} → {len(messages)} messages", self.project_id)
+        
         payload = {
             "model": VISION_MODEL,
             "messages": messages,
@@ -597,10 +886,10 @@ class PlannerAgent(BaseAgent):
     "2. **AI Integration Specs (USE THESE EXACTLY):**\n"
     "   - **Core Rule**: You MUST route all AI API calls through the Gorilla Proxy using `process.env.GORILLA_API_KEY`.\n"
     "   - **High-Performance Logic (LLM)**: Use `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/chat/completetions` with the process.env GORILLA_API_KEY, DO NOT SPECIFY THE MODEL OR ANY OTHER VALUES LIKE TEMPERATURE... NO MATTER WHAT.\n"
-    "   - **Image Generation**: Send POST request to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/generations ` with standard OpenAI payload.\n"
-    "   - **Voice (STT)**: Send POST to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/audio/transcriptions ` (OpenAI Whisper format).\n"
+    "   - **Image Generation**: Send POST request to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/generations` with standard OpenAI payload.\n"
+    "   - **Voice (STT)**: Send POST to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/audio/transcriptions` (OpenAI Whisper format).\n"
     "   - **Voice (TTS)**: DO NOT USE AN API. Strictly use the browser's native `window.speechSynthesis` Web Speech API in frontend components.\n"
-    "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background `.\n"
+    "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background`.\n"
     
     "3. **Task Bundling & Volume (CRITICAL FOR TOKEN SAVING):** \n"
     "   - Always try to ask the user at least 1 questions to elaborate on their request, they should be obvious and add functionality to their app if they agree. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY QUESTIONS IF THEY DONT FEEL LIKE IT OR ANY DEBUGGING QUESTIONS.\n"
@@ -857,7 +1146,7 @@ class CoderAgent(BaseAgent):
         "3. **Shadcn/UI**: The folder `src/components/ui/` is fully populated.\n"
         "4. **Node.js (ES Modules)**: Backend uses `import/export`. Entry point is `server.js`.\n"
         "5. **Express.js**: Server is configured with CORS and Dotenv.\n\n"
-            "**IMPORTANT** even though these are already in place, please try to make the UI less bootstrappy and more fun and polished, try to make the components yourself instead of always using shadcn UI, but when feel the need to use shadcn UI, do it, in a not very obivious way. .\n\n"
+        "**IMPORTANT** even though these are already in place, please try to make the UI less bootstrappy and more fun and polished, try to make the components yourself instead of always using shadcn UI, but when feel the need to use shadcn UI, do it, in a not very obivious way. .\n\n"
 
         "UI/UX & DESIGN ENCOURAGEMENT:\n"
         "- Go all out on the frontend! We want a sleek, modern, and highly polished user interface. THINK OUT OF THE BOX WITHOUT BOOTSTRAPPY LOOKS AND NO INTER FONTS, BE CREATIVE!\n"
@@ -891,18 +1180,26 @@ class CoderAgent(BaseAgent):
         '  "message": "A short, friendly status update.",\n'
         '  "operations": [\n'
         "    {\n"
-        '      "action": "create_file" | "overwrite_file",\n'
+        '      "action": "create_file" | "overwrite_file" | "read_file",\n'
         '      "path": "src/pages/Dashboard.tsx" OR "routes/api.js",\n'
-        '      "content": "FULL FILE CONTENT HERE"\n'
+        '      "content": "FULL FILE CONTENT HERE (only for create_file/overwrite_file)"\n'
         "    }\n"
         "  ]\n"
         "}\n\n"
+
+        "**AI Integration Specs (USE THESE EXACTLY):**\n"
+        "   - **Core Rule**: You MUST route all AI API calls through the Gorilla Proxy using `process.env.GORILLA_API_KEY`.\n"
+        "   - **High-Performance Logic (LLM)**: Use `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/chat/completetions ` with the process.env GORILLA_API_KEY, DO NOT SPECIFY THE MODEL OR ANY OTHER VALUES LIKE TEMPERATURE... NO MATTER WHAT.\n"
+        "   - **Image Generation**: Send POST request to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/generations ` with standard OpenAI payload.\n"
+        "   - **Voice (STT)**: Send POST to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/audio/transcriptions ` (OpenAI Whisper format).\n"
+        "   - **Voice (TTS)**: DO NOT USE AN API. Strictly use the browser's native `window.speechSynthesis` Web Speech API in frontend components.\n"
+        "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background `.\n\n"
 
         "GLOBAL RULES:\n"
         "1. Output valid JSON only. No markdown blocks. ALL API KEYS ARE IN THE ENVIRONMENT.\n"
         "2. NEVER generate .env or Dockerfile. The main server is always server.js and the backend is always node.js within the routes/ folder, the frontend is always react/typescript.\n"
         "3. NEVER use literal '\\n'. Use physical newlines.\n"
-        "4. There is no read file action, to find a file please look into the conversation history\n"
+        "4. **File Reading**: To read an existing file, output `{"action": "read_file", "path": "src/file.tsx"}`. The system will provide the file content in the next context turn. You can then use that content to inform your edits.\n"
         "5. When you get instructions to finalize the server.js, ALWAYS update the WHOLE SERVER.JS and use overwrite_file action, never leave it as is.\n"
         "6. CRITICAL INFRASTRUCTURE RULE: If you modify `package.json` to add dependencies, you MUST entirely preserve the existing `scripts` block. NEVER delete or modify the `dev`, `server`, `client`, or `db:push` scripts, or the WebContainer will fatally crash.\n\n"
 
@@ -962,7 +1259,17 @@ class CoderAgent(BaseAgent):
             path = op.get("path")
             if not path or not isinstance(path, str):
                 raise ValueError("Operation requires a valid 'path'")
+            
+            # Handle read_file - content is optional
+            if action == "read_file":
+                normalized_ops.append({
+                    "action": action,
+                    "path": path.strip(),
+                    "content": None
+                })
+                continue
                 
+            # For write operations, content is required
             content = op.get("content")
             if content is None:
                 raise ValueError("Operation requires 'content'")
@@ -1093,47 +1400,97 @@ TASK: {task}
 Implement this task. After coding, reflect on whether it's correct.
 Output JSON with message, reflection, and operations."""})
 
-        max_retries = 3
-        for attempt in range(max_retries + 1):
-            try:
-                raw, tokens = await self.call_llm(messages, temperature=0.6)
-                parsed = self.extract_json(raw)
-                
-                if not parsed:
-                    raise ValueError("Could not extract JSON from response")
+        max_iterations = 3  # Prevent infinite read loops
+        
+        for iteration in range(max_iterations):
+            max_retries = 3
+            last_error = None
+            
+            for attempt in range(max_retries + 1):
+                try:
+                    raw, tokens = await self.call_llm(messages, temperature=0.6)
+                    parsed = self.extract_json(raw)
                     
-                canonical = self._normalize_and_validate_ops(parsed)
-                ops = canonical.get("operations", [])
-                reflection = canonical.get("reflection", "")
-                
-                self.all_operations.extend(ops)
-                self.task_results[task_id] = {
-                    "operations": ops,
-                    "reflection": reflection,
-                    "success": True
-                }
-                
-                for op in ops:
-                    log_agent("coder", f"  ✓ {op.get('action')}: {op.get('path')}", self.project_id)
-                
-                if reflection:
-                    log_agent("coder", f"  🤔 Reflection: {reflection[:80]}...", self.project_id)
-                
-                _append_history(self.project_id, "user", f"Task: {task}")
-                _append_history(self.project_id, "assistant", raw)
-                
-                return
+                    if not parsed:
+                        raise ValueError("Could not extract JSON from response")
+                        
+                    canonical = self._normalize_and_validate_ops(parsed)
+                    ops = canonical.get("operations", [])
+                    
+                    # Check if AI wants to read files first
+                    read_ops = [op for op in ops if op.get("action") == "read_file"]
+                    write_ops = [op for op in ops if op.get("action") != "read_file"]
+                    
+                    if read_ops:
+                        log_agent("coder", f"Reading {len(read_ops)} file(s)...", self.project_id)
+                        
+                        # Read requested files
+                        file_contents = []
+                        for read_op in read_ops:
+                            path = read_op.get("path")
+                            content = await self.read_file(path)
+                            if content is not None:
+                                file_contents.append(f"--- {path} ---\n{content}\n")
+                                # Update local file_tree cache
+                                self.file_tree[path] = content
+                            else:
+                                file_contents.append(f"--- {path} ---\n[File not found or error reading]\n")
+                        
+                        # Add AI response and file contents to context, then continue loop
+                        messages.append({"role": "assistant", "content": raw})
+                        messages.append({
+                            "role": "user", 
+                            "content": f"Here are the requested file contents:\n\n{''.join(file_contents)}\n\nNow continue with the task. Output JSON with any write operations needed."
+                        })
+                        
+                        # Break out of retry loop to continue iteration with new context
+                        last_error = None
+                        break
+                    
+                    # No read operations - process write operations normally
+                    reflection = canonical.get("reflection", "")
+                    self.all_operations.extend(ops)
+                    self.task_results[task_id] = {
+                        "operations": ops,
+                        "reflection": reflection,
+                        "success": True
+                    }
+                    
+                    for op in ops:
+                        log_agent("coder", f"  ✓ {op.get('action')}: {op.get('path')}", self.project_id)
+                    
+                    if reflection:
+                        log_agent("coder", f"  🤔 Reflection: {reflection[:80]}...", self.project_id)
+                    
+                    _append_history(self.project_id, "user", f"Task: {task}")
+                    _append_history(self.project_id, "assistant", raw)
+                    
+                    return
 
-            except Exception as e:
-                log_agent("coder", f"Attempt {attempt+1} failed: {str(e)[:60]}", self.project_id)
+                except Exception as e:
+                    last_error = e
+                    log_agent("coder", f"Attempt {attempt+1} failed: {str(e)[:60]}", self.project_id)
+                    
+                    if attempt < max_retries:
+                        correction_msg = f"Fix the error and output valid JSON: {str(e)[:100]}"
+                        messages.append({"role": "user", "content": correction_msg})
+                        await asyncio.sleep(1)
+                    else:
+                        # Max retries exceeded
+                        break
+            
+            # If we broke out due to file read, continue to next iteration
+            if last_error is None and read_ops:
+                continue
                 
-                if attempt < max_retries:
-                    correction_msg = f"Fix the error and output valid JSON: {str(e)[:100]}"
-                    messages.append({"role": "user", "content": correction_msg})
-                    await asyncio.sleep(1)
-                else:
-                    self.task_results[task_id] = {"error": str(e), "success": False}
-                    break
+            # If we had an error after max retries, record failure
+            if last_error:
+                self.task_results[task_id] = {"error": str(last_error), "success": False}
+                return
+        
+        # Max iterations reached (too many read_file rounds)
+        log_agent("coder", f"Max read iterations reached for task {task_id}", self.project_id)
+        self.task_results[task_id] = {"error": "Max file read iterations exceeded", "success": False}
     
     async def _handle_sub_done(self, msg: MCPMessage):
         task_id = msg.task_id
@@ -1810,4 +2167,4 @@ class Agent:
         return "\n".join(lines)
 
 __all__ = ["Agent", "AgentSwarm", "MCPBus", "MCPMessage", "Intent", 
-           "_render_token_limit_message", "clear_history"]
+           "_render_token_limit_message", "clear_history", "ContextManager"]
