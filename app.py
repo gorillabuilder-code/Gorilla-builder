@@ -2991,7 +2991,7 @@ async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_k
             
             # Bill the user after the stream closes (0.5 tokens per 1 API token)
             if total_tokens > 0:
-                _deduct_proxy_tokens(user_id, total_tokens * 0.3, "chat_stream")
+                _deduct_proxy_tokens(user_id, total_tokens * 0.051, "chat_stream")
                 
         return StreamingResponse(stream_generator(), media_type="text/event-stream")
     
