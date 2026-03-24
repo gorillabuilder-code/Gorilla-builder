@@ -2952,7 +2952,7 @@ async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_k
     payload = await request.json()
     
     # Force the model to OpenRouter's massive 120b model as requested
-    payload["model"] = "xiaomi/mimo-v2-flash" # Replace with your exact OpenRouter model string
+    payload["model"] = "meta-llama/llama-3.2-11b-vision-instruct" # Replace with your exact OpenRouter model string
     
     # Ask OpenRouter to send usage stats back even if it's a stream
     if "stream_options" not in payload:

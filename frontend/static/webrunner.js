@@ -144,7 +144,7 @@ export class WebRunner {
 
         while (!success && attempts < 3) {
             attempts++;
-            logger("system", `🚀 Firing NPM, Hiring PNPM... (Attempt ${attempts})`);
+            logger("system", `Installing Dependencies (Attempt ${attempts})`);
             let errorLogs = ""; 
 
             const rmProcess = await this.instance.spawn('rm', ['-rf', 'node_modules', 'package-lock.json', 'pnpm-lock.yaml']);

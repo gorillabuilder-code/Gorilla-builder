@@ -730,7 +730,7 @@ class BaseAgent:
             "messages": messages,
             "temperature": temperature,
             "provider": {
-                "order": ["sambanova"],
+                "order": ["nextbit/fp8"],
                 "allow_fallbacks": False
             }
         }
@@ -1144,6 +1144,7 @@ class CoderAgent(BaseAgent):
         "  4. Trigger login: Use `onClick={() => login('google')}` or `onClick={() => login('github')}` on your buttons.\n"
         "  5. Trigger logout: Use `onClick={() => logout()}`.\n\n"
         "STRICT IMPORT RULES:\n"
+        "- DO NOT READ MORE THAN 7-8 FILES PER TASK AND KEEP BELOW 4 UNLESS REQUIRED FOR CONTEXT"
         "- **FRONTEND (`src/` files)**:\n"
         "  - Use `@/` alias (e.g., `import { Button } from '@/components/ui/button'`).\n"
         "  - Do NOT use relative paths like `../../`.\n"
@@ -1165,7 +1166,7 @@ class CoderAgent(BaseAgent):
         "}\n\n"
         "**AI Integration Specs (USE THESE EXACTLY):**\n"
         "   - **Core Rule**: You MUST route all AI API calls through the Gorilla Proxy using `process.env.GORILLA_API_KEY`.\n"
-        "   - **High-Performance Logic (LLM)**: Use `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/chat/completetions ` with the process.env GORILLA_API_KEY, DO NOT SPECIFY THE MODEL OR ANY OTHER VALUES LIKE TEMPERATURE... NO MATTER WHAT.\n"
+        "   - **High-Performance Logic (LLM/Vision with B64)**: Use `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/chat/completetions ` with the process.env GORILLA_API_KEY, DO NOT SPECIFY THE MODEL OR ANY OTHER VALUES LIKE TEMPERATURE... NO MATTER WHAT. For vision send the image as BASE64 data as a part of the prompt to the model, do not use a base 64 package, instead use ```Buffer.from...```\n"
         "   - **Image Generation**: Send POST request to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/generations ` with standard OpenAI payload.\n"
         "   - **Voice (STT)**: Send POST to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/audio/transcriptions ` (OpenAI Whisper format).\n"
         "   - **Voice (TTS)**: DO NOT USE AN API. Strictly use the browser's native `window.speechSynthesis` Web Speech API in frontend components.\n"
@@ -1369,7 +1370,7 @@ class CoderAgent(BaseAgent):
         
         messages.append({"role": "user", "content": f"""CONTEXT: {context}, TASK: {task}, Implement this task. After coding, reflect on whether it's correct. Output JSON with message, reflection, and operations."""})
 
-        max_iterations = 3  # Prevent infinite read loops
+        max_iterations = 20  # Prevent infinite read loops
         
         for iteration in range(max_iterations):
             max_retries = 3
