@@ -554,38 +554,24 @@ app.mount("/assets", StaticFiles(directory="frontend/templates/landing/assets"),
 
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-# 1. ROOT ROUTE REDIRECT LOGIC (TEMPORARY FOR ADSENSE)
-@app.get("/", response_class=HTMLResponse)
+
+# 1. ROOT ROUTE REDIRECT LOGIC
+@app.get("/")
 async def root_redirect(request: Request):
     """
-    TEMPORARY: Serving a raw HTML page on the root route so Google AdSense
-    can verify the publisher ID. 
+    Redirects based on auth status:
+    - Logged in -> /dashboard
+    - Not logged in (or dev/local) -> /signup
     """
-    html_content = """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <title>Gor://a Builder</title>
-        <meta name="google-adsense-account" content="ca-pub-1594181130407895">
-    </head>
-    <body style="background: #050505; color: #888; font-family: monospace; padding: 40px; text-align: center;">
-        <p>System routing... Please wait.</p>
-        <script>
-            // Automatically bounce human users to the actual app after 2 seconds
-            // while letting the Google bot read the meta tag instantly.
-            setTimeout(function() {
-                window.location.href = "/signup";
-            }, 2000);
-        </script>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html_content, status_code=200)
+    user = get_current_user_safe(request) # Helper function to get user without raising error
+    if user:
+        return RedirectResponse("/dashboard", status_code=303)
+
+    return RedirectResponse("/signup", status_code=303)
 
 # 2. GENERATE HANDLERS FOR OTHER PUBLIC PAGES
 for route, template_name in PUBLIC_PAGES.items():
-    # Skip creating a handler for root since we defined it manually above
+# Skip creating a handler for root since we defined it manually above
     if route == "/": continue
 
     def make_handler(t_name):
@@ -593,15 +579,28 @@ for route, template_name in PUBLIC_PAGES.items():
             # Pass common variables like 'step' for signup flow
             return templates.TemplateResponse(t_name, {"request": request, "step": "initial"})
         return handler
-        
+ 
     app.get(route, response_class=HTMLResponse)(make_handler(template_name))
+
+from fastapi.responses import Response
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
-    p = os.path.join(FRONTEND_DIR, "assets", "favicon.png")
-    if os.path.exists(p): 
-        return FileResponse(p)
-    raise HTTPException(status_code=404)
+    # The raw Gorilla SVG from your frontend, colored with the accent blue
+    svg_content = """<svg version="1.0" xmlns="http://www.w3.org/2000/svg" width="800" height="803" viewBox="0 0 600 550" preserveAspectRatio="xMidYMid meet">
+        <g transform="translate(0.000000,603.000000) scale(0.100000,-0.100000)" fill="#3b6cff" stroke="none"> 
+            <path d="M1497 6023 c827 -2 2179 -2 3005 0 827 1 151 2 -1502 2 -1653 0 -2329 -1 -1503 -2z"/> 
+            <path d="M2802 5273 c-43 -24 -131 -143 -182 -246 -99 -202 -106 -410 -19 -598 59 -128 153 -189 246 -158 56 18 81 37 108 84 34 57 32 112 -6 216 -54 145 -51 327 7 490 41 113 27 176 -46 214 -38 20 -68 19 -108 -2z"/> 
+            <path d="M3290 5268 c-74 -50 -185 -230 -228 -369 -44 -142 -37 -293 19 -440 52 -134 141 -208 234 -195 131 20 194 151 136 281 -67 150 -67 316 0 522 26 80 29 98 20 126 -28 83 -116 119 -181 75z"/> 
+            <path d="M685 4560 c-171 -34 -283 -139 -331 -306 -15 -50 -18 -129 -23 -519 -4 -321 -10 -466 -18 -480 -32 -56 -64 -70 -205 -90 -26 -4 -46 -17 -72 -45 -33 -36 -36 -45 -36 -99 0 -98 62 -161 157 -161 59 0 119 -26 146 -64 22 -31 22 -35 28 -496 5 -424 8 -471 26 -531 11 -37 31 -87 46 -111 72 -124 228 -198 418 -198 125 0 200 111 151 223 -26 59 -64 82 -148 90 -73 7 -116 27 -148 70 -20 28 -21 41 -27 490 -6 505 -8 526 -68 632 l-28 50 28 50 c60 106 62 128 68 630 6 427 7 462 25 491 26 44 68 65 139 71 81 7 131 35 157 88 26 53 25 91 -2 145 -32 61 -73 80 -168 79 -41 -1 -93 -5 -115 -9z"/> 
+            <path d="M5102 4550 c-68 -42 -92 -135 -54 -209 26 -52 60 -72 140 -81 83 -9 128 -32 157 -80 19 -33 20 -56 26 -500 6 -505 6 -513 66 -621 l26 -45 -26 -45 c-59 -103 -61 -113 -67 -619 -5 -461 -5 -465 -28 -501 -28 -45 -72 -67 -156 -77 -111 -14 -160 -66 -153 -165 4 -66 26 -103 78 -130 28 -15 50 -18 124 -13 218 12 351 101 416 278 22 61 23 74 28 533 6 503 6 500 58 547 19 18 78 34 155 43 33 4 56 15 78 35 29 27 30 31 30 118 0 88 -1 91 -31 116 -33 28 -45 32 -127 40 -66 7 -110 31 -137 76 -19 33 -20 56 -26 505 -6 496 -6 500 -55 598 -70 138 -221 217 -414 217 -57 0 -83 -5 -108 -20z"/> 
+            <path d="M1965 3849 c-113 -9 -166 -24 -280 -79 -312 -150 -493 -462 -471 -810 13 -209 89 -379 238 -529 161 -163 321 -236 545 -248 269 -14 478 70 667 267 61 65 95 111 130 179 70 136 89 217 89 386 0 124 -3 151 -27 230 -53 176 -145 314 -282 425 -174 139 -372 197 -609 179z m214 -324 c173 -46 319 -185 372 -354 23 -76 28 -212 9 -282 -50 -186 -208 -340 -391 -384 -181 -42 -372 15 -499 152 -100 106 -144 218 -143 363 1 290 228 517 518 519 44 0 104 -6 134 -14z"/> 
+            <path d="M3880 3849 c-190 -17 -341 -86 -488 -224 -112 -104 -200 -249 -239 -395 -25 -92 -25 -339 0 -430 78 -281 316 -519 597 -597 101 -28 339 -25 443 5 152 44 285 128 397 250 146 158 211 332 212 557 0 244 -82 436 -259 606 -181 175 -402 251 -663 228z m213 -324 c282 -73 454 -362 382 -640 -45 -171 -179 -312 -355 -371 -80 -27 -243 -25 -324 5 -202 73 -337 252 -353 466 -17 243 150 475 388 539 71 19 191 20 262 1z"/> 
+        </g> 
+    </svg>"""
+    
+    # Return it explicitly as an SVG image
+    return Response(content=svg_content, media_type="image/svg+xml")
 
 # ==========================================================================
 # 📚 DOCUMENTATION ROUTES
