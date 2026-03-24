@@ -6,9 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
-  <script>
-    window.GORILLA_API_KEY = "{{ gorilla_api_key }}";
-  </script>
+
   <script type="module">
     import { marked } from "https://esm.sh/marked@12.0.1";
     import DOMPurify from "https://esm.sh/dompurify@3.0.9";
@@ -1081,14 +1079,19 @@ async function loadFile(path){
 
 async function saveCurrentFile(){
   if(!dirty) return;
-  const form = new URLSearchParams();
-  form.set("file", currentFile);
-  form.set("content", currentContent);
+  
+  const formData = new FormData();
+  formData.append("file", currentFile);
+  
+  // Package the raw string code into a Blob so the backend sees it as an UploadFile
+  const blob = new Blob([currentContent], { type: "text/plain" });
+  formData.append("content", blob, currentFile);
 
   const r = await fetch(`/api/project/${PROJECT_ID}/save`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: form
+    // CRITICAL: Do NOT manually set the Content-Type header here!
+    // The browser will automatically set it to 'multipart/form-data' and append the required boundary.
+    body: formData
   });
 
   if(r.ok){
@@ -1098,6 +1101,8 @@ async function saveCurrentFile(){
     if (isWebContainerBooted && webRunner) {
         await webRunner.writeFile(currentFile, currentContent);
     }
+  } else {
+    console.error("Auto-save failed:", await r.text());
   }
 }
 

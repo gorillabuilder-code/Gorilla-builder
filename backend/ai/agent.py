@@ -730,7 +730,7 @@ class BaseAgent:
             "messages": messages,
             "temperature": temperature,
             "provider": {
-                "order": ["nextbit/fp8"],
+                "order": ["together"],
                 "allow_fallbacks": False
             }
         }
