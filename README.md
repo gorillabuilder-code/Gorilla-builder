@@ -1,63 +1,62 @@
 
-# Gor://a
+<div align="center">
 
-![Gor://a](https://media.licdn.com/dms/image/v2/D4D3DAQGKJD52iDNcrA/image-scale_191_1128/B4DZui4YdXIEAc-/0/1767964248520/gorilla_builder_cover?e=1768572000&v=beta&t=6DrEkPwXetx7F24r1QflHlWVr7zuVhZOGrNA9tMTnNg)
+<pre>
+  ____            _ _ _         ____        _ _     _           
+ / ___| ___  _ __(_) | | __ _  | __ ) _   _(_) | __| | ___ _ __ 
+| |  _ / _ \| '__| | | |/ _` | |  _ \| | | | | |/ _` |/ _ \ '__|
+| |_| | (_) | |  | | | | (_| | | |_) | |_| | | | (_| |  __/ |   
+ \____|\___/|_|  |_|_|_|\__,_| |____/ \__,_|_|_|\__,_|\___|_|   
+</pre>
 
-gor://a (pronounced Gorilla) is an intelligent, browser-based development environment designed to accelerate rapid prototyping. It combines a traditional IDE interface with an autonomous AI agent loop that plans, codes, and deploys full-stack web applications in real-time.
+**The Autonomous Multi-Agent Orchestration Engine for Full-Stack SaaS.**
 
-Built with FastAPI, Supabase, and Groq, it features a persistent file system, live preview server, and a complete SaaS billing structure.
+[![Discord](https://img.shields.io/badge/Discord-Join_the_Beta-7289da?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/V3f3PkwQbY)
+[![Website](https://img.shields.io/badge/Website-gorillabuilder.dev-00ff41?style=for-the-badge)](https://gorillabuilder.dev)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-GorillaBuilder-blue?style=for-the-badge&logo=linkedin)](https://www.linkedin.com/in/gorillabuilder)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
-## Features
+</div>
 
-* Autonomous AI Agents:
-* Planner: Breaks down prompts into actionable tasks and architectural plans.
-* Coder: Executes the plan, writing code and managing file structures.
+---
+
+## 🦍 Stop Building Wrappers. Build Engines.
+
+The current "VybeCoding" ecosystem is a trap. AI tools generate decent React UIs but leave developers completely stranded when it comes to configuring databases, cloud secrets, authentication, and deployment pipelines. 
+
+**Gorilla Builder** is an open-source, 22,000-line multi-agent orchestration engine. It doesn't just generate code snippets; it autonomously generates, syncs, and deploys production-ready React and Node.js applications while completely eliminating backend boilerplate.
+
+We built this so you can launch a production-ready SaaS with **zero API keys or cloud secrets required**.
+
+## ⚡ The Technical Moat
+
+Gorilla Builder is not a thin wrapper over the OpenAI API. It is a distributed infrastructure engine.
+
+* **Unified AI & Auth Gateway:** A provider-agnostic edge layer that natively injects live OAuth (Google Sign-In) and AI capabilities (Chat, Image Gen) directly into the generated app. 
+* **Browser-Native Execution (WebContainers):** We run a live, headless Node.js environment directly inside the user's browser. This handles real-time dependency resolution and file-system operations with zero server-side overhead or Docker orchestration.
+* **Swarm Choreography (MCP):** Powered by the Model Context Protocol, Gorilla Builder uses a swarm of specialized Python agents (`Planner` -> `Coder` -> `Reviewer`). They operate in isolated contexts, passing structured JSON states to prevent hallucination cascades.
+* **AST Metaprogramming:** Instead of blindly rewriting entire files, our agents utilize Abstract Syntax Tree (AST) parsing to autonomously traverse, mutate, and inject code deep into existing directories without breaking syntactic validity.
+* **Zero-Config CI/CD:** Native integrations with GitHub and Vercel. Go from a text prompt (or a Figma URL) to a live, deployed SaaS URL in one click.
 
 
-* Browser-based Editor: Full-featured CodeMirror editor with syntax highlighting and file tree navigation.
-* Live Preview:
-* Static: Instant preview for HTML/JS/CSS.
-* Server: Integrated Uvicorn runner to preview backend Python logic directly in the browser.
+## 🤝 Join the Swarm (Private Beta)
 
+We are actively recruiting systems engineers, AI architects, and hackers to push the limits of this engine. We need help optimizing AST parsers, improving the WebContainer memory footprint, and expanding the AgentSkills via MCP.
 
-* Cloud Persistence: All projects and files are synced real-time to Supabase Storage/DB.
-* Token Economy: Built-in system for tracking token usage with Freemium, Premium ($13.99/mo), and Top-up billing flows.
-* Dev Mode: Skip authentication hurdles during local development with a simulated user environment.
+**Private Beta & 2.5M Tokens:**
+The hosted platform operates on an ad-subsidized free tier (500k tokens) and a $13.99 Pro tier (5 million tokens). 
 
-## Tech Stack
+If you contribute to the core engine or join our beta testing cohort, we will upgrade your hosted Gorilla Builder account to a **2.5 MILLION token Premium Beta role**. 
 
-* Backend: Python, FastAPI, Uvicorn
-* Database & Auth: Supabase (PostgreSQL)
-* AI Inference: Groq API (LLM integration)
-* Frontend: Vanilla JS, Jinja2 Templates, Server-Sent Events (SSE) for streaming logs.
+Join the [Discord](https://discord.gg/V3f3PkwQbY) to claim your role, report bugs, and give feedback.
 
-## Getting Started
+## 🔗 Links
 
-### Prerequisites
+- **Website:** [gorillabuilder.dev](https://gorillabuilder.dev)
+- **Discord:** [Join the Beta](https://discord.gg/V3f3PkwQbY)
+- **LinkedIn:** [GorillaBuilder](https://www.linkedin.com/in/gorillabuilder)
+- **GitHub:** [Gorilla-builder](https://github.com/GorillaBuilder/Gorilla-builder)
 
-* Python 3.10+
-* A Supabase project
+## 🛡️ License
 
-4. Database Schema
-Run the SQL scripts located in /db/schema.sql in your Supabase SQL Editor.
-
-### Running the App
-
-Start the development server:
-
-uvicorn app:app --reload
-
-Visit http://localhost:8000 in your browser.
-
-## Billing & Monetization
-
-The application includes a mockup billing system located at /pricing.
-
-* Premium Plan: $13.99/month logic.
-* Token Top-up: Dynamic checkout for purchasing extra tokens ($1/100k).
-* Limit Enforcement: The backend automatically halts agent execution if the user's tokens_used exceeds the MONTHLY_TOKEN_LIMIT.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
+Distributed under the MIT License. See `LICENSE` for more information.
