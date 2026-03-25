@@ -192,7 +192,7 @@ export class WebRunner {
 
         // 🛑 BULLETPROOF ENVIRONMENT INJECTION
         const envVars = {
-            GORILLA_API_KEY: window.GORILLA_API_KEY || "", 
+            GORILLA_API_KEY: window.GORILLA_API_KEY || " not found! ", 
             VITE_GORILLA_AUTH_ID: window.GORILLA_AUTH_ID || "", 
         };
 

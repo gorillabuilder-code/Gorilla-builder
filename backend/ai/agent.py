@@ -1153,7 +1153,7 @@ class CoderAgent(BaseAgent):
         "  - **CRITICAL**: You MUST include the `.js` extension for local backend imports.\n\n"
         "API & MODELS CONFIGURATION:\n"
         "- Use `process.env.OPENROUTER_API_KEY and FIREWORKS_API_KEY and REMBG_API_KEY` for AI. Listen to the planner.\n\n"
-        "RESPONSE FORMAT (JSON ONLY):\n"
+        " *******OF HIGHEST IMPORTANCE:******** RESPONSE FORMAT (JSON ONLY):\n"
         "{\n"
         '  "message": "A short, friendly status update.",\n'
         '  "operations": [\n'
