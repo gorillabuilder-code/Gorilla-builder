@@ -516,10 +516,15 @@ class MCPBus:
 # SHARED CONTEXT
 # ============================================================================
 
+# ============================================================================
+# SHARED CONTEXT (Merged Full-Stack + Database)
+# ============================================================================
+
 SHARED_CONTEXT = {
     "stack": {
         "frontend": "React 18 + TypeScript + Vite + Tailwind + Shadcn/UI",
         "backend": "Node.js + Express (ES modules)",
+        "database": "Supabase PostgreSQL 15+ (Remote)",
     },
     "constraints": [
         "WebContainer compatible - NO native C++ modules",
@@ -527,6 +532,7 @@ SHARED_CONTEXT = {
         "Backend imports: use relative paths with .js extension",
         "NEVER modify package.json scripts block",
         "UI should be creative, non-bootstrappy, no Inter font",
+        "Database: Write raw SQL migrations in the `migrations/` directory."
     ],
     "structure": {
         "src/App.tsx": "Main app component (exists)",
@@ -534,6 +540,7 @@ SHARED_CONTEXT = {
         "src/components/ui/": "Shadcn components (pre-installed)",
         "routes/": "Express API routes",
         "server.js": "Express entry (exists)",
+        "migrations/": "Where generated PostgreSQL schema files live"
     }
 }
 
@@ -887,10 +894,19 @@ class PlannerAgent(BaseAgent):
     "3. **Task Bundling & Volume (CRITICAL FOR TOKEN SAVING):** \n"
     "   - Always try to ask the user at least 1 questions to elaborate on their request, they should be obvious and add functionality to their app if they agree. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY QUESTIONS IF THEY DONT FEEL LIKE IT OR ANY DEBUGGING QUESTIONS.\n"
     "   - CONSOLIDATE TASKS: You MUST bundle related operations together. Combine them into Macro Steps (e.g., 'Step 1: Database & Backend setup', 'Step 2: Core UI Components', 'Step 3: Frontend Wiring').\n"
-    "   - Simple Apps: Maximum 3-4 Macro/clubbed Tasks. (if there are no questions only!)\n"
-    "   - Complex Apps: Maximum 5-unlimited Macro/clubbed Tasks. (if there are no questions only!)\n"
+    "   - Simple Apps: Maximum 3-4 Macro/clubbed Tasks. + DB TASK (if there are no questions only!)\n"
+"   - Complex Apps: Maximum 5-unlimited Macro/clubbed Tasks. + DB TASK (if there are no questions only!)\n"
     "   - Debugging/Simple addition Tasks: 1 task only. DO NOT ASK QUESTIONS FOR DEBUGGING.\n"
     "   - Update `server.js` and `App.tsx` **LAST** to wire up components/routes."
+    "\n\n========================================================================\n"
+    "🔥 SUPABASE FULL-STACK CAPABILITY UNLOCKED 🔥\n"
+    "========================================================================\n"
+    "You now have the ability to provision and structure a remote PostgreSQL database alongside the React/Node app.\n"
+    "When a user asks for a database (even if they don't ask and the app needs one, try your best to make one), user accounts, or persistent storage, you MUST:\n"
+    "1. Plan a task to create a SQL migration file in the `migrations/` directory (e.g., `migrations/001_init.sql`).\n"
+    "2. Ensure the SQL includes `ENABLE ROW LEVEL SECURITY` and appropriate policies.\n"
+    "3. Plan backend Node.js tasks to query this database using the `@supabase/supabase-js` client.\n"
+    "4. The credentials `process.env.VITE_SUPABASE_URL` and `process.env.VITE_SUPABASE_ANON_KEY` are already injected into the environment. Use them."
     + skills_addon
         )
 
@@ -1026,6 +1042,7 @@ class ReasonerAgent(BaseAgent):
         "2. Identify potential issues, dependencies, or missing pieces\n"
         "3. Decide whether to proceed, ask for changes, or refine the plan\n"
         "4. Coordinate between agents\n\n"
+        "5. Ensure that if the plan requires a database, it includes tasks to create `.sql` files in `migrations/` alongside the Node.js/React tasks."
         "RULES:\n"
         "1. ALWAYS reason about the approach before execution\n"
         "2. If you see problems, raise them via QUESTION intent\n"
@@ -1175,6 +1192,12 @@ class CoderAgent(BaseAgent):
         '4. **File Reading**: To read an existing file, output `{"action": "read_file", "path": "src/file.tsx"}`. The system will provide the file content in the next context turn. You can then use that content to inform your edits.\n'
         "5. When you get instructions to finalize the server.js, ALWAYS update the WHOLE SERVER.JS and use overwrite_file action, never leave it as is.\n"
         "6. CRITICAL INFRASTRUCTURE RULE: If you modify `package.json` to add dependencies, you MUST entirely preserve the existing `scripts` block. NEVER delete or modify the `dev`, `server`, `client`, or `db:push` scripts, or the WebContainer will fatally crash.\n\n"
+        "You now have the ability to write raw PostgreSQL migrations IN ADDITION to React and Node.js code.\n"
+        "1. DB MIGRATIONS: If instructed, write pure PostgreSQL to files in the `migrations/` directory (e.g., `migrations/001_schema.sql`). These must use `CREATE TABLE IF NOT EXISTS` and `ENABLE ROW LEVEL SECURITY`.\n"
+        "2. DATABASE CLIENT: In Node.js or React, use the standard Supabase JS client to interact with the DB:\n"
+        "   `import { createClient } from '@supabase/supabase-js';`\n"
+        "   `const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.VITE_SUPABASE_ANON_KEY);`\n"
+        "3. Do not fake data if a database is requested; write the SQL to create the tables, and the Node.js code to query them."
         "SPECIFIC RULES:\n"
         "1. **Frontend (React)**: Use Functional Components. MAKE EVERYTHING LOOK VERY GOOD! WITH EYECANDY FOR THE USER.\n"
         "2. **Backend (Node)**: Use `async/await`. Return JSON (`res.json`). Handle errors with `try/catch`.\n"
@@ -1505,6 +1528,7 @@ class ReviewerAgent(BaseAgent):
         "3. Verify the implementation matches the intent\n"
         "4. Provide constructive feedback\n\n"
         "RULES:\n"
+        "0. For any `.sql` files, verify that `ENABLE ROW LEVEL SECURITY` is present for tables. For `.js`/`.tsx` files, verify standard code quality."
         "1. Be thorough but constructive\n"
         "2. Output valid JSON only\n"
         "3. If issues found, use FEEDBACK intent to request fixes\n\n"
@@ -1776,7 +1800,7 @@ class DebuggerAgent(BaseAgent):
 # SWARM ORCHESTRATOR
 # ============================================================================
 
-class AgentSwarm:
+class SupabaseAgentSwarm:
     """Main orchestrator - creates and manages all agents with conversation layers."""
     
     def __init__(self, project_id: str):
@@ -1970,15 +1994,15 @@ class AgentSwarm:
 # ============================================================================
 
 class Agent:
-    """Backward-compatible wrapper for the AgentSwarm."""
+    """Backward-compatible wrapper for the SupabaseAgentSwarm."""
     
     def __init__(self, timeout_s: float = 120.0):
         self.timeout_s = timeout_s
-        self._swarm_cache: Dict[str, AgentSwarm] = {}
+        self._swarm_cache: Dict[str, SupabaseAgentSwarm] = {}
     
-    def _get_swarm(self, project_id: str) -> AgentSwarm:
+    def _get_swarm(self, project_id: str) -> SupabaseAgentSwarm:
         if project_id not in self._swarm_cache:
-            self._swarm_cache[project_id] = AgentSwarm(project_id)
+            self._swarm_cache[project_id] = SupabaseAgentSwarm(project_id)
         return self._swarm_cache[project_id]
     
     def remember(self, project_id: str, role: str, text: str) -> None:
@@ -2133,5 +2157,5 @@ class Agent:
             lines.append(f"- {task}")
         return "\n".join(lines)
 
-__all__ = ["Agent", "AgentSwarm", "MCPBus", "MCPMessage", "Intent", 
+__all__ = ["Agent", "SupabaseAgentSwarm", "MCPBus", "MCPMessage", "Intent", 
            "_render_token_limit_message", "clear_history", "ContextManager"]

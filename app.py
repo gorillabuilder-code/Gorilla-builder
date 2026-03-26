@@ -1088,6 +1088,71 @@ async def process_tokens(request: Request, amount: int = Form(...)):
 from fastapi.responses import HTMLResponse, JSONResponse
 
 # ==========================================================================
+# SUPABASE MANAGEMENT OAUTH (Phase 1)
+# ==========================================================================
+SUPABASE_MGMT_CLIENT_ID = os.getenv("SUPABASE_MGMT_CLIENT_ID")
+SUPABASE_MGMT_CLIENT_SECRET = os.getenv("SUPABASE_MGMT_CLIENT_SECRET")
+SUPABASE_MGMT_REDIRECT_URI = os.getenv("SUPABASE_MGMT_REDIRECT_URI")
+
+@app.get("/auth/supabase/link")
+async def link_supabase_account(request: Request):
+    """Initiates the Supabase Management API OAuth flow."""
+    user = get_current_user(request)
+    if not SUPABASE_MGMT_CLIENT_ID or not SUPABASE_MGMT_REDIRECT_URI:
+        raise HTTPException(500, "Supabase Management Auth config missing.")
+    
+    state = secrets.token_urlsafe(16)
+    request.session["supabase_oauth_state"] = state
+    
+    # Send them to Supabase to authorize Gorilla Builder
+    auth_url = f"https://api.supabase.com/v1/oauth/authorize?client_id={SUPABASE_MGMT_CLIENT_ID}&response_type=code&redirect_uri={urllib.parse.quote(SUPABASE_MGMT_REDIRECT_URI)}&state={state}"
+    return RedirectResponse(auth_url)
+
+@app.get("/auth/supabase/callback")
+async def auth_supabase_callback(request: Request, code: str, state: str):
+    """Exchanges the auth code for Management Tokens and saves them to the DB."""
+    try:
+        user = get_current_user(request)
+        saved_state = request.session.pop("supabase_oauth_state", None)
+        
+        if not saved_state or state != saved_state:
+            return RedirectResponse("/dashboard?error=supabase_invalid_state", status_code=303)
+            
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                "https://api.supabase.com/v1/oauth/token",
+                data={
+                    "client_id": SUPABASE_MGMT_CLIENT_ID,
+                    "client_secret": SUPABASE_MGMT_CLIENT_SECRET,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": SUPABASE_MGMT_REDIRECT_URI
+                },
+                headers={"Accept": "application/json"}
+            )
+            
+            if res.status_code != 200:
+                print(f"⚠️ Supabase OAuth Error: {res.text}")
+                return RedirectResponse("/dashboard?error=supabase_token_exchange_failed", status_code=303)
+                
+            tokens = res.json()
+            access_token = tokens.get("access_token")
+            refresh_token = tokens.get("refresh_token")
+            
+            if access_token:
+                # Save the management tokens directly to the user's profile
+                supabase.table("users").update({
+                    "supabase_access_token": access_token,
+                    "supabase_refresh_token": refresh_token
+                }).eq("id", user["id"]).execute()
+                
+        return RedirectResponse("/dashboard?success=supabase_linked", status_code=303)
+        
+    except Exception as e:
+        print(f"⚠️ Supabase Auth Callback crashed: {e}")
+        return RedirectResponse("/dashboard?error=supabase_auth_crash", status_code=303)
+
+# ==========================================================================
 # DASHBOARD & WORKSPACE
 # ==========================================================================
 import random
@@ -1399,7 +1464,10 @@ import re
 import urllib.parse
 import asyncio
 import os
-import uuid  # <-- ADDED for Auth ID generation
+import time
+import uuid
+import secrets
+import httpx
 
 @app.post("/projects/create")
 async def create_project(
@@ -1410,7 +1478,8 @@ async def create_project(
     description: str = Form(""),
     xmode: Optional[str] = Form(None),
     image_base64: Optional[str] = Form(None),
-    figma_url: Optional[str] = Form(None)
+    figma_url: Optional[str] = Form(None),
+    use_supabase: Optional[str] = Form(None)  # <-- INTERCEPTING THE DB FLAG
 ):
     user = get_current_user(request)
 
@@ -1499,28 +1568,84 @@ async def create_project(
             print(f"⚠️ Figma Import Failed: {e}")
             return RedirectResponse(f"/dashboard?error={urllib.parse.quote(str(e))}", status_code=303)
 
-
     # --- 4. HEAVY LIFTING (DB & Files) ---
     def _heavy_lift_create():
-        # ⚡ THE GEMINI COMPILER STEP ⚡
         compiled_react_code = None
-        figma_tokens_used = 0  # 🛑 Track tokens locally
+        figma_tokens_used = 0 
         
+        # ⚡ 4A. SUPABASE PROVISIONING ENGINE ⚡
+        supabase_env_content = ""
+        project_ref_to_save = None
+
+        if use_supabase == "true":
+            print(f"🗄️ Provisioning remote Supabase DB for {project_name}...")
+            user_keys = supabase.table("users").select("supabase_access_token").eq("id", user["id"]).single().execute()
+            supa_token = user_keys.data.get("supabase_access_token") if user_keys.data else None
+
+            if supa_token:
+                try:
+                    headers = {"Authorization": f"Bearer {supa_token}", "Content-Type": "application/json"}
+                    with httpx.Client() as client:
+                        # 1. Get or Create Organization
+                        orgs_res = client.get("https://api.supabase.com/v1/organizations", headers=headers)
+                        orgs = orgs_res.json() if orgs_res.status_code == 200 else []
+                        org_id = orgs[0]["id"] if orgs else None
+
+                        if not org_id:
+                            new_org = client.post("https://api.supabase.com/v1/organizations", headers=headers, json={"name": "Gorilla Apps"}).json()
+                            org_id = new_org.get("id")
+
+                        # 2. Spin up the Database
+                        if org_id:
+                            db_pass = secrets.token_urlsafe(16)
+                            # Supabase restricts names to 32 chars
+                            safe_db_name = re.sub(r'[^a-zA-Z0-9 ]', '', project_name)[:32].strip() or "Gorilla App"
+                            
+                            proj_payload = {
+                                "organization_id": org_id,
+                                "name": safe_db_name,
+                                "db_pass": db_pass,
+                                "region": "us-east-1",
+                                "plan": "free"
+                            }
+                            proj_res = client.post("https://api.supabase.com/v1/projects", headers=headers, json=proj_payload)
+                            
+                            if proj_res.status_code == 201:
+                                proj_data = proj_res.json()
+                                project_ref_to_save = proj_data.get("id")
+                                supa_url = f"https://{project_ref_to_save}.supabase.co"
+                                
+                                # 3. Poll for the Anon Key (Takes a few seconds during provisioning)
+                                supa_anon_key = "PROVISIONING_IN_PROGRESS"
+                                for _ in range(5):
+                                    keys_res = client.get(f"https://api.supabase.com/v1/projects/{project_ref_to_save}/api-keys", headers=headers)
+                                    if keys_res.status_code == 200:
+                                        keys = keys_res.json()
+                                        anon_obj = next((k for k in keys if k.get("name") == "anon"), None)
+                                        if anon_obj:
+                                            supa_anon_key = anon_obj.get("api_key")
+                                            break
+                                    time.sleep(1.5)
+
+                                supabase_env_content = f"\nVITE_SUPABASE_URL={supa_url}\nVITE_SUPABASE_ANON_KEY={supa_anon_key}\n"
+                                print(f"✅ Supabase Project Provisioned! Ref: {project_ref_to_save}")
+                            else:
+                                print(f"⚠️ Supabase Provisioning Failed: {proj_res.text}")
+                except Exception as e:
+                    print(f"⚠️ Supabase Mgmt API Error: {e}")
+
+        # ⚡ 4B. THE GEMINI COMPILER STEP ⚡
         if final_figma_json:
             or_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("GORILLA_API_KEY")
             if or_key:
                 try:
-                    # 🛑 Unpack the tuple (code, tokens)
                     compiled_react_code, figma_tokens_used = asyncio.run(compile_figma_to_react(final_figma_json, or_key))
-                    
-                    # 🛑 Securely deduct the tokens 
                     if figma_tokens_used and figma_tokens_used > 0:
                         try:
                             add_monthly_tokens(user["id"], figma_tokens_used)
-                            print(f"💰 Deducted {figma_tokens_used} tokens for Gemini Figma Compiler (User: {user['id']})")
+                            print(f"💰 Deducted {figma_tokens_used} tokens for Gemini Figma Compiler")
                         except Exception as tk_err:
                             print(f"⚠️ Failed to deduct tokens: {tk_err}")
-                            
                 except Exception as e:
                     print(f"❌ Gemini Compiler thread failed: {e}")
 
@@ -1536,23 +1661,22 @@ async def create_project(
                 "content": "✨ I have successfully compiled your Figma design into React! The preview is loading. What functionality or state would you like to add?"
             })
             if final_prompt and "figma.com" not in final_prompt:
-                initial_history.append({
-                    "role": "user",
-                    "content": final_prompt
-                })
+                initial_history.append({"role": "user", "content": final_prompt})
         elif final_figma_json:
             initial_history.append({
                 "role": "system",
                 "content": f"FIGMA DESIGN DATA: You MUST use this exact structural JSON to build the React/Tailwind UI. Do not hallucinate classes. Rely on the 'layoutMode', 'itemSpacing', and hex 'fills'. Data:\n{final_figma_json}"
             })
 
-        # --- ADDED: Generate Unique Auth ID for the App ---
+        # --- Generate Unique Auth ID for the App ---
         gorilla_auth_id = str(uuid.uuid4())
 
+        # --- UPDATE DB: Save the supabase_project_ref ---
         res = supabase.table("projects").insert({
             "owner_id": user["id"], 
             "name": project_name, 
-            "gorilla_auth_id": gorilla_auth_id, # <-- ADDED DB INSERTION
+            "gorilla_auth_id": gorilla_auth_id, 
+            "supabase_project_ref": project_ref_to_save,  # <-- SAVED SO EDITOR KNOWS TO OPEN AGENT
             "description": description or (final_prompt[:200] if final_prompt else ""),
             "prompt_image": final_image,
             "snapshot_b64": final_image, 
@@ -1577,13 +1701,12 @@ async def create_project(
         if os.path.isdir(bp_dir):
             files_to_insert = []
             
-            # --- ADDED: Inject the .env file with the App Auth ID ---
+            # --- INJECT .ENV WITH BOTH AUTH ID AND SUPABASE KEYS ---
             files_to_insert.append({
                 "project_id": pid,
                 "path": ".env",
-                "content": f"VITE_GORILLA_AUTH_ID={gorilla_auth_id}\n"
+                "content": f"VITE_GORILLA_AUTH_ID={gorilla_auth_id}\n{supabase_env_content}"
             })
-            # --------------------------------------------------------
 
             for root, dirs, files in os.walk(bp_dir):
                 dirs[:] = [d for d in dirs if d not in ["node_modules", ".git", "dist", "build"]]
@@ -1632,7 +1755,6 @@ async def create_project(
                     "path": ".gorilla/figma.json",
                     "content": final_figma_json
                 }).execute()
-                print(f"✅ Successfully wrote figma.json to project {pid}")
             except Exception as e:
                 print(f"⚠️ Failed to save figma.json to virtual FS: {e}")
         
@@ -1656,7 +1778,7 @@ async def create_project(
                 pass
         
         if xmode == "true":
-            target_url = f"/projects/{pid}/xmode"
+            target_url = f"/projects/{pid}/editor/xmode"
         else:
             target_url = f"/projects/{pid}/editor"
             
@@ -1707,6 +1829,9 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
             "user": user,
             "initial_prompt": prompt,
             "has_github": has_github,
+            "has_supabase": has_supabase,            # <--- New Template Variable
+            "project_has_db": project_has_db,        # <--- New Template Variable
+            "resume_db_agent": resume_db_agent,
             "gorilla_api_key": api_key,
             "chat_history": json.dumps(chat_history) # <--- PASSING HISTORY
         }
@@ -1826,17 +1951,34 @@ async def project_export(request: Request, project_id: str):
             "Cache-Control": "no-cache"
         }
     )
+# ==========================================================================
+# PROJECT DELETION
+# ==========================================================================
+@app.post("/api/project/{project_id}/delete")
+async def delete_project(request: Request, project_id: str):
+    """Completely wipes a project and its associated files from the DB."""
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+
+    try:
+        # 1. Delete all virtual files associated with the project
+        supabase.table("files").delete().eq("project_id", project_id).execute()
+        
+        # 2. Delete the project record itself
+        supabase.table("projects").delete().eq("id", project_id).execute()
+        
+        # Note: If a remote Supabase DB was provisioned for this project, 
+        # we leave it active on the user's Supabase account for safety, 
+        # but the Gorilla linkage is destroyed.
+        
+        return JSONResponse({"status": "success", "detail": "Project annihilated."})
+    except Exception as e:
+        print(f"❌ Project Deletion Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete project.")
 
 # ==========================================================================
-# REUSABLE AGENT LOOP - Streamlined Version
+# REUSABLE AGENT LOOP - Streamlined Version (Unified Full-Stack & DB)
 # ==========================================================================
-#
-# No plan rendering - agents work freely
-# Only assistant message shown to user
-# All activity logged to terminal
-# Minimal, clean UI experience
-#
-
 import httpx
 import re
 import asyncio
@@ -1845,27 +1987,21 @@ from typing import List, Dict
 # Import both Agent classes for conditional usage
 from backend.ai.agent import Agent as RegularAgent, _render_token_limit_message
 from backend.ai.Xagent import XAgent
+from backend.ai.supabase_agent import SupabaseAgentSwarm
 
 # Global tracking for active AI fixes
 active_ai_fixes = set()
 
-
 async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: bool = False, history: List[Dict] = None, skip_planner: bool = False):
     """
     Streamlined agent loop.
-    
-    - No plan rendering in UI
-    - Only assistant message shown
-    - All activity logged to terminal
-    - Agents work freely with internal MCP
-    - Xmode uses XAgent with extreme swarm logic
+    - Automatically detects if the project has a remote Supabase DB provisioned.
+    - If YES: Uses SupabaseAgentSwarm to write code AND execute remote SQL migrations.
+    - If NO: Uses standard RegularAgent/XAgent for React/Node.
     """
-    # Use XAgent for extreme mode, RegularAgent for normal mode
-    agent = XAgent() if is_xmode else RegularAgent()
-    
     try:
         # ==========================================================================
-        # TOKEN CHECK - Before ANY work begins
+        # TOKEN CHECK
         # ==========================================================================
         if user_id:
             try: 
@@ -1879,18 +2015,90 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         await asyncio.sleep(0.5)
         file_tree = await _fetch_file_tree(project_id)
         
-        # --- DB CHAT HISTORY LOGIC ---
-        proj_data = db_select_one("projects", {"id": project_id}, "chat_history")
+        # --- DB CHAT HISTORY & SUPABASE KEYS LOGIC ---
+        proj_data = db_select_one("projects", {"id": project_id}, "chat_history, supabase_project_ref")
+        project_ref = proj_data.get("supabase_project_ref") if proj_data else None
         db_history = proj_data.get("chat_history", []) if proj_data and proj_data.get("chat_history") else []
         db_history.append({"role": "user", "content": prompt})
         
-        # Fetch user API key
-        user_api_data = db_select_one("users", {"id": user_id}, "gorilla_api_key")
+        user_api_data = db_select_one("users", {"id": user_id}, "gorilla_api_key, supabase_access_token")
         api_key = user_api_data.get("gorilla_api_key", "") if user_api_data else ""
+        supa_token = user_api_data.get("supabase_access_token") if user_api_data else None
         
         # ==========================================================================
-        # PLANNING PHASE
+        # PATH A: SUPABASE FULL-STACK MODE (Code + Remote SQL Execution)
         # ==========================================================================
+        if project_ref and supa_token:
+            emit_status(project_id, "Initializing Full-Stack DB Architect...")
+            emit_phase(project_id, "planner")
+            emit_progress(project_id, "Designing Architecture...", 20)
+
+            swarm = SupabaseAgentSwarm(project_id)
+            
+            # Execute Swarm
+            result = await swarm.solve(user_request=prompt, file_tree=file_tree)
+            operations = result.get("operations", [])
+            assistant_msg = result.get("assistant_message", "Applying Schema and Code updates.")
+            
+            emit_log(project_id, "assistant", assistant_msg)
+
+            for op in operations:
+                path = op.get("path", "")
+                content = op.get("content", "")
+                if not path or not content: continue
+
+                # ALWAYS save files to VFS (React/Node files go to WebContainer)
+                db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
+                emit_file_changed(project_id, path)
+
+                # ⚡ INTERCEPT SQL FOR REMOTE EXECUTION & AUTO-HEALING ⚡
+                if path.endswith(".sql") and path.startswith("migrations/"):
+                    emit_phase(project_id, "coder")
+                    emit_progress(project_id, f"Running Remote Migration: {path}", 70)
+
+                    max_retries = 3
+                    for attempt in range(max_retries):
+                        try:
+                            headers = {"Authorization": f"Bearer {supa_token}", "Content-Type": "application/json"}
+                            async with httpx.AsyncClient(timeout=30.0) as client:
+                                res = await client.post(
+                                    f"https://api.supabase.com/v1/projects/{project_ref}/query", 
+                                    headers=headers, 
+                                    json={"query": content}
+                                )
+                                
+                                if res.status_code in [200, 201]:
+                                    emit_log(project_id, "system", f"✅ Postgres Migration Successful: {path}")
+                                    break 
+                                else:
+                                    err_text = res.text
+                                    emit_log(project_id, "debugger", f"⚠️ SQL Error: {err_text}. Auto-healing... (Attempt {attempt+1}/{max_retries})")
+                                    
+                                    # RELAY ERROR BACK TO DEBUGGER
+                                    debug_result = await swarm.debug(err_text, {path: content})
+                                    debug_ops = debug_result.get("operations", [])
+                                    
+                                    if debug_ops:
+                                        content = debug_ops[0].get("content", content)
+                                        # Save fixed file to VFS
+                                        db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
+                                        emit_file_changed(project_id, path)
+                        except Exception as e:
+                            emit_log(project_id, "debugger", f"Network Error hitting Remote DB: {e}")
+                            break
+
+            # Save History & Exit
+            db_history.append({"role": "assistant", "content": assistant_msg})
+            supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
+            emit_status(project_id, "Done")
+            emit_progress(project_id, "Ready", 100)
+            return
+
+        # ==========================================================================
+        # PATH B: STANDARD MODE (React/Node Only)
+        # ==========================================================================
+        agent = XAgent() if is_xmode else RegularAgent()
+        
         if not skip_planner:
             emit_phase(project_id, "planner")
             emit_progress(project_id, "Thinking...", 10)
@@ -1906,26 +2114,17 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                 plan_context["image_context"] = file_tree[".gorilla/prompt_image.b64"]
                 plan_context["image_filename"] = ".gorilla/prompt_image.b64"
 
-            # Run planner (logs everything to terminal internally)
-            plan_res = await asyncio.to_thread(
-                agent.plan,
-                user_request=prompt, 
-                project_context=plan_context
-            )
+            plan_res = await asyncio.to_thread(agent.plan, user_request=prompt, project_context=plan_context)
             
             tk = plan_res.get("usage", {}).get("total_tokens", 0)
-            if tk and user_id: 
-                add_monthly_tokens(user_id, tk)
+            if tk and user_id: add_monthly_tokens(user_id, tk)
             
-            # ONLY emit the assistant message - no plan rendering
             assistant_msg = plan_res.get("assistant_message", "I'm working on that...")
             emit_log(project_id, "assistant", assistant_msg)
             
-            # Check if we got tasks
             tasks = plan_res.get("plan", {}).get("todo", [])
             
             if not tasks:
-                # Just a chat response, no coding needed
                 db_history.append({"role": "assistant", "content": assistant_msg})
                 supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
                 emit_status(project_id, "Done")
@@ -1934,28 +2133,19 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         else:
             emit_phase(project_id, "coder")
             emit_log(project_id, "assistant", "Applying fix...")
+            assistant_msg = "Applying fix..."
         
-        # ==========================================================================
-        # CODING PHASE - Agents work freely
-        # ==========================================================================
         emit_phase(project_id, "coder")
         emit_progress(project_id, "Building...", 30)
         
-        # Dictionary to hold all file changes in memory until the very end
         batch_files = {}
-        
-        # Get tasks from plan or use prompt directly
         tasks = plan_res.get("plan", {}).get("todo", []) if not skip_planner else [prompt]
         total = len(tasks)
-        
-        # BULLETPROOF FIGMA CONTEXT INJECTOR
         figma_context = next((msg["content"] for msg in db_history if msg.get("role") == "system" and "Figma design was imported" in msg.get("content", "")), None)
 
         for i, task in enumerate(tasks, 1):
-            # Check token limit before each coding step
             if user_id:
-                try: 
-                    enforce_token_limit_or_raise(user_id)
+                try: enforce_token_limit_or_raise(user_id)
                 except HTTPException:
                     emit_log(project_id, "planner", _render_token_limit_message())
                     emit_status(project_id, "Token Limit Reached")
@@ -1965,12 +2155,10 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             pct = 30 + (60 * (i / total))
             emit_progress(project_id, f"Building...", pct)
             
-            # Inject Figma Context if it exists
             final_task_text = task
             if figma_context and i == 1:
                 final_task_text = f"CRITICAL SYSTEM CONTEXT: {figma_context}\n\nUSER REQUEST: {task}"
 
-            # Run coder (logs everything to terminal internally)
             code_res = await agent.code(
                 plan_section="" if skip_planner else f"Step {i}",
                 plan_text=final_task_text,
@@ -1980,11 +2168,9 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             )
             
             tk = code_res.get("usage", {}).get("total_tokens", 0)
-            if tk and user_id: 
-                add_monthly_tokens(user_id, tk)
+            if tk and user_id: add_monthly_tokens(user_id, tk)
 
             ops = code_res.get("operations", [])
-            
             for op in ops:
                 path = op.get("path")
                 content = op.get("content")
@@ -1992,9 +2178,6 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                     batch_files[path] = content
                     file_tree[path] = content
 
-        # ==========================================================================
-        # FILE RELEASE PHASE
-        # ==========================================================================
         emit_phase(project_id, "files")
         emit_progress(project_id, "Saving...", 95)
         
@@ -2002,17 +2185,13 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             if path.startswith("static/") and path.endswith(".js"):
                 try:
                     lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
-                    if lint_err:
-                        emit_log(project_id, "system", f"Syntax Error in {path}:\n{lint_err}")
-                except: 
-                    pass
+                    if lint_err: emit_log(project_id, "system", f"Syntax Error in {path}:\n{lint_err}")
+                except: pass
 
             db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
             emit_file_changed(project_id, path)
 
-        # Save History when done
-        display_msg = assistant_msg or "The app is now being worked on!"
-        db_history.append({"role": "assistant", "content": display_msg})
+        db_history.append({"role": "assistant", "content": assistant_msg})
         supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
 
         emit_status(project_id, "Done")
@@ -2139,7 +2318,7 @@ import json
 from fastapi import Request, HTTPException
 
 # ==========================================================================
-# DEPLOY OPTIMIZE FIX
+# DEPLOY OPTIMIZE FIX (With Supabase Vercel Injection)
 # ==========================================================================
 import json
 import urllib.parse
@@ -2160,6 +2339,17 @@ async def optimize_for_vercel(request: Request, project_id: str):
         project_data = db_select_one("projects", {"id": project_id}, "gorilla_auth_id")
         auth_id = project_data.get("gorilla_auth_id", "") if project_data else ""
 
+        # ⚡ FETCH SUPABASE KEYS FROM VFS .ENV FILE ⚡
+        env_file = db_select_one("files", {"project_id": project_id, "path": ".env"})
+        supa_url = ""
+        supa_key = ""
+        if env_file and env_file.get("content"):
+            for line in env_file.get("content", "").split("\n"):
+                if line.startswith("VITE_SUPABASE_URL="): 
+                    supa_url = line.split("=", 1)[1].strip()
+                if line.startswith("VITE_SUPABASE_ANON_KEY="): 
+                    supa_key = line.split("=", 1)[1].strip()
+
         vercel_json_content = {
             "version": 2,
             "builds": [
@@ -2172,7 +2362,9 @@ async def optimize_for_vercel(request: Request, project_id: str):
             ],
             "env": {
                 "GORILLA_API_KEY": api_key,
-                "VITE_GORILLA_AUTH_ID": auth_id  # <--- INJECTED FOR PRODUCTION APPS
+                "VITE_GORILLA_AUTH_ID": auth_id,
+                "VITE_SUPABASE_URL": supa_url,         # <--- INJECTED FOR VERCEL
+                "VITE_SUPABASE_ANON_KEY": supa_key     # <--- INJECTED FOR VERCEL
             }
         }
         
@@ -2747,7 +2939,7 @@ async def agent_start(
     xmode = xmode_str == "true"
     image_base64 = form_data.get("image_base64")
 
-    # 🛑 THE FIX: Use db_upsert to guarantee the old image is overwritten!
+    # 🛑 Guarantee the old image is overwritten
     if image_base64:
         try:
             db_upsert(
