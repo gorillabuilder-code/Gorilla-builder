@@ -1186,6 +1186,7 @@ class CoderAgent(BaseAgent):
         "   - **Voice (TTS)**: DO NOT USE AN API. Strictly use the browser's native `window.speechSynthesis` Web Speech API in frontend components.\n"
         "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background `.\n\n"
         "GLOBAL RULES:\n"
+        "VERY IMPORTNT: STRICTLY PROHIBITED: Do NOT output XML tags like <minimax:tool_call> or <invoke>. Output pure, raw JSON starting with { and ending with }.\n"
         "1. Output valid JSON only. No markdown blocks. ALL API KEYS ARE IN THE ENVIRONMENT.\n"
         "2. NEVER generate .env or Dockerfile. The main server is always server.js and the backend is always node.js within the routes/ folder, the frontend is always react/typescript.\n"
         "3. NEVER use literal '\\n'. Use physical newlines.\n"

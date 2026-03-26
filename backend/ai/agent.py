@@ -847,7 +847,7 @@ class PlannerAgent(BaseAgent):
     "Rules:\n"
     "MANDATORY OUTPUT FORMAT: JSON OBJECT ONLY. Do NOT wrap in markdown blocks.\n"
     "{\n"
-    '  "assistant_message": "Sure I will build the ... application for you with...and...it will be...", --> this should be long and very precise.\n'
+    '  "assistant_message": "Sure I will build the ... application for you with...and...it will be...", --> this should be very very long and very precise, but not talk about technical code specifications but how the application will function and look.\n'
     '  "tasks": [\n'
     '    "Step 1: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Create `App.tsx` to begint the process...",\n'
     '    "Step 2: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Modify `server.js` to setup API..."\n'
@@ -946,7 +946,7 @@ class PlannerAgent(BaseAgent):
                     raise ValueError("Could not extract JSON from response")
                 
                 response_type = data.get("type", "plan")
-                assistant_message = data.get("assistant_message", "Plan created.")
+                assistant_message = data.get("assistant_message", "Sure I would really like to help you with that! But I need a bit more information right now to give you the app you deserve.")
                 
                 if response_type == "questions":
                     questions = data.get("questions", [])
@@ -1083,6 +1083,7 @@ class ReasonerAgent(BaseAgent):
         self.emit(
             intent=Intent.PLAN,
             payload={
+                "tasks": tasks,
                 "reasoner_review": {
                     "concerns": concerns,
                     "approved": True
@@ -1169,6 +1170,7 @@ class CoderAgent(BaseAgent):
         "   - **Voice (TTS)**: DO NOT USE AN API. Strictly use the browser's native `window.speechSynthesis` Web Speech API in frontend components.\n"
         "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background `.\n\n"
         "GLOBAL RULES:\n"
+        "VERY IMPORTNT: STRICTLY PROHIBITED: Do NOT output XML tags like <minimax:tool_call> or <invoke>. Output pure, raw JSON starting with { and ending with }.\n"
         "1. Output valid JSON only. No markdown blocks. ALL API KEYS ARE IN THE ENVIRONMENT.\n"
         "2. NEVER generate .env or Dockerfile. The main server is always server.js and the backend is always node.js within the routes/ folder, the frontend is always react/typescript.\n"
         "3. NEVER use literal '\\n'. Use physical newlines.\n"

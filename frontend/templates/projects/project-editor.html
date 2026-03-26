@@ -458,16 +458,10 @@
 <body class="{% if user.plan == 'premium' %}premium{% endif %} {% if xmode %}xmode{% endif %}">
 
 <div id="editor-loading-overlay" style="position: fixed; inset: 0; z-index: 9999; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.5s ease, visibility 0.5s ease;">
-  
   <img src="/static/gorilla.gif" alt="Waking up Gorilla..." style="width: 250px; height: 250px; object-fit: contain; filter: drop-shadow(0 10px 30px rgba(59, 108, 255, 0.2));" />
-  
   <h2 style="color: #fff; font-family: monospace; font-size: 18px; margin-top: -10px; font-weight: 300; letter-spacing: 2px;">
     WAKING UP GORILLA...
   </h2>
-  
-  <div style="margin-top: 20px; font-size: 11px; color: var(--text-muted); opacity: 0.6; font-family: sans-serif;">
-    <a href="https://iconscout.com/lottie-animations/gorilla" class="text-underline font-size-sm" target="_blank" style="color: inherit;">Gorilla</a> by <a href="https://iconscout.com/contributors/google-inc" class="text-underline font-size-sm" style="color: inherit;">Google Inc.</a> on <a href="https://iconscout.com" class="text-underline font-size-sm" style="color: inherit;">IconScout</a>
-  </div>
 </div>
 
 <div class="shell">
@@ -493,9 +487,6 @@
         ⬇ ZIP
       </button>
       {% endif %}
-      <a class="pill" href="/projects/{{ project_id }}/game" target="_blank" style="background: rgba(255,0,0,0.1); color: var(--danger); border-color: rgba(255,0,0,0.3);" title="Play game">
-        ▶ PLAY
-      </a>
       <span class="pill" id="connPill" title="SSE connection" style="cursor: default;">
         <span class="dot warn" id="connDot"></span>
       </span>
@@ -640,26 +631,21 @@
     const btn = document.getElementById("btn-github-action");
     const originalHTML = btn.innerHTML;
     
-    // Set loading state
     btn.disabled = true;
     btn.innerHTML = 'Syncing...';
     btn.style.opacity = "0.7";
 
     try {
       const res = await fetch(`/projects/{{ project_id }}/github/publish`, { method: 'POST' });
-      
       const contentType = res.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
           throw new Error("Server error. Please refresh and ensure you are logged in.");
       }
       
       const data = await res.json();
-      
       if (!res.ok) throw new Error(data.detail || "Failed to sync to GitHub");
       
-      // Success State
       btn.innerHTML = '✓ Synced';
-      
       setTimeout(() => {
         btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:2px;"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg> Update Repo';
         btn.disabled = false;
@@ -669,7 +655,6 @@
     } catch (err) {
       console.error(err);
       btn.innerHTML = 'Error (See Console)';
-      
       setTimeout(() => {
         btn.innerHTML = originalHTML;
         btn.disabled = false;
@@ -681,7 +666,6 @@
 
 </div>
 <script type="module">
-// 1. IMPORTS
 import { webRunner } from '/static/webrunner.js';
 import { marked } from 'https://esm.sh/marked@9.1.2';
 import DOMPurify from 'https://esm.sh/dompurify@3.0.6';
@@ -690,7 +674,16 @@ const PROJECT_ID = "{{ project_id }}";
 const INITIAL_PROMPT = "{{ initial_prompt or '' }}"; 
 const CHAT_KEY = `gorilla_chat_${PROJECT_ID}`;
 
-// --- HIDE LOADER FUNCTION ---
+// Feature Flags from Backend
+const HAS_SUPABASE = {{ 'true' if has_supabase else 'false' }};
+const PROJECT_HAS_DB = {{ 'true' if project_has_db else 'false' }};
+const RESUME_DB_AGENT = {{ 'true' if resume_db_agent else 'false' }};
+
+window.isAgentWorking = false;
+let pendingFileUpdates = {}; 
+let currentThoughtBlock = null;
+let thoughtList = null;
+
 function hideEditorLoader() {
   const loader = document.getElementById('editor-loading-overlay');
   if (loader) {
@@ -702,13 +695,15 @@ function hideEditorLoader() {
   }
 }
 
-// 2. LOGGING (Browser -> Backend)
+// 2. LOGGING (Browser -> Backend) - SHIELDED
 function captureConsole() {
     const originalLog = console.log;
     const originalErr = console.error;
     const originalWarn = console.warn;
 
     function sendLog(level, args) {
+        // ONLY RELAY ERRORS IF AGENT IS ACTIVELY DEBUGGING
+        if (!window.isAgentWorking) return; 
         try {
             const msg = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
             const data = new FormData();
@@ -739,7 +734,26 @@ let isWebContainerBooted = false;
 const $ = (id) => document.getElementById(id);
 const chat = $("chat");
 
-// --- EDITOR IMAGE ATTACHMENT LOGIC ---
+// UI Locker
+function setInputState(locked) {
+    window.isAgentWorking = locked;
+    const promptEl = $("prompt");
+    const runBtn = $("runAgent");
+    
+    promptEl.disabled = locked;
+    runBtn.disabled = locked;
+    
+    if (locked) {
+        promptEl.placeholder = "Gorilla is working...";
+        runBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>';
+        runBtn.style.opacity = '0.5';
+    } else {
+        promptEl.placeholder = "What shall we build?";
+        runBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576zm6.787-8.201L1.591 6.602l4.339 2.76z"/></svg>';
+        runBtn.style.opacity = '1';
+    }
+}
+
 let currentAttachedImage = null;
 const editorImageInput = $("editorImageInput");
 const editorImagePreview = $("editorImagePreview");
@@ -780,30 +794,68 @@ if (editorImageInput) {
     });
 }
 
-// --- CHAT LOGIC ---
+// --- CHAT LOGIC & SLEEK THOUGHT TIMELINE ---
+function addThought(text) {
+    if (!currentThoughtBlock) {
+        currentThoughtBlock = document.createElement('div');
+        currentThoughtBlock.className = 'msg agent-thoughts';
+        currentThoughtBlock.style.cssText = 'background: transparent; padding: 0 10px 10px 10px; width: 98%; align-self: flex-start;';
+        
+        thoughtList = document.createElement('div');
+        thoughtList.style.cssText = 'display: flex; flex-direction: column; position: relative; padding-left: 6px;';
+        
+        // Vertical dashed line connecting icons
+        const line = document.createElement('div');
+        line.style.cssText = 'position: absolute; left: 15px; top: 16px; bottom: 16px; width: 1px; border-left: 1px dashed rgba(255,255,255,0.15); z-index: 1;';
+        thoughtList.appendChild(line);
+
+        currentThoughtBlock.appendChild(thoughtList);
+        chat.appendChild(currentThoughtBlock);
+    }
+    
+    let cleanText = text.replace(/^[✅❌⚠️🤔💡❓👁️💬✏️🧠📄▶]\s*/, '').trim();
+    
+    let iconSvg = '';
+    if (text.includes('Read') || text.includes('Fetch') || text.includes('📄')) {
+        iconSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`;
+    } else if (text.includes('Edit') || text.includes('Save') || text.includes('Write') || text.includes('✏️')) {
+        iconSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>`;
+    } else if (text.includes('Done') || text.includes('✅')) {
+        iconSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+    } else {
+        // Minimalist dot for generic thoughts / planning
+        iconSvg = `<div style="width: 5px; height: 5px; border-radius: 50%; background: #8b949e;"></div>`;
+    }
+
+    const step = document.createElement('div');
+    step.style.cssText = 'display:flex; gap:16px; align-items:center; margin-bottom:12px; position: relative; z-index: 2; cursor: pointer; padding: 4px 8px; border-radius: 6px; transition: background 0.2s;';
+    step.onmouseover = () => { step.style.background = 'rgba(255,255,255,0.03)'; };
+    step.onmouseout = () => { step.style.background = 'transparent'; };
+    
+    const iconContainer = document.createElement('div');
+    iconContainer.style.cssText = 'width: 20px; height: 20px; border-radius: 4px; background: var(--bg); display: flex; align-items: center; justify-content: center; color: #8b949e; flex-shrink: 0;';
+    iconContainer.innerHTML = iconSvg;
+
+    const textContainer = document.createElement('div');
+    textContainer.style.cssText = 'color: #8b949e; font-size: 13px; font-family: system-ui, sans-serif; flex: 1; display: flex; justify-content: space-between; align-items: center;';
+    textContainer.innerHTML = `<span>${DOMPurify.sanitize(cleanText)}</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.3;"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
+
+    step.appendChild(iconContainer);
+    step.appendChild(textContainer);
+    
+    thoughtList.appendChild(step);
+    chat.scrollTop = chat.scrollHeight;
+}
+
 function loadChatHistory() {
   try {
     const dbHistory = {{ chat_history | safe }};
-    
     if (Array.isArray(dbHistory) && dbHistory.length > 0) {
       dbHistory.forEach(m => addMessage(m.role, m.content || m.text, false));
       chat.scrollTop = chat.scrollHeight;
-      
-      const localSync = dbHistory.map(h => ({ role: h.role, text: h.content || h.text }));
-      localStorage.setItem(CHAT_KEY, JSON.stringify(localSync));
-    } else {
-      const raw = localStorage.getItem(CHAT_KEY);
-      if (raw) {
-        const localHistory = JSON.parse(raw);
-        if (Array.isArray(localHistory)) {
-          localHistory.forEach(m => addMessage(m.role, m.text, false));
-          chat.scrollTop = chat.scrollHeight;
-        }
-      }
+      localStorage.setItem(CHAT_KEY, JSON.stringify(dbHistory.map(h => ({ role: h.role, text: h.content || h.text }))));
     }
-  } catch (e) { 
-    console.error("Chat Load Error", e); 
-  }
+  } catch (e) { console.error("Chat Load Error", e); }
 }
 
 function saveChatHistory(role, text) {
@@ -814,69 +866,45 @@ function saveChatHistory(role, text) {
     history.push({ role, text });
     if(history.length > 50) history.shift();
     localStorage.setItem(CHAT_KEY, JSON.stringify(history));
-  } catch (e) { console.error("Chat Save Error", e); }
+  } catch (e) {}
 }
 
 function addMessage(role, text, save=true){
   const el = document.createElement("div");
   el.className = "msg " + role;
 
-  if(role === "system"){
-    try {
-        const safeHtml = DOMPurify.sanitize(marked.parse(text || ""));
-        el.innerHTML = `<div class="md">${safeHtml}</div>`;
-    } catch(e) {
-        el.textContent = text;
-    }
+  if (role === "system") {
+      try {
+          const safeHtml = DOMPurify.sanitize(marked.parse(text || ""));
+          el.innerHTML = `<div class="md">${safeHtml}</div>`;
+      } catch(e) { el.textContent = text; }
   } else if (role === "planner") {
-    // Planner messages contain HTML (steps) - render as HTML directly
-    if (text.includes('agent-step') || text.includes('<script')) {
-        el.innerHTML = DOMPurify.sanitize(text, { 
-            ADD_TAGS: ['script'], 
-            ADD_ATTR: ['onclick', 'onload', 'id', 'class', 'style', 'data-status'] 
-        });
-    } else {
-        // Regular planner message
-        const safeHtml = DOMPurify.sanitize(marked.parse(text || ""));
-        el.innerHTML = `<div class="meta">${role}</div><div class="md">${safeHtml}</div>`;
-    }
+      if (text.includes('agent-step') || text.includes('<script')) {
+          el.innerHTML = DOMPurify.sanitize(text, { ADD_TAGS: ['script'], ADD_ATTR: ['onclick', 'onload', 'id', 'class', 'style', 'data-status'] });
+      } else {
+          el.innerHTML = `<div class="meta">${role}</div><div class="md">${DOMPurify.sanitize(marked.parse(text || ""))}</div>`;
+      }
   } else {
-    // Other messages use markdown
-    try {
-        const safeHtml = DOMPurify.sanitize(marked.parse(text || ""));
-        el.innerHTML = `<div class="meta">${role}</div><div class="md">${safeHtml}</div>`;
-    } catch(e) {
-        console.error("Markdown parse error:", e);
-        el.textContent = text; 
-    }
+      try {
+          el.innerHTML = `<div class="meta">${role}</div><div class="md">${DOMPurify.sanitize(marked.parse(text || ""))}</div>`;
+      } catch(e) { el.textContent = text; }
   }
 
   if(chat) {
       chat.appendChild(el);
       chat.scrollTop = chat.scrollHeight;
   }
-  
-  if(save && role !== "system") {
-    saveChatHistory(role, text);
-  }
+  if(save && role !== "system") saveChatHistory(role, text);
 }
 
-// --- CONNECTION & STATUS UI ---
+// --- STATUS UI ---
 function setConn(state){
   const dot = $("connDot");
   const pill = $("connPill");
   if(!dot || !pill) return;
-  
-  if(state === "ok"){
-    dot.className = "dot ok";
-    pill.title = "Live";
-  } else if(state === "bad"){
-    dot.className = "dot bad";
-    pill.title = "Offline";
-  } else {
-    dot.className = "dot warn";
-    pill.title = "Connecting…";
-  }
+  if(state === "ok"){ dot.className = "dot ok"; pill.title = "Live"; }
+  else if(state === "bad"){ dot.className = "dot bad"; pill.title = "Offline"; }
+  else { dot.className = "dot warn"; pill.title = "Connecting…"; }
 }
 
 function setPhase(p) {
@@ -888,28 +916,17 @@ function setPhase(p) {
 
 function setProgress(text, pct){
   if(text && $("progressText")) $("progressText").textContent = text;
-  if(pct !== undefined && $("progressBar")) {
-    const v = Math.max(0, Math.min(100, Number(pct)));
-    $("progressBar").style.width = v + "%";
-  }
+  if(pct !== undefined && $("progressBar")) $("progressBar").style.width = Math.max(0, Math.min(100, Number(pct))) + "%";
   
   const wave = $("loadingWave");
-  if(wave) {
-      const isWorking = text && !text.includes("Idle") && !text.includes("Done") && !text.includes("Complete");
-      wave.classList.toggle("active", isWorking);
-  }
+  if(wave) wave.classList.toggle("active", text && !text.includes("Idle") && !text.includes("Done") && !text.includes("Complete"));
 }
 
 function setSaveStatus(){
   const el = $("saveStatus");
   if(!el) return;
-  if(dirty) {
-    el.textContent = "Unsaved";
-    el.style.color = "var(--warn)";
-  } else {
-    el.textContent = "Saved";
-    el.style.color = "var(--text-muted)";
-  }
+  if(dirty) { el.textContent = "Unsaved"; el.style.color = "var(--warn)"; }
+  else { el.textContent = "Saved"; el.style.color = "var(--text-muted)"; }
 }
 
 function updateTokens(newTotal) {
@@ -940,10 +957,7 @@ function buildTree(paths){
       const part = parts[i];
       const isFile = (i === parts.length - 1);
       cur[part] = cur[part] || { __children: {}, __file: false, __path: null };
-      if(isFile){
-        cur[part].__file = true;
-        cur[part].__path = p;
-      }
+      if(isFile){ cur[part].__file = true; cur[part].__path = p; }
       cur = cur[part].__children;
     }
   }
@@ -964,25 +978,16 @@ function renderTree(container, nodeObj, depth){
     ico.className = "ico";
     
     if(isFile) {
-        if (name.endsWith('.js')) {
-            ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 48"><path fill="#ffd600" d="M6,42V6h36v36H6z"/><path fill="none" stroke="#000" stroke-width="3.3" d="M23.8,22.3v9.8c0,3.7-4.4,4-6.3,0.8"/><path fill="none" stroke="#000" stroke-width="3.3" d="M34.7,25.3c-1.7-2.7-5.7-2.3-5.8,0.6c-0.2,3.7,6.8,2.9,6.2,7.1c-0.4,2.9-4.9,3.9-7.2-0.1"/></svg>`;
-        } else if (name.endsWith('.html')) {
-            ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 48"><path fill="#E65100" d="M41,5H7l3,34l14,4l14-4L41,5z"/><path fill="#FF6D00" d="M24 8L24 39.9 35.2 36.7 37.7 8z"/><path fill="#FFF" d="M24,25v-4h8.6l-0.7,11.5L24,35.1v-4.2l4.1-1.4l0.3-4.5H24z M32.9,17l0.3-4H24v4H32.9z"/><path fill="#EEE" d="M24,30.9v4.2l-7.9-2.6L15.7,27h4l0.2,2.5L24,30.9z M19.1,17H24v-4h-9.1l0.7,12H24v-4h-4.6L19.1,17z"/></svg>`;
-        } else if (name.endsWith('.css')) {
-            ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 48"><path fill="#0277BD" d="M41,5H7l3,34l14,4l14-4L41,5z"/><path fill="#039BE5" d="M24 8L24 39.9 35.2 36.7 37.7 8z"/><path fill="#FFF" d="M33.1 13L24 13 24 17 28.9 17 28.6 21 24 21 24 25 28.4 25 28.1 29.5 24 30.9 24 35.1 31.9 32.5 32.6 21z"/><path fill="#EEE" d="M24,13v4h-8.9l-0.3-4H24z M19.4,21l0.2,4H24v-4H19.4z M19.8,27h-4l0.3,5.5l7.9,2.6v-4.2l-4.1-1.4L19.8,27z"/></svg>`;
-        } else if (name.endsWith('.tsx') || name.endsWith('.jsx')) {
-            ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 32 32" fill="none"><path d="M18.6789 15.9759C18.6789 14.5415 17.4796 13.3785 16 13.3785C14.5206 13.3785 13.3211 14.5415 13.3211 15.9759C13.3211 17.4105 14.5206 18.5734 16 18.5734C17.4796 18.5734 18.6789 17.4105 18.6789 15.9759Z" fill="#53C1DE"/><path fill-rule="evenodd" clip-rule="evenodd" d="M24.7004 11.1537C25.2661 8.92478 25.9772 4.79148 23.4704 3.39016C20.9753 1.99495 17.7284 4.66843 16.0139 6.27318C14.3044 4.68442 10.9663 2.02237 8.46163 3.42814C5.96751 4.82803 6.73664 8.8928 7.3149 11.1357C4.98831 11.7764 1 13.1564 1 15.9759C1 18.7874 4.98416 20.2888 7.29698 20.9289C6.71658 23.1842 5.98596 27.1909 8.48327 28.5877C10.9973 29.9932 14.325 27.3945 16.0554 25.7722C17.7809 27.3864 20.9966 30.0021 23.4922 28.6014C25.9956 27.1963 25.3436 23.1184 24.7653 20.8625C27.0073 20.221 31 18.7523 31 15.9759C31 13.1835 26.9903 11.7923 24.7004 11.1537ZM24.4162 19.667C24.0365 18.5016 23.524 17.2623 22.8971 15.9821C23.4955 14.7321 23.9881 13.5088 24.3572 12.3509C26.0359 12.8228 29.7185 13.9013 29.7185 15.9759C29.7185 18.07 26.1846 19.1587 24.4162 19.667ZM22.85 27.526C20.988 28.571 18.2221 26.0696 16.9478 24.8809C17.7932 23.9844 18.638 22.9422 19.4625 21.7849C20.9129 21.6602 22.283 21.4562 23.5256 21.1777C23.9326 22.7734 24.7202 26.4763 22.85 27.526ZM9.12362 27.5111C7.26143 26.47 8.11258 22.8946 8.53957 21.2333C9.76834 21.4969 11.1286 21.6865 12.5824 21.8008C13.4123 22.9332 14.2816 23.9741 15.1576 24.8857C14.0753 25.9008 10.9945 28.557 9.12362 27.5111ZM2.28149 15.9759C2.28149 13.874 5.94207 12.8033 7.65904 12.3326C8.03451 13.5165 8.52695 14.7544 9.12123 16.0062C8.51925 17.2766 8.01977 18.5341 7.64085 19.732C6.00369 19.2776 2.28149 18.0791 2.28149 15.9759ZM9.1037 4.50354C10.9735 3.45416 13.8747 6.00983 15.1159 7.16013C14.2444 8.06754 13.3831 9.1006 12.5603 10.2265C11.1494 10.3533 9.79875 10.5569 8.55709 10.8297C8.09125 9.02071 7.23592 5.55179 9.1037 4.50354ZM20.3793 11.5771C21.3365 11.6942 22.2536 11.85 23.1147 12.0406C22.8562 12.844 22.534 13.6841 22.1545 14.5453C21.6044 13.5333 21.0139 12.5416 20.3793 11.5771ZM16.0143 8.0481C16.6054 8.66897 17.1974 9.3623 17.7798 10.1145C16.5985 10.0603 15.4153 10.0601 14.234 10.1137C14.8169 9.36848 15.414 8.67618 16.0143 8.0481ZM9.8565 14.5444C9.48329 13.6862 9.16398 12.8424 8.90322 12.0275C9.75918 11.8418 10.672 11.69 11.623 11.5748C10.9866 12.5372 10.3971 13.5285 9.8565 14.5444ZM11.6503 20.4657C10.6679 20.3594 9.74126 20.2153 8.88556 20.0347C9.15044 19.2055 9.47678 18.3435 9.85796 17.4668C10.406 18.4933 11.0045 19.4942 11.6503 20.4657ZM16.0498 23.9915C15.4424 23.356 14.8365 22.6531 14.2448 21.8971C15.4328 21.9423 16.6231 21.9424 17.811 21.891C17.2268 22.6608 16.6369 23.3647 16.0498 23.9915ZM22.1667 17.4222C22.5677 18.3084 22.9057 19.1657 23.1742 19.9809C22.3043 20.1734 21.3652 20.3284 20.3757 20.4435C21.015 19.4607 21.6149 18.4536 22.1667 17.4222ZM18.7473 20.5941C16.9301 20.72 15.1016 20.7186 13.2838 20.6044C12.2509 19.1415 11.3314 17.603 10.5377 16.0058C11.3276 14.4119 12.2404 12.8764 13.2684 11.4158C15.0875 11.2825 16.9178 11.2821 18.7369 11.4166C19.7561 12.8771 20.6675 14.4086 21.4757 15.9881C20.6771 17.5812 19.7595 19.1198 18.7473 20.5941ZM22.8303 4.4666C24.7006 5.51254 23.8681 9.22726 23.4595 10.8426C22.2149 10.5641 20.8633 10.3569 19.4483 10.2281C18.6239 9.09004 17.7698 8.05518 16.9124 7.15949C18.1695 5.98441 20.9781 3.43089 22.8303 4.4666Z" fill="#53C1DE"/></svg>`;
-        } else if (name.endsWith('.ts')) {
-            ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 48"><rect width="36" height="36" x="6" y="6" fill="#1976d2"/><polygon fill="#fff" points="27.49,22 14.227,22 14.227,25.264 18.984,25.264 18.984,40 22.753,40 22.753,25.264 27.49,25.264"/><path fill="#fff" d="M39.194,26.084c0,0-1.787-1.192-3.807-1.192s-2.747,0.96-2.747,1.986 c0,2.648,7.381,2.383,7.381,7.712c0,8.209-11.254,4.568-11.254,4.568V35.22c0,0,2.152,1.622,4.733,1.622s2.483-1.688,2.483-1.92 c0-2.449-7.315-2.449-7.315-7.878c0-7.381,10.658-4.469,10.658-4.469L39.194,26.084z"/></svg>`;
-        } else if (name.endsWith('.b64')) {
-            ico.innerHTML = `<svg fill="#000000" width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="3" width="20" height="18" rx="2" style="fill: transparent; stroke: #3b82f6; stroke-width: 2;"></rect><path d="M2.29,17,7,12.29a1,1,0,0,1,1.42,0l2.09,2.1,4.07-4.08a1,1,0,0,1,1.42,0L21.71,16a1,1,0,0,1,.29.71V19a2,2,0,0,1-2,2H4a2,2,0,0,1-2-2V17.71A1,1,0,0,1,2.29,17ZM7.5,7.5A1.5,1.5,0,1,0,9,6,1.5,1.5,0,0,0,7.5,7.5Z" style="fill: #3b82f6;"></path></svg>`;
-        } else if(name.endsWith('.json')) {
-            ico.textContent = "{ }";
-        } else if(name.endsWith('.env')) {
-            ico.textContent = "⚙︎";
-        } else {
-            ico.textContent = "📄";
-        }
+        if (name.endsWith('.js')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 48"><path fill="#ffd600" d="M6,42V6h36v36H6z"/><path fill="none" stroke="#000" stroke-width="3.3" d="M23.8,22.3v9.8c0,3.7-4.4,4-6.3,0.8"/><path fill="none" stroke="#000" stroke-width="3.3" d="M34.7,25.3c-1.7-2.7-5.7-2.3-5.8,0.6c-0.2,3.7,6.8,2.9,6.2,7.1c-0.4,2.9-4.9,3.9-7.2-0.1"/></svg>`;
+        else if (name.endsWith('.html')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 48"><path fill="#E65100" d="M41,5H7l3,34l14,4l14-4L41,5z"/><path fill="#FF6D00" d="M24 8L24 39.9 35.2 36.7 37.7 8z"/><path fill="#FFF" d="M24,25v-4h8.6l-0.7,11.5L24,35.1v-4.2l4.1-1.4l0.3-4.5H24z M32.9,17l0.3-4H24v4H32.9z"/><path fill="#EEE" d="M24,30.9v4.2l-7.9-2.6L15.7,27h4l0.2,2.5L24,30.9z M19.1,17H24v-4h-9.1l0.7,12H24v-4h-4.6L19.1,17z"/></svg>`;
+        else if (name.endsWith('.css')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 48"><path fill="#0277BD" d="M41,5H7l3,34l14,4l14-4L41,5z"/><path fill="#039BE5" d="M24 8L24 39.9 35.2 36.7 37.7 8z"/><path fill="#FFF" d="M33.1 13L24 13 24 17 28.9 17 28.6 21 24 21 24 25 28.4 25 28.1 29.5 24 30.9 24 35.1 31.9 32.5 32.6 21z"/><path fill="#EEE" d="M24,13v4h-8.9l-0.3-4H24z M19.4,21l0.2,4H24v-4H19.4z M19.8,27h-4l0.3,5.5l7.9,2.6v-4.2l-4.1-1.4L19.8,27z"/></svg>`;
+        else if (name.endsWith('.tsx') || name.endsWith('.jsx')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 32 32" fill="none"><path d="M18.6789 15.9759C18.6789 14.5415 17.4796 13.3785 16 13.3785C14.5206 13.3785 13.3211 14.5415 13.3211 15.9759C13.3211 17.4105 14.5206 18.5734 16 18.5734C17.4796 18.5734 18.6789 17.4105 18.6789 15.9759Z" fill="#53C1DE"/><path fill-rule="evenodd" clip-rule="evenodd" d="M24.7004 11.1537C25.2661 8.92478 25.9772 4.79148 23.4704 3.39016C20.9753 1.99495 17.7284 4.66843 16.0139 6.27318C14.3044 4.68442 10.9663 2.02237 8.46163 3.42814C5.96751 4.82803 6.73664 8.8928 7.3149 11.1357C4.98831 11.7764 1 13.1564 1 15.9759C1 18.7874 4.98416 20.2888 7.29698 20.9289C6.71658 23.1842 5.98596 27.1909 8.48327 28.5877C10.9973 29.9932 14.325 27.3945 16.0554 25.7722C17.7809 27.3864 20.9966 30.0021 23.4922 28.6014C25.9956 27.1963 25.3436 23.1184 24.7653 20.8625C27.0073 20.221 31 18.7523 31 15.9759C31 13.1835 26.9903 11.7923 24.7004 11.1537ZM24.4162 19.667C24.0365 18.5016 23.524 17.2623 22.8971 15.9821C23.4955 14.7321 23.9881 13.5088 24.3572 12.3509C26.0359 12.8228 29.7185 13.9013 29.7185 15.9759C29.7185 18.07 26.1846 19.1587 24.4162 19.667ZM22.85 27.526C20.988 28.571 18.2221 26.0696 16.9478 24.8809C17.7932 23.9844 18.638 22.9422 19.4625 21.7849C20.9129 21.6602 22.283 21.4562 23.5256 21.1777C23.9326 22.7734 24.7202 26.4763 22.85 27.526ZM9.12362 27.5111C7.26143 26.47 8.11258 22.8946 8.53957 21.2333C9.76834 21.4969 11.1286 21.6865 12.5824 21.8008C13.4123 22.9332 14.2816 23.9741 15.1576 24.8857C14.0753 25.9008 10.9945 28.557 9.12362 27.5111ZM2.28149 15.9759C2.28149 13.874 5.94207 12.8033 7.65904 12.3326C8.03451 13.5165 8.52695 14.7544 9.12123 16.0062C8.51925 17.2766 8.01977 18.5341 7.64085 19.732C6.00369 19.2776 2.28149 18.0791 2.28149 15.9759ZM9.1037 4.50354C10.9735 3.45416 13.8747 6.00983 15.1159 7.16013C14.2444 8.06754 13.3831 9.1006 12.5603 10.2265C11.1494 10.3533 9.79875 10.5569 8.55709 10.8297C8.09125 9.02071 7.23592 5.55179 9.1037 4.50354ZM20.3793 11.5771C21.3365 11.6942 22.2536 11.85 23.1147 12.0406C22.8562 12.844 22.534 13.6841 22.1545 14.5453C21.6044 13.5333 21.0139 12.5416 20.3793 11.5771ZM16.0143 8.0481C16.6054 8.66897 17.1974 9.3623 17.7798 10.1145C16.5985 10.0603 15.4153 10.0601 14.234 10.1137C14.8169 9.36848 15.414 8.67618 16.0143 8.0481ZM9.8565 14.5444C9.48329 13.6862 9.16398 12.8424 8.90322 12.0275C9.75918 11.8418 10.672 11.69 11.623 11.5748C10.9866 12.5372 10.3971 13.5285 9.8565 14.5444ZM11.6503 20.4657C10.6679 20.3594 9.74126 20.2153 8.88556 20.0347C9.15044 19.2055 9.47678 18.3435 9.85796 17.4668C10.406 18.4933 11.0045 19.4942 11.6503 20.4657ZM16.0498 23.9915C15.4424 23.356 14.8365 22.6531 14.2448 21.8971C15.4328 21.9423 16.6231 21.9424 17.811 21.891C17.2268 22.6608 16.6369 23.3647 16.0498 23.9915ZM22.1667 17.4222C22.5677 18.3084 22.9057 19.1657 23.1742 19.9809C22.3043 20.1734 21.3652 20.3284 20.3757 20.4435C21.015 19.4607 21.6149 18.4536 22.1667 17.4222ZM18.7473 20.5941C16.9301 20.72 15.1016 20.7186 13.2838 20.6044C12.2509 19.1415 11.3314 17.603 10.5377 16.0058C11.3276 14.4119 12.2404 12.8764 13.2684 11.4158C15.0875 11.2825 16.9178 11.2821 18.7369 11.4166C19.7561 12.8771 20.6675 14.4086 21.4757 15.9881C20.6771 17.5812 19.7595 19.1198 18.7473 20.5941ZM22.8303 4.4666C24.7006 5.51254 23.8681 9.22726 23.4595 10.8426C22.2149 10.5641 20.8633 10.3569 19.4483 10.2281C18.6239 9.09004 17.7698 8.05518 16.9124 7.15949C18.1695 5.98441 20.9781 3.43089 22.8303 4.4666Z" fill="#53C1DE"/></svg>`;
+        else if (name.endsWith('.ts')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 48"><rect width="36" height="36" x="6" y="6" fill="#1976d2"/><polygon fill="#fff" points="27.49,22 14.227,22 14.227,25.264 18.984,25.264 18.984,40 22.753,40 22.753,25.264 27.49,25.264"/><path fill="#fff" d="M39.194,26.084c0,0-1.787-1.192-3.807-1.192s-2.747,0.96-2.747,1.986 c0,2.648,7.381,2.383,7.381,7.712c0,8.209-11.254,4.568-11.254,4.568V35.22c0,0,2.152,1.622,4.733,1.622s2.483-1.688,2.483-1.92 c0-2.449-7.315-2.449-7.315-7.878c0-7.381,10.658-4.469,10.658-4.469L39.194,26.084z"/></svg>`;
+        else if (name.endsWith('.sql')) ico.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>`;
+        else if (name.endsWith('.b64')) ico.innerHTML = `<svg fill="#000000" width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="3" width="20" height="18" rx="2" style="fill: transparent; stroke: #3b82f6; stroke-width: 2;"></rect><path d="M2.29,17,7,12.29a1,1,0,0,1,1.42,0l2.09,2.1,4.07-4.08a1,1,0,0,1,1.42,0L21.71,16a1,1,0,0,1,.29.71V19a2,2,0,0,1-2,2H4a2,2,0,0,1-2-2V17.71A1,1,0,0,1,2.29,17ZM7.5,7.5A1.5,1.5,0,1,0,9,6,1.5,1.5,0,0,0,7.5,7.5Z" style="fill: #3b82f6;"></path></svg>`;
+        else if(name.endsWith('.json')) ico.textContent = "{ }";
+        else if(name.endsWith('.env')) ico.textContent = "⚙︎";
+        else ico.textContent = "📄";
     } else {
         ico.textContent = "📁";
     }
@@ -1041,10 +1046,7 @@ function buildEditor(content, fileName){
   dirty = false;
   setSaveStatus();
 
-  if(!window.createEditor){
-    addMessage("system", "Editor loading...");
-    return;
-  }
+  if(!window.createEditor){ return; }
 
   editorView = window.createEditor(el, currentContent, (newText) => {
     currentContent = newText;
@@ -1055,7 +1057,6 @@ function buildEditor(content, fileName){
   }, fileName);
 }
 
-// --- Render Image viewer if clicking a .b64 file ---
 async function loadFile(path){
   currentFile = path;
   const data = await fetchJSON(`/api/project/${PROJECT_ID}/file?path=${encodeURIComponent(path)}`);
@@ -1065,7 +1066,7 @@ async function loadFile(path){
       const iv = $("imageViewer");
       let src = content;
       if(path.endsWith('.b64') && !content.startsWith('data:image')) {
-          src = `data:image/jpeg;base64,${content}`; // fallback
+          src = `data:image/jpeg;base64,${content}`;
       }
       iv.innerHTML = `<img src="${src}" style="max-width:100%; max-height:100%; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.6);">`;
       switchTab("code");
@@ -1079,34 +1080,24 @@ async function loadFile(path){
 
 async function saveCurrentFile(){
   if(!dirty) return;
-  
   const formData = new FormData();
   formData.append("file", currentFile);
-  
-  // Package the raw string code into a Blob so the backend sees it as an UploadFile
   const blob = new Blob([currentContent], { type: "text/plain" });
   formData.append("content", blob, currentFile);
 
-  const r = await fetch(`/api/project/${PROJECT_ID}/save`, {
-    method: "POST",
-    // CRITICAL: Do NOT manually set the Content-Type header here!
-    // The browser will automatically set it to 'multipart/form-data' and append the required boundary.
-    body: formData
-  });
+  const r = await fetch(`/api/project/${PROJECT_ID}/save`, { method: "POST", body: formData });
 
   if(r.ok){
     dirty = false;
     setSaveStatus();
     await refreshFiles();
-    if (isWebContainerBooted && webRunner) {
+    if (isWebContainerBooted && webRunner && !window.isAgentWorking) {
         await webRunner.writeFile(currentFile, currentContent);
     }
-  } else {
-    console.error("Auto-save failed:", await r.text());
   }
 }
 
-// --- BUTTONS ---
+// --- BUTTONS & TABS ---
 const btnUpload = $("btnUpload");
 if(btnUpload) btnUpload.onclick = () => $("uploadInput").click();
 const upInput = $("uploadInput");
@@ -1118,28 +1109,17 @@ if(upInput) upInput.onchange = (e) => {
     const form = new URLSearchParams();
     form.set("file", file.name);
     form.set("content", evt.target.result);
-    addMessage("system", `Uploading ${file.name}...`);
     await fetch(`/api/project/${PROJECT_ID}/save`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: form
     });
-    addMessage("system", "Upload complete.");
     await refreshFiles();
     upInput.value = "";
   };
   reader.readAsText(file);
 };
 
-const btnZip = $("btnExportZip");
-if (btnZip) {
-  btnZip.onclick = async () => {
-    addMessage("system", "Preparing ZIP download!...");
-    window.location.href = `/api/project/${PROJECT_ID}/export`;
-  };
-}
-
-// --- TABS & PREVIEW ---
 function switchTab(tab){
   if(tab === "preview"){
     $("tabPreview").classList.add("active");
@@ -1155,7 +1135,6 @@ function switchTab(tab){
     $("tabPreview").classList.remove("active");
     $("preview").style.display = "none";
     $("previewModeWrap").style.display = "none";
-    
     if (currentFile && (currentFile.endsWith('.b64') || currentFile.endsWith('.png') || currentFile.endsWith('.jpg'))) {
         $("editor").style.display = "none";
         $("imageViewer").style.display = "flex";
@@ -1169,7 +1148,10 @@ $("tabCode").onclick = () => switchTab("code");
 $("tabPreview").onclick = () => switchTab("preview");
 
 function refreshPreview(){
-    if (webRunner.url) $("preview").src = webRunner.url;
+    if (webRunner.url) {
+        // Safely refresh iframe without killing webcontainer
+        $("preview").src = webRunner.url;
+    }
 }
 $("previewMode").onchange = refreshPreview;
 
@@ -1184,13 +1166,12 @@ $("btnRunServer").onclick = async () => {
         btn.textContent = "Booting...";
         status.textContent = "Booting VM...";
         status.style.color = "var(--warn)";
-        addMessage("system", "Booting...");
 
         const response = await fetchJSON(`/api/project/${PROJECT_ID}/files`);
         const files = response.files || [];
 
         await webRunner.mount(files);
-        await webRunner.install((role, text) => addMessage(role, text));
+        await webRunner.install((role, text) => addMessage("system", text));
         await webRunner.start((url) => {
             status.textContent = "Live";
             status.style.color = "var(--ok)";
@@ -1200,11 +1181,8 @@ $("btnRunServer").onclick = async () => {
             iframe.src = url;
             iframe.style.display = "block";
             
-            if(!$("tabPreview").classList.contains("active")){
-               switchTab("preview");
-            }
-            addMessage("system", "Preview is live!");
-        }, (role, text) => addMessage(role, text));
+            if(!$("tabPreview").classList.contains("active")) switchTab("preview");
+        }, (role, text) => { /* ignore normal logs in chat to prevent spam */ });
 
         isWebContainerBooted = true;
 
@@ -1212,7 +1190,6 @@ $("btnRunServer").onclick = async () => {
         console.error(e);
         status.textContent = "Error";
         status.style.color = "var(--danger)";
-        addMessage("system", `❌ Boot failed: ${e.message}`);
         btn.disabled = false;
         btn.textContent = "▶ Run";
     }
@@ -1221,7 +1198,6 @@ $("btnRunServer").onclick = async () => {
 $("btnStopServer").onclick = () => {
     $("preview").src = "about:blank";
     $("serverStatus").textContent = "Paused";
-    addMessage("system", "Preview paused.");
 };
 
 // --- AGENT STREAM ---
@@ -1236,12 +1212,25 @@ function startStream(){
     const m = JSON.parse(e.data);
     
     if(m.type === "status") {
-      addMessage("system", m.text);
       setProgress(m.text);
-      
-      // 🛑 THE FIX: Auto-boot WebContainer exactly when coding is completed!
-      if (m.text.includes("Coding Complete") && !isWebContainerBooted) {
-          $("btnRunServer").click();
+      if (m.text.includes("Done") || m.text.includes("Ready") || m.text.includes("Error") || m.text.includes("Waiting for User")) {
+          // Release UI lock and flush files to WebContainer
+          setInputState(false);
+          currentThoughtBlock = null;
+          
+          if (isWebContainerBooted && webRunner && Object.keys(pendingFileUpdates).length > 0) {
+              for (let path in pendingFileUpdates) {
+                  fetchJSON(`/api/project/${PROJECT_ID}/file?path=${encodeURIComponent(path)}`)
+                  .then(d => {
+                      const c = (d.content !== undefined) ? d.content : (d.raw || "");
+                      webRunner.writeFile(path, c);
+                  });
+              }
+              pendingFileUpdates = {};
+              setTimeout(refreshPreview, 1000);
+          } else if (!isWebContainerBooted && m.text.includes("Done")) {
+              $("btnRunServer").click();
+          }
       }
     }
     
@@ -1250,8 +1239,12 @@ function startStream(){
     
     if(m.type === "log") {
       const role = m.role || "agent";
-      
-      if (role !== "user") {
+      if (role === "system" || role === "coder" || role === "planner" || role === "debugger" || role === "swarm") {
+          addThought(m.text);
+      } else if (role === "assistant") {
+          currentThoughtBlock = null; 
+          addMessage(role, m.text);
+      } else if (role !== "user") {
           addMessage(role, m.text);
       }
     }
@@ -1260,13 +1253,9 @@ function startStream(){
       setPhase("files");
       refreshFiles();
       if(m.path === currentFile) loadFile(currentFile);
-      if (isWebContainerBooted) {
-          fetchJSON(`/api/project/${PROJECT_ID}/file?path=${encodeURIComponent(m.path)}`)
-            .then(d => {
-                const c = (d.content !== undefined) ? d.content : (d.raw || "");
-                webRunner.writeFile(m.path, c);
-            });
-      }
+      
+      // Buffer the write to WebContainer until Done to prevent mid-gen crash loops
+      pendingFileUpdates[m.path] = true;
     }
     
     if(m.type === "token_usage") updateTokens(m.used);
@@ -1276,31 +1265,68 @@ function startStream(){
 
 async function triggerAgent(promptText) {
     if(!promptText && !currentAttachedImage) return;
+
+    // 🛑 DEPLOY INTERCEPTOR 🛑
+    const deployRegex = /(deploy my app|make it go live|make it live|publish my app|im done let's deploy)/i;
+    if (deployRegex.test(promptText)) {
+        const msgEl = document.createElement('div');
+        msgEl.className = 'msg system';
+        msgEl.innerHTML = `
+            <div style="border:1px solid var(--accent); padding:16px; border-radius:12px; background:rgba(59,130,246,0.1); width:100%;">
+                <div style="font-weight:bold; color:#fff; margin-bottom:8px; display:flex; align-items:center; gap:8px;">
+                   🚀 Ready to Launch?
+                </div>
+                <p style="margin:0 0 16px 0; color:var(--text-muted); font-size:13px;">It looks like you're ready to deploy your application to the world!</p>
+                <button onclick="window.open('/projects/${PROJECT_ID}/deploy', '_blank')" class="smallbtn" style="background:var(--accent); border-color:var(--accent); color:#fff; width:100%; font-weight:bold; padding:10px; cursor:pointer;">Go to Deployment Dashboard</button>
+            </div>
+        `;
+        chat.appendChild(msgEl);
+        chat.scrollTop = chat.scrollHeight;
+        $("prompt").value = ""; 
+        return;
+    }
+
+    // 🛑 DATABASE INTERCEPTOR 🛑
+    const dbKeywords = /\b(db|database|supabase|postgres|sql)\b/i;
+    const isDbReq = dbKeywords.test(promptText);
     
+    const formData = new FormData();
+    
+    if (isDbReq && !PROJECT_HAS_DB) {
+        if (!HAS_SUPABASE) {
+            const msgEl = document.createElement('div');
+            msgEl.className = 'msg system';
+            msgEl.innerHTML = `
+                <div style="border:1px solid var(--accent); padding:16px; border-radius:12px; background:rgba(59,130,246,0.1); width:100%;">
+                    <div style="font-weight:bold; color:#fff; margin-bottom:8px; display:flex; align-items:center; gap:8px;">
+                       <svg width="156" height="31" viewBox="0 0 156 31" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="0.5" y="1" width="155" height="29" rx="4.5" fill="#1C1C1C"/><g clip-path="url(#clip0_87_2423)"><path d="M19.1825 22.5142C18.8152 22.9839 18.0706 22.7265 18.0617 22.1269L17.9323 13.3564H23.7403C24.7923 13.3564 25.3791 14.5901 24.7249 15.4266L19.1825 22.5142Z" fill="url(#paint0_linear_87_2423)"/><path d="M19.1825 22.5142C18.8152 22.9839 18.0706 22.7265 18.0617 22.1269L17.9323 13.3564H23.7403C24.7923 13.3564 25.3791 14.5901 24.7249 15.4266L19.1825 22.5142Z" fill="url(#paint1_linear_87_2423)" fill-opacity="0.2"/><path d="M16.8204 8.4017C17.1877 7.93203 17.9324 8.18937 17.9412 8.78903L17.9979 17.5596H12.2626C11.2106 17.5596 10.6238 16.3258 11.278 15.4893L16.8204 8.4017Z" fill="#3ECF8E"/></g><path d="M38.1776 20.695C35.7986 20.695 33.6016 18.966 33.6016 15.885C33.6016 12.804 35.8896 11.088 38.1776 11.088C40.2836 11.088 41.7656 12.232 42.2336 14.013L41.0506 14.429C40.6996 13.038 39.6856 12.258 38.1776 12.258C36.5006 12.258 34.9016 13.48 34.9016 15.885C34.9016 18.29 36.5006 19.525 38.1776 19.525C39.7506 19.525 40.7386 18.576 41.1156 17.315L42.2466 17.731C41.7526 19.46 40.2966 20.695 38.1776 20.695ZM46.2307 19.603C47.2707 19.603 48.1807 18.823 48.1807 17.367C48.1807 15.924 47.2707 15.144 46.2307 15.144C45.1907 15.144 44.2807 15.924 44.2807 17.367C44.2807 18.823 45.1907 19.603 46.2307 19.603ZM46.2307 14.052C48.1027 14.052 49.4287 15.469 49.4287 17.367C49.4287 19.278 48.1027 20.695 46.2307 20.695C44.3587 20.695 43.0327 19.278 43.0327 17.367C43.0327 15.469 44.3587 14.052 46.2307 14.052ZM52.2141 16.886V20.5H50.9921V14.247H52.1881V15.144C52.6431 14.364 53.3841 14.065 54.1121 14.065C55.6071 14.065 56.3481 15.144 56.3481 16.535V20.5H55.1261V16.743C55.1261 15.872 54.7621 15.17 53.6701 15.17C52.7081 15.17 52.2141 15.937 52.2141 16.886ZM59.514 16.886V20.5H58.292V14.247H59.488V15.144C59.943 14.364 60.684 14.065 61.412 14.065C62.907 14.065 63.648 15.144 63.648 16.535V20.5H62.426V16.743C62.426 15.872 62.062 15.17 60.97 15.17C60.008 15.17 59.514 15.937 59.514 16.886ZM66.3848 16.73H69.8038C69.7778 15.833 69.1928 15.131 68.0878 15.131C67.0608 15.131 66.4368 15.924 66.3848 16.73ZM69.9858 18.355L71.0388 18.719C70.6878 19.824 69.6868 20.695 68.2308 20.695C66.5538 20.695 65.0848 19.473 65.0848 17.354C65.0848 15.391 66.5018 14.052 68.0748 14.052C69.9988 14.052 71.0778 15.378 71.0778 17.328C71.0778 17.484 71.0648 17.64 71.0518 17.718H66.3458C66.3718 18.836 67.1778 19.616 68.2308 19.616C69.2448 19.616 69.7518 19.057 69.9858 18.355ZM75.2637 15.183C74.2757 15.183 73.3657 15.911 73.3657 17.367C73.3657 18.797 74.2627 19.564 75.2767 19.564C76.4467 19.564 76.8757 18.771 77.0187 18.277L78.0977 18.745C77.7987 19.642 76.9017 20.695 75.2767 20.695C73.4567 20.695 72.1177 19.265 72.1177 17.367C72.1177 15.417 73.4827 14.052 75.2637 14.052C76.9277 14.052 77.7857 15.092 78.0457 16.041L76.9407 16.509C76.7847 15.898 76.3297 15.183 75.2637 15.183ZM81.1692 12.271V14.247H82.5212V15.352H81.1692V18.602C81.1692 19.174 81.4032 19.46 82.0402 19.46C82.1962 19.46 82.4172 19.434 82.5212 19.408V20.448C82.4172 20.487 82.1052 20.565 81.6892 20.565C80.6232 20.565 79.9472 19.915 79.9472 18.784V15.352H78.7512V14.247H79.0892C79.7652 14.247 80.0512 13.831 80.0512 13.285V12.271H81.1692ZM93.4083 13.376L92.2643 13.779C92.1603 13.116 91.6013 12.206 90.3143 12.206C89.2743 12.206 88.5333 12.882 88.5333 13.74C88.5333 14.403 88.9363 14.91 89.7163 15.079L91.0943 15.378C92.6283 15.716 93.4863 16.678 93.4863 17.965C93.4863 19.395 92.2643 20.695 90.3013 20.695C88.0783 20.695 87.0253 19.265 86.8563 17.952L88.0783 17.562C88.1693 18.589 88.8973 19.538 90.2883 19.538C91.5623 19.538 92.1863 18.875 92.1863 18.069C92.1863 17.406 91.7313 16.834 90.8083 16.639L89.4953 16.353C88.1823 16.067 87.2463 15.209 87.2463 13.831C87.2463 12.388 88.5853 11.088 90.2883 11.088C92.3683 11.088 93.2003 12.375 93.4083 13.376ZM98.8993 19.746C98.5613 20.396 97.7813 20.695 97.0533 20.695C95.5973 20.695 94.7133 19.603 94.7133 18.186V14.247H95.9353V18.004C95.9353 18.862 96.3253 19.616 97.3523 19.616C98.3403 19.616 98.8343 18.966 98.8343 18.017V14.247H100.056V19.343C100.056 19.837 100.095 20.279 100.121 20.5H98.9513C98.9253 20.357 98.8993 20.006 98.8993 19.746ZM103.351 22.97H102.142V14.247H103.325V15.222C103.663 14.598 104.404 14.104 105.418 14.104C107.29 14.104 108.291 15.547 108.291 17.367C108.291 19.226 107.212 20.669 105.379 20.669C104.417 20.669 103.689 20.214 103.351 19.655V22.97ZM107.043 17.367C107.043 16.119 106.341 15.183 105.197 15.183C104.079 15.183 103.338 16.119 103.338 17.367C103.338 18.654 104.079 19.577 105.197 19.577C106.328 19.577 107.043 18.654 107.043 17.367ZM109.458 18.823C109.458 17.705 110.277 17.081 111.356 16.925L113.046 16.678C113.423 16.626 113.527 16.431 113.527 16.21C113.527 15.599 113.124 15.092 112.175 15.092C111.317 15.092 110.836 15.625 110.758 16.353L109.588 16.08C109.718 14.884 110.797 14.052 112.149 14.052C114.021 14.052 114.749 15.118 114.749 16.34V19.473C114.749 20.019 114.801 20.344 114.827 20.5H113.631C113.605 20.344 113.566 20.11 113.566 19.655C113.293 20.097 112.669 20.695 111.551 20.695C110.277 20.695 109.458 19.811 109.458 18.823ZM111.72 19.668C112.721 19.668 113.527 19.187 113.527 17.822V17.536L111.616 17.822C111.096 17.9 110.706 18.199 110.706 18.758C110.706 19.226 111.096 19.668 111.72 19.668ZM117.861 20.5H116.652V11.088H117.861V15.131C118.16 14.572 118.888 14.065 119.928 14.065C121.826 14.065 122.801 15.521 122.801 17.341C122.801 19.2 121.748 20.669 119.889 20.669C118.966 20.669 118.251 20.266 117.861 19.59V20.5ZM121.553 17.341C121.553 15.989 120.838 15.144 119.707 15.144C118.628 15.144 117.848 15.989 117.848 17.341C117.848 18.693 118.628 19.577 119.707 19.577C120.825 19.577 121.553 18.693 121.553 17.341ZM123.968 18.823C123.968 17.705 124.787 17.081 125.866 16.925L127.556 16.678C127.933 16.626 128.037 16.431 128.037 16.21C128.037 15.599 127.634 15.092 126.685 15.092C125.827 15.092 125.346 15.625 125.268 16.353L124.098 16.08C124.228 14.884 125.307 14.052 126.659 14.052C128.531 14.052 129.259 15.118 129.259 16.34V19.473C129.259 20.019 129.311 20.344 129.337 20.5H128.141C128.115 20.344 128.076 20.11 128.076 19.655C127.803 20.097 127.179 20.695 126.061 20.695C124.787 20.695 123.968 19.811 123.968 18.823ZM126.23 19.668C127.231 19.668 128.037 19.187 128.037 17.822V17.536L126.126 17.822C125.606 17.9 125.216 18.199 125.216 18.758C125.216 19.226 125.606 19.668 126.23 19.668ZM130.578 18.875L131.683 18.485C131.761 19.135 132.255 19.655 133.139 19.655C133.828 19.655 134.205 19.265 134.205 18.823C134.205 18.433 133.919 18.134 133.399 18.017L132.333 17.783C131.358 17.575 130.773 16.912 130.773 16.028C130.773 14.962 131.774 14.052 132.996 14.052C134.712 14.052 135.245 15.17 135.375 15.729L134.296 16.132C134.244 15.807 133.984 15.092 132.996 15.092C132.372 15.092 131.956 15.495 131.956 15.924C131.956 16.301 132.19 16.574 132.671 16.678L133.685 16.899C134.816 17.146 135.414 17.835 135.414 18.758C135.414 19.642 134.673 20.695 133.126 20.695C131.41 20.695 130.682 19.59 130.578 18.875ZM137.771 16.73H141.19C141.164 15.833 140.579 15.131 139.474 15.131C138.447 15.131 137.823 15.924 137.771 16.73ZM141.372 18.355L142.425 18.719C142.074 19.824 141.073 20.695 139.617 20.695C137.94 20.695 136.471 19.473 136.471 17.354C136.471 15.391 137.888 14.052 139.461 14.052C141.385 14.052 142.464 15.378 142.464 17.328C142.464 17.484 142.451 17.64 142.438 17.718H137.732C137.758 18.836 138.564 19.616 139.617 19.616C140.631 19.616 141.138 19.057 141.372 18.355Z" fill="#EDEDED"/><rect x="0.5" y="1" width="155" height="29" rx="4.5" stroke="#2E2E2E"/><defs><linearGradient id="paint0_linear_87_2423" x1="17.9323" y1="15.301" x2="23.1176" y2="17.4428" gradientUnits="userSpaceOnUse"><stop stop-color="#249361"/><stop offset="1" stop-color="#3ECF8E"/></linearGradient><linearGradient id="paint1_linear_87_2423" x1="15.6438" y1="12.1194" x2="18.0544" y2="16.5886" gradientUnits="userSpaceOnUse"><stop/><stop offset="1" stop-opacity="0"/></linearGradient><clipPath id="clip0_87_2423"><rect width="14" height="14.7368" fill="white" transform="translate(11 8.13159)"/></clipPath></defs></svg>
+                    </div>
+                    <p style="margin:0 0 16px 0; color:var(--text-muted); font-size:13px;">You asked to build database functionality, but Supabase is not linked. Link it now to allow Gorilla to provision and migrate Postgres automatically.</p>
+                    <button onclick="window.location.href='/auth/supabase/link'" class="smallbtn" style="background:#3ECF8E; border-color:#3ECF8E; color:#000; width:100%; font-weight:bold; padding:10px;">Link Supabase Account</button>
+                </div>
+            `;
+            chat.appendChild(msgEl);
+            chat.scrollTop = chat.scrollHeight;
+            $("prompt").value = promptText;
+            return;
+        } else {
+            formData.append("is_db_request", "true");
+        }
+    }
+    
+    setInputState(true);
+
     if (currentAttachedImage) {
         const refCard = document.createElement("div");
         refCard.style.cssText = "align-self: flex-end; margin: 10px 20px 5px 0; background: rgba(59, 130, 246, 0.1); border: 1px dashed rgba(59, 130, 246, 0.4); border-radius: 12px; padding: 12px; max-width: 60%; text-align: center;";
-        refCard.innerHTML = `
-          <div style="font-size: 10px; text-transform: uppercase; color: var(--accent); font-weight: bold; margin-bottom: 8px; letter-spacing: 1px;"><i class="ph-bold ph-image"></i> Attached Reference</div>
-          <img src="${currentAttachedImage}" style="max-width: 100%; max-height: 150px; border-radius: 8px;">
-        `;
+        refCard.innerHTML = `<div style="font-size: 10px; text-transform: uppercase; color: var(--accent); font-weight: bold; margin-bottom: 8px; letter-spacing: 1px;"><i class="ph-bold ph-image"></i> Attached Reference</div><img src="${currentAttachedImage}" style="max-width: 100%; max-height: 150px; border-radius: 8px;">`;
         chat.appendChild(refCard);
-        chat.scrollTop = chat.scrollHeight;
     }
     
-    if (promptText) {
-        addMessage("user", promptText);
-    } else if (currentAttachedImage) {
-        addMessage("user", "Please update the UI to match the attached reference image.");
-        promptText = "Please update the UI to match the attached reference image.";
-    }
+    addMessage("user", promptText || "Please update the UI to match the attached reference image.");
     
-    const formData = new FormData();
-    formData.append("prompt", promptText);
-    
-    if (currentAttachedImage) {
-        formData.append("image_base64", currentAttachedImage);
-    }
+    formData.append("prompt", promptText || "Please update the UI to match the attached reference image.");
+    if (currentAttachedImage) formData.append("image_base64", currentAttachedImage);
     
     currentAttachedImage = null;
     if(editorImagePreview) {
@@ -1310,15 +1336,12 @@ async function triggerAgent(promptText) {
     document.querySelector('label[for="editorImageInput"]').style.display = 'flex';
     if(editorImageInput) editorImageInput.value = "";
     
-    await fetch(`/api/project/${PROJECT_ID}/agent/start`, {
-        method: "POST",
-        body: formData
-    });
-    
+    await fetch(`/api/project/${PROJECT_ID}/agent/start`, { method: "POST", body: formData });
     startStream();
 }
 
 $("runAgent").onclick = () => {
+  if(window.isAgentWorking) return;
   const p = $("prompt").value.trim();
   if(!p && !currentAttachedImage) return; 
   $("prompt").value = "";
@@ -1334,42 +1357,19 @@ $("prompt").addEventListener("keydown", (e) => {
 
 // --- INIT ---
 (async () => {
-  const initialImage = `{{ project.prompt_image or '' }}`;
-  
-  // Display the Figma/Uploaded Image Reference in Chat UI
-  if (initialImage && initialImage.startsWith('data:image')) {
-      const refCard = document.createElement("div");
-      refCard.style.cssText = "align-self: center; margin: 10px 0 20px 0; background: rgba(59, 130, 246, 0.05); border: 1px dashed rgba(59, 130, 246, 0.3); border-radius: 12px; padding: 12px; max-width: 85%; text-align: center;";
-      refCard.innerHTML = `
-        <div style="font-size: 10px; text-transform: uppercase; color: var(--accent); font-weight: bold; margin-bottom: 8px; letter-spacing: 1px;"><i class="ph-bold ph-image"></i> UI Reference</div>
-        <img src="${initialImage}" style="max-width: 100%; max-height: 250px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
-      `;
-      chat.appendChild(refCard);
-  }
-
   loadChatHistory();
   await refreshFiles();
   try { await loadFile(currentFile); } catch(e) {}
   
   startStream();
   setProgress("Ready", 0);
-  
-  // Fade out loader once files are pulled
   hideEditorLoader();
   
-  // ==========================================
-  // 🛑 PHASE 3: THE FIGMA BYPASS LOGIC
-  // ==========================================
-  const isFigmaImport = INITIAL_PROMPT.includes("figma.json");
-
-  if (isFigmaImport) {
-      // 1. We SKIP triggerAgent(). The AI is bypassed.
-      // 2. WebContainer boots ONLY when user clicks the Preview tab! (Or when code changes later)
-  } else if (INITIAL_PROMPT && INITIAL_PROMPT.length > 0) {
-      // Normal Flow (Not Figma) - Auto-start the Planner Agent
-      setTimeout(() => {
-          triggerAgent(INITIAL_PROMPT);
-      }, 1000);
+  if (RESUME_DB_AGENT) {
+      addThought("Resuming Supabase Architecture Session...");
+      triggerAgent("Review the current database schema and ensure everything is correctly provisioned.");
+  } else if (INITIAL_PROMPT && INITIAL_PROMPT.length > 0 && !INITIAL_PROMPT.includes("figma.json")) {
+      setTimeout(() => triggerAgent(INITIAL_PROMPT), 1000);
   }
 })();
 </script>

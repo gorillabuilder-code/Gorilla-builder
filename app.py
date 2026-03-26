@@ -1131,8 +1131,9 @@ async def auth_supabase_callback(request: Request, code: str, state: str):
                 headers={"Accept": "application/json"}
             )
             
-            if res.status_code != 200:
-                print(f"⚠️ Supabase OAuth Error: {res.text}")
+            # 🛑 THE FIX: Allow 201 Created in addition to 200 OK
+            if res.status_code not in [200, 201]:
+                print(f"⚠️ Supabase OAuth Error ({res.status_code}): {res.text}")
                 return RedirectResponse("/dashboard?error=supabase_token_exchange_failed", status_code=303)
                 
             tokens = res.json()
@@ -1145,6 +1146,7 @@ async def auth_supabase_callback(request: Request, code: str, state: str):
                     "supabase_access_token": access_token,
                     "supabase_refresh_token": refresh_token
                 }).eq("id", user["id"]).execute()
+                print(f"✅ Supabase tokens successfully saved for user {user['id']}")
                 
         return RedirectResponse("/dashboard?success=supabase_linked", status_code=303)
         
@@ -1278,9 +1280,8 @@ async def settings_page(request: Request):
     user = get_current_user(request)
     
     try:
-        # 🛑 Purged 'name' from the query to match your DB schema
         res = supabase.table("users").select(
-            "plan, email, gorilla_api_key, github_access_token, figma_access_token"
+            "plan, email, gorilla_api_key, github_access_token, figma_access_token, supabase_access_token"
         ).eq("id", user["id"]).single().execute()
         
         if res and res.data:
@@ -1293,9 +1294,13 @@ async def settings_page(request: Request):
             user["gorilla_api_key"] = db_user.get("gorilla_api_key") or ""
             user["has_github"] = bool(db_user.get("github_access_token"))
             user["has_figma"] = bool(db_user.get("figma_access_token"))
+            user["has_supabase"] = bool(db_user.get("supabase_access_token"))
         else:
             user["plan"] = "free"
             user["gorilla_api_key"] = ""
+            user["has_github"] = False
+            user["has_figma"] = False
+            user["has_supabase"] = False
             
     except Exception as e:
         print(f"Error loading settings: {e}")
@@ -1796,27 +1801,31 @@ async def create_project(
 async def project_editor(request: Request, project_id: str, file: str = "index.html", prompt: Optional[str] = None):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
-    user_data_for_api = db_select_one("users", {"id": user["id"]}, "gorilla_api_key")
-    api_key = user_data_for_api.get("gorilla_api_key", "") if user_data_for_api else ""
+    
+    # 1. Fetch User Data (API Keys & Integrations)
+    user_data = db_select_one("users", {"id": user["id"]}, "gorilla_api_key, github_access_token, supabase_access_token")
+    api_key = user_data.get("gorilla_api_key", "") if user_data else ""
+    has_github = bool(user_data and user_data.get("github_access_token"))
+    has_supabase = bool(user_data and user_data.get("supabase_access_token"))
+    
+    # 2. Fetch Project Data
     try:
         res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
         project = res.data
     except Exception:
         project = {} 
     
+    # 3. Token Check
     used, limit = get_token_usage_and_limit(user["id"])
     user["tokens"] = {"used": used, "limit": limit}
     
-    # Safely fetch chat history
     chat_history = project.get("chat_history", []) if project else []
-
-    has_github = False 
-    try:
-        user_data = db_select_one("users", {"id": user["id"]}, "github_access_token")
-        if user_data and user_data.get("github_access_token"):
-            has_github = True
-    except Exception as e:
-        print(f"GitHub token check skipped or failed: {e}")
+    
+    # 4. DB Agent Resume Logic
+    project_has_db = bool(project and project.get("supabase_project_ref"))
+    last_user_msg = next((msg.get("content", "").lower() for msg in reversed(chat_history) if msg.get("role") == "user"), "")
+    
+    resume_db_agent = project_has_db or ("database" in last_user_msg) or ("supabase" in last_user_msg)
 
     return templates.TemplateResponse(
         "projects/project-editor.html",
@@ -1829,11 +1838,11 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
             "user": user,
             "initial_prompt": prompt,
             "has_github": has_github,
-            "has_supabase": has_supabase,            # <--- New Template Variable
-            "project_has_db": project_has_db,        # <--- New Template Variable
+            "has_supabase": has_supabase,
+            "project_has_db": project_has_db,
             "resume_db_agent": resume_db_agent,
             "gorilla_api_key": api_key,
-            "chat_history": json.dumps(chat_history) # <--- PASSING HISTORY
+            "chat_history": json.dumps(chat_history) 
         }
     )
 
@@ -1992,32 +2001,63 @@ from backend.ai.supabase_agent import SupabaseAgentSwarm
 # Global tracking for active AI fixes
 active_ai_fixes = set()
 
-async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: bool = False, history: List[Dict] = None, skip_planner: bool = False):
-    """
-    Streamlined agent loop.
-    - Automatically detects if the project has a remote Supabase DB provisioned.
-    - If YES: Uses SupabaseAgentSwarm to write code AND execute remote SQL migrations.
-    - If NO: Uses standard RegularAgent/XAgent for React/Node.
-    """
+@app.post("/api/project/{project_id}/agent/start")
+async def agent_start(request: Request, project_id: str):
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+    
     try:
-        # ==========================================================================
-        # TOKEN CHECK
-        # ==========================================================================
-        if user_id:
-            try: 
-                enforce_token_limit_or_raise(user_id)
-            except HTTPException:
-                emit_log(project_id, "planner", _render_token_limit_message())
-                emit_status(project_id, "Token Limit Reached")
-                emit_progress(project_id, "Upgrade required", 0)
-                return
-        
+        enforce_token_limit_or_raise(user["id"])
+    except HTTPException as e:
+        if e.status_code == 402:
+            alert_html = (
+                f'<div style="background:#0f172a; border:1px solid rgba(239,68,68,0.2); border-left:3px solid #ef4444; border-radius:12px; padding:24px; margin-top:20px; font-family:system-ui,-apple-system,sans-serif; box-shadow:0 10px 30px rgba(0,0,0,0.4);">'
+                f'  <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; padding-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.05);">'
+                f'    <div style="width:24px; height:24px; display:flex; align-items:center; justify-content:center; background:rgba(239,68,68,0.1); color:#ef4444; border-radius:50%; font-size:14px; font-weight:bold;">!</div>'
+                f'    <div style="color:#e2e8f0; font-size:16px; font-weight:400; letter-spacing:0.5px; text-transform:uppercase;">Usage Limit Reached</div>'
+                f'  </div>'
+                f'  <div style="color:#cbd5e1; font-size:14px; line-height:1.6; margin-bottom:20px;">You have reached your monthly token limit. Upgrade to Pro to continue generating code and accessing advanced features.</div>'
+                f'  <a href="/pricing" target="_blank" style="display:inline-block; background:#ef4444; color:#ffffff; padding:10px 20px; border-radius:6px; font-size:13px; font-weight:500; text-decoration:none; letter-spacing:0.5px; box-shadow:0 4px 6px rgba(239,68,68,0.2);">Upgrade Plan</a>'
+                f'</div>'
+            )
+            emit_log(project_id, "assistant", alert_html)
+            return {"started": False}
+        raise e
+
+    # Use multi-part parsing to safely handle Base64 strings
+    form_data = await request.form()
+    prompt = str(form_data.get("prompt", ""))
+    xmode = str(form_data.get("xmode", "false")).lower() == "true"
+    image_base64 = form_data.get("image_base64")
+    
+    # 🛑 CATCH THE DB REQUEST FLAG FROM HTML
+    is_db_request = str(form_data.get("is_db_request", "false")).lower() == "true"
+
+    # 🛑 Guarantee the old image is overwritten
+    if image_base64:
+        try:
+            db_upsert("files", {"project_id": project_id, "path": ".gorilla/prompt_image.b64", "content": image_base64}, on_conflict="project_id,path")
+            print(f"📸 Mid-chat image successfully overwritten in DB for project {project_id}")
+        except Exception as err:
+            print(f"⚠️ Failed to save mid-chat image: {err}")
+
+    emit_status(project_id, "Agent received prompt")
+    emit_log(project_id, "user", prompt)
+
+    asyncio.create_task(
+        run_agent_loop(project_id, prompt, user["id"], xmode, None, False, is_db_request)
+    )
+    return {"started": True}
+
+async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: bool = False, history: List[Dict] = None, skip_planner: bool = False, is_db_request: bool = False):
+    try:
         await asyncio.sleep(0.5)
         file_tree = await _fetch_file_tree(project_id)
         
-        # --- DB CHAT HISTORY & SUPABASE KEYS LOGIC ---
-        proj_data = db_select_one("projects", {"id": project_id}, "chat_history, supabase_project_ref")
+        proj_data = db_select_one("projects", {"id": project_id}, "name, chat_history, supabase_project_ref")
         project_ref = proj_data.get("supabase_project_ref") if proj_data else None
+        project_name = proj_data.get("name", "Gorilla App") if proj_data else "Gorilla App"
+        
         db_history = proj_data.get("chat_history", []) if proj_data and proj_data.get("chat_history") else []
         db_history.append({"role": "user", "content": prompt})
         
@@ -2026,7 +2066,49 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         supa_token = user_api_data.get("supabase_access_token") if user_api_data else None
         
         # ==========================================================================
-        # PATH A: SUPABASE FULL-STACK MODE (Code + Remote SQL Execution)
+        # ⚡ MID-CHAT SUPABASE PROVISIONING ENGINE ⚡
+        # ==========================================================================
+        if is_db_request and not project_ref and supa_token:
+            emit_status(project_id, "Provisioning Remote Database...")
+            emit_log(project_id, "system", "Spinning up dedicated PostgreSQL instance...")
+            try:
+                import secrets
+                headers = {"Authorization": f"Bearer {supa_token}", "Content-Type": "application/json"}
+                async with httpx.AsyncClient() as client:
+                    orgs = (await client.get("https://api.supabase.com/v1/organizations", headers=headers)).json()
+                    org_id = orgs[0]["id"] if orgs else (await client.post("https://api.supabase.com/v1/organizations", headers=headers, json={"name": "Gorilla Apps"})).json().get("id")
+
+                    if org_id:
+                        db_pass = secrets.token_urlsafe(16)
+                        safe_db_name = re.sub(r'[^a-zA-Z0-9 ]', '', project_name)[:32].strip() or "Gorilla App"
+                        proj_res = await client.post("https://api.supabase.com/v1/projects", headers=headers, json={"organization_id": org_id, "name": safe_db_name, "db_pass": db_pass, "region": "us-east-1", "plan": "free"})
+                        
+                        if proj_res.status_code == 201:
+                            project_ref = proj_res.json().get("id")
+                            supabase.table("projects").update({"supabase_project_ref": project_ref}).eq("id", project_id).execute()
+                            
+                            supa_anon_key = "PROVISIONING_IN_PROGRESS"
+                            for _ in range(5):
+                                keys_res = await client.get(f"https://api.supabase.com/v1/projects/{project_ref}/api-keys", headers=headers)
+                                if keys_res.status_code == 200:
+                                    anon_obj = next((k for k in keys_res.json() if k.get("name") == "anon"), None)
+                                    if anon_obj:
+                                        supa_anon_key = anon_obj.get("api_key")
+                                        break
+                                await asyncio.sleep(1.5)
+
+                            env_content = f"\nVITE_SUPABASE_URL=https://{project_ref}.supabase.co\nVITE_SUPABASE_ANON_KEY={supa_anon_key}\n"
+                            
+                            # Safely inject into existing .env
+                            existing_env = file_tree.get(".env", "")
+                            db_upsert("files", {"project_id": project_id, "path": ".env", "content": existing_env + env_content}, on_conflict="project_id,path")
+                            emit_file_changed(project_id, ".env")
+                            emit_log(project_id, "system", f"Database successfully provisioned! Ref: {project_ref}")
+            except Exception as e:
+                emit_log(project_id, "system", f"Failed to provision database: {e}")
+
+        # ==========================================================================
+        # PATH A: SUPABASE FULL-STACK MODE
         # ==========================================================================
         if project_ref and supa_token:
             emit_status(project_id, "Initializing Full-Stack DB Architect...")
@@ -2034,12 +2116,29 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             emit_progress(project_id, "Designing Architecture...", 20)
 
             swarm = SupabaseAgentSwarm(project_id)
-            
-            # Execute Swarm
             result = await swarm.solve(user_request=prompt, file_tree=file_tree)
+            
+            # 🛑 THE FIX: Properly format and emit the questions to the user
+            if result.get("status") == "needs_clarification":
+                base_msg = result.get("assistant_message", "I need more info.")
+                questions = result.get("questions", [])
+                
+                if questions:
+                    questions_formatted = "\n".join([f"**{i+1}.** {q}" for i, q in enumerate(questions)])
+                    assistant_msg = f"{base_msg}\n\n{questions_formatted}"
+                else:
+                    assistant_msg = base_msg
+                
+                db_history.append({"role": "assistant", "content": assistant_msg})
+                supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
+                
+                emit_log(project_id, "assistant", assistant_msg) # Now the UI actually gets the message
+                emit_status(project_id, "Waiting for User") 
+                emit_progress(project_id, "Input Required", 100)
+                return
+
             operations = result.get("operations", [])
             assistant_msg = result.get("assistant_message", "Applying Schema and Code updates.")
-            
             emit_log(project_id, "assistant", assistant_msg)
 
             for op in operations:
@@ -2047,47 +2146,42 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                 content = op.get("content", "")
                 if not path or not content: continue
 
-                # ALWAYS save files to VFS (React/Node files go to WebContainer)
                 db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
                 emit_file_changed(project_id, path)
 
-                # ⚡ INTERCEPT SQL FOR REMOTE EXECUTION & AUTO-HEALING ⚡
                 if path.endswith(".sql") and path.startswith("migrations/"):
                     emit_phase(project_id, "coder")
                     emit_progress(project_id, f"Running Remote Migration: {path}", 70)
 
-                    max_retries = 3
-                    for attempt in range(max_retries):
+                    for attempt in range(3):
                         try:
                             headers = {"Authorization": f"Bearer {supa_token}", "Content-Type": "application/json"}
                             async with httpx.AsyncClient(timeout=30.0) as client:
-                                res = await client.post(
-                                    f"https://api.supabase.com/v1/projects/{project_ref}/query", 
-                                    headers=headers, 
-                                    json={"query": content}
-                                )
+                                res = await client.post(f"https://api.supabase.com/v1/projects/{project_ref}/query", headers=headers, json={"query": content})
+                                
+                                if res.status_code == 404:
+                                    emit_log(project_id, "system", "❌ Fatal Error: Supabase project not found. It may have been deleted manually.")
+                                    emit_log(project_id, "assistant", "I couldn't connect to the database. Did you delete it from your Supabase dashboard? I've unlinked it so we can provision a new one on your next request.")
+                                    supabase.table("projects").update({"supabase_project_ref": None}).eq("id", project_id).execute()
+                                    break
                                 
                                 if res.status_code in [200, 201]:
                                     emit_log(project_id, "system", f"✅ Postgres Migration Successful: {path}")
                                     break 
                                 else:
                                     err_text = res.text
-                                    emit_log(project_id, "debugger", f"⚠️ SQL Error: {err_text}. Auto-healing... (Attempt {attempt+1}/{max_retries})")
-                                    
-                                    # RELAY ERROR BACK TO DEBUGGER
+                                    emit_log(project_id, "debugger", f"⚠️ SQL Error: {err_text}. Auto-healing... (Attempt {attempt+1}/3)")
                                     debug_result = await swarm.debug(err_text, {path: content})
                                     debug_ops = debug_result.get("operations", [])
                                     
                                     if debug_ops:
                                         content = debug_ops[0].get("content", content)
-                                        # Save fixed file to VFS
                                         db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
                                         emit_file_changed(project_id, path)
                         except Exception as e:
                             emit_log(project_id, "debugger", f"Network Error hitting Remote DB: {e}")
                             break
 
-            # Save History & Exit
             db_history.append({"role": "assistant", "content": assistant_msg})
             supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
             emit_status(project_id, "Done")
@@ -2095,7 +2189,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             return
 
         # ==========================================================================
-        # PATH B: STANDARD MODE (React/Node Only)
+        # PATH B: STANDARD MODE
         # ==========================================================================
         agent = XAgent() if is_xmode else RegularAgent()
         
@@ -2103,13 +2197,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             emit_phase(project_id, "planner")
             emit_progress(project_id, "Thinking...", 10)
             
-            plan_context = {
-                "project_id": project_id, 
-                "files": list(file_tree.keys()),
-                "api_key": api_key,
-                "history": db_history
-            }
-            
+            plan_context = {"project_id": project_id, "files": list(file_tree.keys()), "api_key": api_key, "history": db_history}
             if ".gorilla/prompt_image.b64" in file_tree:
                 plan_context["image_context"] = file_tree[".gorilla/prompt_image.b64"]
                 plan_context["image_filename"] = ".gorilla/prompt_image.b64"
@@ -2119,11 +2207,26 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             tk = plan_res.get("usage", {}).get("total_tokens", 0)
             if tk and user_id: add_monthly_tokens(user_id, tk)
             
-            assistant_msg = plan_res.get("assistant_message", "I'm working on that...")
+            base_msg = plan_res.get("assistant_message", "I'm working on that...")
+            
+            # 🛑 THE FIX: Append questions to assistant message in Standard Mode too
+            questions = plan_res.get("plan", {}).get("questions", [])
+            if questions:
+                questions_formatted = "\n".join([f"**{i+1}.** {q}" for i, q in enumerate(questions)])
+                assistant_msg = f"{base_msg}\n\n{questions_formatted}"
+            else:
+                assistant_msg = base_msg
+
             emit_log(project_id, "assistant", assistant_msg)
             
+            if plan_res.get("needs_clarification"):
+                db_history.append({"role": "assistant", "content": assistant_msg})
+                supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
+                emit_status(project_id, "Waiting for User")
+                emit_progress(project_id, "Input Required", 100)
+                return
+
             tasks = plan_res.get("plan", {}).get("todo", [])
-            
             if not tasks:
                 db_history.append({"role": "assistant", "content": assistant_msg})
                 supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
@@ -2146,11 +2249,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         for i, task in enumerate(tasks, 1):
             if user_id:
                 try: enforce_token_limit_or_raise(user_id)
-                except HTTPException:
-                    emit_log(project_id, "planner", _render_token_limit_message())
-                    emit_status(project_id, "Token Limit Reached")
-                    emit_progress(project_id, "Upgrade required", 0)
-                    return
+                except HTTPException: return
 
             pct = 30 + (60 * (i / total))
             emit_progress(project_id, f"Building...", pct)
@@ -2202,7 +2301,6 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         emit_log(project_id, "system", f"Workflow failed: {e}")
         import traceback
         print(traceback.format_exc())
-
 
 # ==========================================================================
 # AUTO-FIXING LOG ENDPOINT
