@@ -60,9 +60,16 @@ ACTION_NORMALIZE = {
     "see_file": "read_file",
 }
 
-# --- Terminal Logging ---
+# --- Terminal & UI Logging Bridge ---
+_external_log_callback = None
+
+def set_log_callback(callback):
+    """Allows app.py to hook into the agent's internal thought stream."""
+    global _external_log_callback
+    _external_log_callback = callback
+
 def log_agent(role: str, message: str, project_id: str = ""):
-    """Print agent activity to terminal for debugging."""
+    """Print agent activity to terminal AND pipe it to the frontend UI."""
     prefix = f"[{project_id[:8]}]" if project_id else "[AGENT]"
     timestamp = time.strftime("%H:%M:%S")
     colors = {
@@ -81,7 +88,20 @@ def log_agent(role: str, message: str, project_id: str = ""):
     color = colors.get(role.lower(), "\033[94m")
     reset = "\033[0m"
     dim = "\033[90m"
+    
+    # 1. Print to terminal
     print(f"{dim}{timestamp}{reset} {prefix} {color}{role.upper()}{reset}: {message[:200]}{'...' if len(message) > 200 else ''}")
+    
+    # 2. Pipe to app.py (which sends it to the UI via SSE and saves to DB)
+    global _external_log_callback
+    if _external_log_callback and project_id:
+        # We don't want to send raw LLM JSON dumps to the UI, it's too ugly.
+        # We only send the semantic thoughts (Planner, Coder, Swarm, Debugger, etc)
+        if role.lower() != "llm":
+            try:
+                _external_log_callback(project_id, role.lower(), message)
+            except Exception:
+                pass
 
 # -------------------------------------------------
 # Token Limit HTML Message
@@ -847,7 +867,7 @@ class PlannerAgent(BaseAgent):
     "Rules:\n"
     "MANDATORY OUTPUT FORMAT: JSON OBJECT ONLY. Do NOT wrap in markdown blocks.\n"
     "{\n"
-    '  "assistant_message": "Sure I will build the ... application for you with...and...it will be...", --> this should be very very long and very precise, but not talk about technical code specifications but how the application will function and look.\n'
+    '  "assistant_message": "Sure I will build the ... application for you with...and...it will be...", --> this should be very long and very precise (around 200 tokens), but not talk about technical code specifications but how the application will function and look.\n'
     '  "tasks": [\n'
     '    "Step 1: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Create `App.tsx` to begint the process...",\n'
     '    "Step 2: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Modify `server.js` to setup API..."\n'
@@ -875,6 +895,7 @@ class PlannerAgent(BaseAgent):
     "   - NEVER ask for `npm run dev` or `vite.config.js`.\n"
     "   - NEVER generate an `.env` file.\n"
     "   - Frontend Imports: Use `@/` aliases.\n"
+    "   - INSTRUCT THE CODER TO NEVER EVER BUILD A DRIZZLE DB, BUT USE A NODE.JS DB IF THE USER WANTS A REAL DB, THEN ASK THE USER TO MENTION IT IN THIER REQUEST TO TRIGGER SUPABASE DB CREATION\n"
     "   - Backend Imports: Use relative paths with `.js` extension.\n"
     "   - Never instruct to the coder to build a `vercel.json` file in the root of the project according to the project's requirements.\n"
     "2. **AI Integration Specs (USE THESE EXACTLY):**\n"
@@ -885,7 +906,7 @@ class PlannerAgent(BaseAgent):
     "   - **Voice (TTS)**: DO NOT USE AN API. Strictly use the browser's native `window.speechSynthesis` Web Speech API in frontend components.\n"
     "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background`.\n"
     "3. **Task Bundling & Volume (CRITICAL FOR TOKEN SAVING):** \n"
-    "   - Always try to ask the user at least 1 questions to elaborate on their request, they should be obvious and add functionality to their app if they agree. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY QUESTIONS IF THEY DONT FEEL LIKE IT OR ANY DEBUGGING QUESTIONS.\n"
+    "   - Always try to ask the user no more than 1 questions to elaborate on their request, they should be obvious and add functionality to their app if they agree DO NOT BOTHER THEM MORE THAN ONCE. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY QUESTIONS IF THEY DONT FEEL LIKE IT OR ANY DEBUGGING QUESTIONS.\n"
     "   - CONSOLIDATE TASKS: You MUST bundle related operations together. Combine them into Macro Steps (e.g., 'Step 1: Database & Backend setup', 'Step 2: Core UI Components', 'Step 3: Frontend Wiring').\n"
     "   - Simple Apps: Maximum 3-4 Macro/clubbed Tasks. (if there are no questions only!)\n"
     "   - Complex Apps: Maximum 5-unlimited Macro/clubbed Tasks. (if there are no questions only!)\n"
@@ -1138,7 +1159,7 @@ class CoderAgent(BaseAgent):
         "AUTHENTICATION & GOOGLE/GITHUB SIGN-IN INSTRUCTIONS:\n"
         "- If the planner or user asks to add authentication, login, or 'Sign in with Google/GitHub', DO NOT install Firebase, Supabase auth, Auth0, or write raw OAuth logic. A secure auth gateway is ALREADY provided.\n"
         "- To implement Auth, strictly follow these steps in your React components:\n"
-        "  1. Import the utility: `import { login, onAuthStateChanged, logout } from '@/utils/auth';`\n"
+        "  1. Import the utility: `import { login, onAuthStateChanged, logout } from '@/utils/auth'; FORM THE FILE `utils/auth.ts`\n"
         "  2. Create state: `const [user, setUser] = useState<any>(null);`\n"
         "  3. Set up the listener: `useEffect(() => { const unsubscribe = onAuthStateChanged((u) => setUser(u)); return () => unsubscribe(); }, []);`\n"
         "  4. Trigger login: Use `onClick={() => login('google')}` or `onClick={() => login('github')}` on your buttons.\n"

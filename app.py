@@ -2058,13 +2058,24 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         project_ref = proj_data.get("supabase_project_ref") if proj_data else None
         project_name = proj_data.get("name", "Gorilla App") if proj_data else "Gorilla App"
         
+        # 🛑 AMNESIA FIX: Instantly save the user's prompt to the DB so it's never lost
         db_history = proj_data.get("chat_history", []) if proj_data and proj_data.get("chat_history") else []
         db_history.append({"role": "user", "content": prompt})
+        supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
         
         user_api_data = db_select_one("users", {"id": user_id}, "gorilla_api_key, supabase_access_token")
         api_key = user_api_data.get("gorilla_api_key", "") if user_api_data else ""
         supa_token = user_api_data.get("supabase_access_token") if user_api_data else None
         
+        # 🛑 THE AMNESIA FIX: Memory Injector
+        # We weave the recent conversation directly into the prompt so the Swarm never loses context
+        contextual_prompt = prompt
+        if len(db_history) > 1:
+            # Grab the last 6 messages (excluding the one we just added)
+            past_msgs = db_history[-7:-1]
+            history_text = "\n".join([f"{m.get('role', 'user').upper()}: {m.get('content', '')}" for m in past_msgs])
+            contextual_prompt = f"--- PREVIOUS CONVERSATION CONTEXT ---\n{history_text}\n\n--- CURRENT USER REQUEST ---\n{prompt}"
+
         # ==========================================================================
         # ⚡ MID-CHAT SUPABASE PROVISIONING ENGINE ⚡
         # ==========================================================================
@@ -2116,29 +2127,30 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             emit_progress(project_id, "Designing Architecture...", 20)
 
             swarm = SupabaseAgentSwarm(project_id)
-            result = await swarm.solve(user_request=prompt, file_tree=file_tree)
             
-            # 🛑 THE FIX: Properly format and emit the questions to the user
+            # Pass the contextual_prompt so it remembers the conversation
+            result = await swarm.solve(user_request=contextual_prompt, file_tree=file_tree)
+            
             if result.get("status") == "needs_clarification":
-                base_msg = result.get("assistant_message", "I need more info.")
-                questions = result.get("questions", [])
-                
-                if questions:
-                    questions_formatted = "\n".join([f"**{i+1}.** {q}" for i, q in enumerate(questions)])
-                    assistant_msg = f"{base_msg}\n\n{questions_formatted}"
-                else:
-                    assistant_msg = base_msg
+                # 🛑 THE ORGANIC FIX: Stop appending manual questions. 
+                # Also strip the robotic "Plan created." text
+                assistant_msg = result.get("assistant_message", "I need a bit more clarification.")
+                assistant_msg = assistant_msg.replace("Plan created.\n", "").replace("Plan created.", "").strip()
                 
                 db_history.append({"role": "assistant", "content": assistant_msg})
                 supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
                 
-                emit_log(project_id, "assistant", assistant_msg) # Now the UI actually gets the message
+                emit_log(project_id, "assistant", assistant_msg)
                 emit_status(project_id, "Waiting for User") 
                 emit_progress(project_id, "Input Required", 100)
                 return
 
             operations = result.get("operations", [])
             assistant_msg = result.get("assistant_message", "Applying Schema and Code updates.")
+            
+            # 🛑 AMNESIA FIX: Instantly save Assistant Message before operations start
+            db_history.append({"role": "assistant", "content": assistant_msg})
+            supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
             emit_log(project_id, "assistant", assistant_msg)
 
             for op in operations:
@@ -2182,8 +2194,6 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                             emit_log(project_id, "debugger", f"Network Error hitting Remote DB: {e}")
                             break
 
-            db_history.append({"role": "assistant", "content": assistant_msg})
-            supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
             emit_status(project_id, "Done")
             emit_progress(project_id, "Ready", 100)
             return
@@ -2202,34 +2212,30 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                 plan_context["image_context"] = file_tree[".gorilla/prompt_image.b64"]
                 plan_context["image_filename"] = ".gorilla/prompt_image.b64"
 
-            plan_res = await asyncio.to_thread(agent.plan, user_request=prompt, project_context=plan_context)
+            # Pass the contextual_prompt
+            plan_res = await asyncio.to_thread(agent.plan, user_request=contextual_prompt, project_context=plan_context)
             
             tk = plan_res.get("usage", {}).get("total_tokens", 0)
             if tk and user_id: add_monthly_tokens(user_id, tk)
             
             base_msg = plan_res.get("assistant_message", "I'm working on that...")
             
-            # 🛑 THE FIX: Append questions to assistant message in Standard Mode too
-            questions = plan_res.get("plan", {}).get("questions", [])
-            if questions:
-                questions_formatted = "\n".join([f"**{i+1}.** {q}" for i, q in enumerate(questions)])
-                assistant_msg = f"{base_msg}\n\n{questions_formatted}"
-            else:
-                assistant_msg = base_msg
+            # 🛑 THE ORGANIC FIX FOR STANDARD MODE
+            # We do NOT format/append the questions array manually anymore.
+            assistant_msg = base_msg.replace("Plan created.\n", "").replace("Plan created.", "").strip()
 
+            # 🛑 AMNESIA FIX: Instantly save Assistant Message for standard mode too
+            db_history.append({"role": "assistant", "content": assistant_msg})
+            supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
             emit_log(project_id, "assistant", assistant_msg)
             
             if plan_res.get("needs_clarification"):
-                db_history.append({"role": "assistant", "content": assistant_msg})
-                supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
                 emit_status(project_id, "Waiting for User")
                 emit_progress(project_id, "Input Required", 100)
                 return
 
             tasks = plan_res.get("plan", {}).get("todo", [])
             if not tasks:
-                db_history.append({"role": "assistant", "content": assistant_msg})
-                supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
                 emit_status(project_id, "Done")
                 emit_progress(project_id, "Ready", 100)
                 return
@@ -2270,6 +2276,14 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             if tk and user_id: add_monthly_tokens(user_id, tk)
 
             ops = code_res.get("operations", [])
+
+            # 🛑 THE FATAL ERROR CATCHER
+            if not ops and i == 1 and not skip_planner:
+                emit_log(project_id, "system", "❌ Agent workflow aborted due to unrecoverable formatting errors.")
+                emit_status(project_id, "Fatal Error")
+                emit_progress(project_id, "Failed", 100)
+                return # Stop the loop so it doesn't hang!
+
             for op in ops:
                 path = op.get("path")
                 content = op.get("content")
@@ -2290,14 +2304,11 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
             emit_file_changed(project_id, path)
 
-        db_history.append({"role": "assistant", "content": assistant_msg})
-        supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
-
         emit_status(project_id, "Done")
         emit_progress(project_id, "Ready", 100)
         
     except Exception as e:
-        emit_status(project_id, "Error")
+        emit_status(project_id, "Fatal Error")
         emit_log(project_id, "system", f"Workflow failed: {e}")
         import traceback
         print(traceback.format_exc())
@@ -2893,6 +2904,7 @@ async def serve_project_file(request: Request, project_id: str, path: str):
 # EVENT BUS & UTILS
 # ==========================================================================
 import json
+import time
 
 class _ProgressBus:
     def __init__(self):
@@ -2912,10 +2924,27 @@ class _ProgressBus:
             try: q.put_nowait(event)
             except Exception: pass
 
+
 progress_bus = _ProgressBus()
 
 def emit_log(pid: str, role: str, text: str) -> None:
+    """Emits log to UI via SSE and saves to virtual file system."""
     progress_bus.emit(pid, {"type": "log", "role": role, "text": text})
+    
+    if role not in ["user", "assistant", "system"] and pid:
+        try:
+            existing = db_select_one("files", {"project_id": pid, "path": ".gorilla/thoughts.json"})
+            logs = []
+            if existing and existing.get("content"):
+                try: logs = json.loads(existing.get("content"))
+                except: pass
+                
+            logs.append({"role": role, "text": text, "ts": time.time()})
+            if len(logs) > 100: logs = logs[-100:]
+            
+            db_upsert("files", {"project_id": pid, "path": ".gorilla/thoughts.json", "content": json.dumps(logs)}, on_conflict="project_id,path")
+        except Exception as e:
+            pass
 
 def emit_status(pid: str, text: str) -> None:
     progress_bus.emit(pid, {"type": "status", "text": text})
@@ -2931,6 +2960,49 @@ def emit_file_changed(pid: str, path: str) -> None:
 
 def emit_token_update(pid: str, used: int) -> None:
     progress_bus.emit(pid, {"type": "token_usage", "used": used})
+
+# ⚡ THE TELEPHONE WIRE ⚡
+# This injects the emit_log function directly into the agents' brains!
+import backend.ai.agent as regular_agent_module
+import backend.ai.supabase_agent as supabase_agent_module
+import re
+
+def filtered_log_callback(pid: str, role: str, message: str):
+    """Filters out noisy/internal logs before they hit the UI."""
+    role = role.lower()
+    
+    # 1. Drop purely internal or overly noisy roles completely
+    if role in ["mcp", "llm"]:
+        return
+        
+    msg_lower = message.lower()
+    
+    # 2. Drop useless repetitive execution logs
+    if "single task execution" in msg_lower: return
+    if "executing 0 tasks" in msg_lower: return
+    if "attempt" in msg_lower and "failed: model output" in msg_lower: return
+    if "attempt" in msg_lower and "failed: could not extract" in msg_lower: return
+    
+    # 3. Beautify specific technical logs
+    clean_msg = message
+    if "read file:" in msg_lower:
+        match = re.search(r'read file:\s*([^\s]+)', message, re.IGNORECASE)
+        if match: clean_msg = f"Analyzed {match.group(1)}"
+    elif "overwrite_file:" in msg_lower or "create_file:" in msg_lower:
+        match = re.search(r'(overwrite_file|create_file):\s*([^\s]+)', message, re.IGNORECASE)
+        if match: clean_msg = f"Updated {match.group(2)}"
+    elif "reading" in msg_lower and "file(s)..." in msg_lower:
+        clean_msg = "Gathering file context..."
+    
+    # 4. Clean up ugly AI prompt prefixes
+    # Turns "[1/4] Step 1: Step 1: [Project: AppName...] Build UI" into "Building: Build UI"
+    clean_msg = re.sub(r'\[Project:.*?\]\s*', '', clean_msg)
+    clean_msg = re.sub(r'\[\d+/\d+\]\s*(Step\s*\d+:)?\s*(Step\s*\d+:)?\s*', 'Building: ', clean_msg).strip()
+    
+    emit_log(pid, role, clean_msg)
+
+regular_agent_module.set_log_callback(filtered_log_callback)
+supabase_agent_module.set_log_callback(filtered_log_callback)
 
 
 # ==========================================================================
@@ -3108,9 +3180,6 @@ import time
 async def health():
     return {"ok": True, "ts": int(time.time()), "dev_mode": DEV_MODE}
 
-from fastapi import APIRouter, Request, Depends, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from pydantic import BaseModel
 
 from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse

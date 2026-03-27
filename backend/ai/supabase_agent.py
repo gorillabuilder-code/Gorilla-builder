@@ -60,9 +60,15 @@ ACTION_NORMALIZE = {
     "see_file": "read_file",
 }
 
-# --- Terminal Logging ---
+# --- Terminal & UI Logging Bridge ---
+_external_log_callback = None
+
+def set_log_callback(callback):
+    """Allows app.py to hook into the agent's internal thought stream."""
+    global _external_log_callback
+    _external_log_callback = callback
+
 def log_agent(role: str, message: str, project_id: str = ""):
-    """Print agent activity to terminal for debugging."""
     prefix = f"[{project_id[:8]}]" if project_id else "[AGENT]"
     timestamp = time.strftime("%H:%M:%S")
     colors = {
@@ -81,7 +87,16 @@ def log_agent(role: str, message: str, project_id: str = ""):
     color = colors.get(role.lower(), "\033[94m")
     reset = "\033[0m"
     dim = "\033[90m"
+    
     print(f"{dim}{timestamp}{reset} {prefix} {color}{role.upper()}{reset}: {message[:200]}{'...' if len(message) > 200 else ''}")
+    
+    global _external_log_callback
+    if _external_log_callback and project_id:
+        if role.lower() != "llm":
+            try:
+                _external_log_callback(project_id, role.lower(), message)
+            except Exception:
+                pass
 
 # -------------------------------------------------
 # Token Limit HTML Message

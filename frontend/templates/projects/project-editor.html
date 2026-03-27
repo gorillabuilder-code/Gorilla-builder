@@ -457,6 +457,17 @@
 
 <body class="{% if user.plan == 'premium' %}premium{% endif %} {% if xmode %}xmode{% endif %}">
 
+<style>
+  @keyframes ag-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
+  @keyframes ag-spin { 100% { transform: rotate(360deg); } }
+  @keyframes ag-scan { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
+  @keyframes ag-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
+  .anim-pulse { animation: ag-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+  .anim-spin { animation: ag-spin 3s linear infinite; }
+  .anim-scan { animation: ag-scan 1.5s ease-in-out infinite; }
+  .anim-shake { animation: ag-shake 0.5s ease-in-out infinite; }
+</style>
+
 <div id="editor-loading-overlay" style="position: fixed; inset: 0; z-index: 9999; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.5s ease, visibility 0.5s ease;">
   <img src="/static/gorilla.gif" alt="Waking up Gorilla..." style="width: 250px; height: 250px; object-fit: contain; filter: drop-shadow(0 10px 30px rgba(59, 108, 255, 0.2));" />
   <h2 style="color: #fff; font-family: monospace; font-size: 18px; margin-top: -10px; font-weight: 300; letter-spacing: 2px;">
@@ -702,7 +713,6 @@ function captureConsole() {
     const originalWarn = console.warn;
 
     function sendLog(level, args) {
-        // ONLY RELAY ERRORS IF AGENT IS ACTIVELY DEBUGGING
         if (!window.isAgentWorking) return; 
         try {
             const msg = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
@@ -722,7 +732,6 @@ function captureConsole() {
 }
 captureConsole();
 
-// Global State
 let editorView = null;
 let currentFile = "index.html"; 
 let currentContent = "";
@@ -734,7 +743,6 @@ let isWebContainerBooted = false;
 const $ = (id) => document.getElementById(id);
 const chat = $("chat");
 
-// UI Locker
 function setInputState(locked) {
     window.isAgentWorking = locked;
     const promptEl = $("prompt");
@@ -745,7 +753,7 @@ function setInputState(locked) {
     
     if (locked) {
         promptEl.placeholder = "Gorilla is working...";
-        runBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>';
+        runBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: ag-spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>';
         runBtn.style.opacity = '0.5';
     } else {
         promptEl.placeholder = "What shall we build?";
@@ -794,54 +802,71 @@ if (editorImageInput) {
     });
 }
 
-// --- CHAT LOGIC & SLEEK THOUGHT TIMELINE ---
-function addThought(text) {
+// --- SLEEK THOUGHT TIMELINE ---
+function addThought(text, role = "system") {
     if (!currentThoughtBlock) {
         currentThoughtBlock = document.createElement('div');
         currentThoughtBlock.className = 'msg agent-thoughts';
-        currentThoughtBlock.style.cssText = 'background: transparent; padding: 0 10px 10px 10px; width: 98%; align-self: flex-start;';
+        currentThoughtBlock.style.cssText = 'background: #0f0f11; border: 1px solid rgba(255,255,255,0.06); padding: 12px 16px; border-radius: 12px; width: 94%; align-self: flex-start; box-shadow: 0 4px 20px rgba(0,0,0,0.3); margin-bottom: 12px; font-family: system-ui, -apple-system, sans-serif;';
         
         thoughtList = document.createElement('div');
-        thoughtList.style.cssText = 'display: flex; flex-direction: column; position: relative; padding-left: 6px;';
+        thoughtList.style.cssText = 'display: flex; flex-direction: column; position: relative;';
         
-        // Vertical dashed line connecting icons
         const line = document.createElement('div');
-        line.style.cssText = 'position: absolute; left: 15px; top: 16px; bottom: 16px; width: 1px; border-left: 1px dashed rgba(255,255,255,0.15); z-index: 1;';
+        line.style.cssText = 'position: absolute; left: 11px; top: 16px; bottom: 16px; width: 1px; background: rgba(255,255,255,0.1); z-index: 1;';
         thoughtList.appendChild(line);
 
         currentThoughtBlock.appendChild(thoughtList);
         chat.appendChild(currentThoughtBlock);
     }
     
-    let cleanText = text.replace(/^[✅❌⚠️🤔💡❓👁️💬✏️🧠📄▶]\s*/, '').trim();
-    
+    // Strip emojis just in case Python missed any
+    let cleanText = text.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{2B50}\u{200D}⚕️💬✏️❓👁️✅⚠️❌🧠📄▶]/gu, '').trim();
+    if (!cleanText) return;
+
     let iconSvg = '';
-    if (text.includes('Read') || text.includes('Fetch') || text.includes('📄')) {
-        iconSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`;
-    } else if (text.includes('Edit') || text.includes('Save') || text.includes('Write') || text.includes('✏️')) {
-        iconSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>`;
-    } else if (text.includes('Done') || text.includes('✅')) {
-        iconSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+    let iconClass = '';
+    
+    const lowerText = cleanText.toLowerCase();
+    if (lowerText.includes('analyzed') || lowerText.includes('read') || lowerText.includes('gathering')) {
+        // Document Scan
+        iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`;
+        iconClass = 'anim-scan';
+    } else if (lowerText.includes('update') || lowerText.includes('build') || lowerText.includes('edit')) {
+        // Gear Spin
+        iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`;
+        iconClass = 'anim-spin';
+    } else if (lowerText.includes('error') || lowerText.includes('fail')) {
+        // Warning Shake
+        iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+        iconClass = 'anim-shake';
+    } else if (lowerText.includes('plan') || lowerText.includes('think') || lowerText.includes('analyz')) {
+        // Brain/Sparkle Pulse
+        iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
+        iconClass = 'anim-pulse';
+    } else if (lowerText.includes('done') || lowerText.includes('complete')) {
+        // Check mark
+        iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+        iconClass = '';
     } else {
-        // Minimalist dot for generic thoughts / planning
-        iconSvg = `<div style="width: 5px; height: 5px; border-radius: 50%; background: #8b949e;"></div>`;
+        iconSvg = `<div style="width: 6px; height: 6px; border-radius: 50%; background: #52525b;"></div>`;
+        iconClass = '';
     }
 
     const step = document.createElement('div');
-    step.style.cssText = 'display:flex; gap:16px; align-items:center; margin-bottom:12px; position: relative; z-index: 2; cursor: pointer; padding: 4px 8px; border-radius: 6px; transition: background 0.2s;';
+    step.style.cssText = `display:flex; gap:16px; align-items:center; padding: 8px 0; position: relative; z-index: 2; cursor: pointer; border-radius: 6px; transition: background 0.2s;`;
     step.onmouseover = () => { step.style.background = 'rgba(255,255,255,0.03)'; };
     step.onmouseout = () => { step.style.background = 'transparent'; };
     
-    const iconContainer = document.createElement('div');
-    iconContainer.style.cssText = 'width: 20px; height: 20px; border-radius: 4px; background: var(--bg); display: flex; align-items: center; justify-content: center; color: #8b949e; flex-shrink: 0;';
-    iconContainer.innerHTML = iconSvg;
-
-    const textContainer = document.createElement('div');
-    textContainer.style.cssText = 'color: #8b949e; font-size: 13px; font-family: system-ui, sans-serif; flex: 1; display: flex; justify-content: space-between; align-items: center;';
-    textContainer.innerHTML = `<span>${DOMPurify.sanitize(cleanText)}</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.3;"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
-
-    step.appendChild(iconContainer);
-    step.appendChild(textContainer);
+    step.innerHTML = `
+        <div class="${iconClass}" style="width: 24px; height: 24px; border-radius: 6px; background: #18181b; border: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; flex-shrink: 0; z-index: 2;">
+            ${iconSvg}
+        </div>
+        <div style="color: #a1a1aa; font-size: 13px; line-height: 1.4; flex: 1;">
+            ${DOMPurify.sanitize(cleanText)}
+        </div>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.5; flex-shrink: 0; margin-right: 8px;"><polyline points="9 18 15 12 9 6"></polyline></svg>
+    `;
     
     thoughtList.appendChild(step);
     chat.scrollTop = chat.scrollHeight;
@@ -870,6 +895,11 @@ function saveChatHistory(role, text) {
 }
 
 function addMessage(role, text, save=true){
+  // 🛑 FIX: Format squished numbered lists from the assistant so they render beautifully
+  if (role === "assistant" && text) {
+      text = text.replace(/([.?!])\s+(?=\d+\.)/g, '$1\n\n');
+  }
+
   const el = document.createElement("div");
   el.className = "msg " + role;
 
@@ -982,7 +1012,6 @@ function renderTree(container, nodeObj, depth){
         else if (name.endsWith('.html')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 48"><path fill="#E65100" d="M41,5H7l3,34l14,4l14-4L41,5z"/><path fill="#FF6D00" d="M24 8L24 39.9 35.2 36.7 37.7 8z"/><path fill="#FFF" d="M24,25v-4h8.6l-0.7,11.5L24,35.1v-4.2l4.1-1.4l0.3-4.5H24z M32.9,17l0.3-4H24v4H32.9z"/><path fill="#EEE" d="M24,30.9v4.2l-7.9-2.6L15.7,27h4l0.2,2.5L24,30.9z M19.1,17H24v-4h-9.1l0.7,12H24v-4h-4.6L19.1,17z"/></svg>`;
         else if (name.endsWith('.css')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 48"><path fill="#0277BD" d="M41,5H7l3,34l14,4l14-4L41,5z"/><path fill="#039BE5" d="M24 8L24 39.9 35.2 36.7 37.7 8z"/><path fill="#FFF" d="M33.1 13L24 13 24 17 28.9 17 28.6 21 24 21 24 25 28.4 25 28.1 29.5 24 30.9 24 35.1 31.9 32.5 32.6 21z"/><path fill="#EEE" d="M24,13v4h-8.9l-0.3-4H24z M19.4,21l0.2,4H24v-4H19.4z M19.8,27h-4l0.3,5.5l7.9,2.6v-4.2l-4.1-1.4L19.8,27z"/></svg>`;
         else if (name.endsWith('.tsx') || name.endsWith('.jsx')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 32 32" fill="none"><path d="M18.6789 15.9759C18.6789 14.5415 17.4796 13.3785 16 13.3785C14.5206 13.3785 13.3211 14.5415 13.3211 15.9759C13.3211 17.4105 14.5206 18.5734 16 18.5734C17.4796 18.5734 18.6789 17.4105 18.6789 15.9759Z" fill="#53C1DE"/><path fill-rule="evenodd" clip-rule="evenodd" d="M24.7004 11.1537C25.2661 8.92478 25.9772 4.79148 23.4704 3.39016C20.9753 1.99495 17.7284 4.66843 16.0139 6.27318C14.3044 4.68442 10.9663 2.02237 8.46163 3.42814C5.96751 4.82803 6.73664 8.8928 7.3149 11.1357C4.98831 11.7764 1 13.1564 1 15.9759C1 18.7874 4.98416 20.2888 7.29698 20.9289C6.71658 23.1842 5.98596 27.1909 8.48327 28.5877C10.9973 29.9932 14.325 27.3945 16.0554 25.7722C17.7809 27.3864 20.9966 30.0021 23.4922 28.6014C25.9956 27.1963 25.3436 23.1184 24.7653 20.8625C27.0073 20.221 31 18.7523 31 15.9759C31 13.1835 26.9903 11.7923 24.7004 11.1537ZM24.4162 19.667C24.0365 18.5016 23.524 17.2623 22.8971 15.9821C23.4955 14.7321 23.9881 13.5088 24.3572 12.3509C26.0359 12.8228 29.7185 13.9013 29.7185 15.9759C29.7185 18.07 26.1846 19.1587 24.4162 19.667ZM22.85 27.526C20.988 28.571 18.2221 26.0696 16.9478 24.8809C17.7932 23.9844 18.638 22.9422 19.4625 21.7849C20.9129 21.6602 22.283 21.4562 23.5256 21.1777C23.9326 22.7734 24.7202 26.4763 22.85 27.526ZM9.12362 27.5111C7.26143 26.47 8.11258 22.8946 8.53957 21.2333C9.76834 21.4969 11.1286 21.6865 12.5824 21.8008C13.4123 22.9332 14.2816 23.9741 15.1576 24.8857C14.0753 25.9008 10.9945 28.557 9.12362 27.5111ZM2.28149 15.9759C2.28149 13.874 5.94207 12.8033 7.65904 12.3326C8.03451 13.5165 8.52695 14.7544 9.12123 16.0062C8.51925 17.2766 8.01977 18.5341 7.64085 19.732C6.00369 19.2776 2.28149 18.0791 2.28149 15.9759ZM9.1037 4.50354C10.9735 3.45416 13.8747 6.00983 15.1159 7.16013C14.2444 8.06754 13.3831 9.1006 12.5603 10.2265C11.1494 10.3533 9.79875 10.5569 8.55709 10.8297C8.09125 9.02071 7.23592 5.55179 9.1037 4.50354ZM20.3793 11.5771C21.3365 11.6942 22.2536 11.85 23.1147 12.0406C22.8562 12.844 22.534 13.6841 22.1545 14.5453C21.6044 13.5333 21.0139 12.5416 20.3793 11.5771ZM16.0143 8.0481C16.6054 8.66897 17.1974 9.3623 17.7798 10.1145C16.5985 10.0603 15.4153 10.0601 14.234 10.1137C14.8169 9.36848 15.414 8.67618 16.0143 8.0481ZM9.8565 14.5444C9.48329 13.6862 9.16398 12.8424 8.90322 12.0275C9.75918 11.8418 10.672 11.69 11.623 11.5748C10.9866 12.5372 10.3971 13.5285 9.8565 14.5444ZM11.6503 20.4657C10.6679 20.3594 9.74126 20.2153 8.88556 20.0347C9.15044 19.2055 9.47678 18.3435 9.85796 17.4668C10.406 18.4933 11.0045 19.4942 11.6503 20.4657ZM16.0498 23.9915C15.4424 23.356 14.8365 22.6531 14.2448 21.8971C15.4328 21.9423 16.6231 21.9424 17.811 21.891C17.2268 22.6608 16.6369 23.3647 16.0498 23.9915ZM22.1667 17.4222C22.5677 18.3084 22.9057 19.1657 23.1742 19.9809C22.3043 20.1734 21.3652 20.3284 20.3757 20.4435C21.015 19.4607 21.6149 18.4536 22.1667 17.4222ZM18.7473 20.5941C16.9301 20.72 15.1016 20.7186 13.2838 20.6044C12.2509 19.1415 11.3314 17.603 10.5377 16.0058C11.3276 14.4119 12.2404 12.8764 13.2684 11.4158C15.0875 11.2825 16.9178 11.2821 18.7369 11.4166C19.7561 12.8771 20.6675 14.4086 21.4757 15.9881C20.6771 17.5812 19.7595 19.1198 18.7473 20.5941ZM22.8303 4.4666C24.7006 5.51254 23.8681 9.22726 23.4595 10.8426C22.2149 10.5641 20.8633 10.3569 19.4483 10.2281C18.6239 9.09004 17.7698 8.05518 16.9124 7.15949C18.1695 5.98441 20.9781 3.43089 22.8303 4.4666Z" fill="#53C1DE"/></svg>`;
-        else if (name.endsWith('.ts')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 48"><rect width="36" height="36" x="6" y="6" fill="#1976d2"/><polygon fill="#fff" points="27.49,22 14.227,22 14.227,25.264 18.984,25.264 18.984,40 22.753,40 22.753,25.264 27.49,25.264"/><path fill="#fff" d="M39.194,26.084c0,0-1.787-1.192-3.807-1.192s-2.747,0.96-2.747,1.986 c0,2.648,7.381,2.383,7.381,7.712c0,8.209-11.254,4.568-11.254,4.568V35.22c0,0,2.152,1.622,4.733,1.622s2.483-1.688,2.483-1.92 c0-2.449-7.315-2.449-7.315-7.878c0-7.381,10.658-4.469,10.658-4.469L39.194,26.084z"/></svg>`;
         else if (name.endsWith('.sql')) ico.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>`;
         else if (name.endsWith('.b64')) ico.innerHTML = `<svg fill="#000000" width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="3" width="20" height="18" rx="2" style="fill: transparent; stroke: #3b82f6; stroke-width: 2;"></rect><path d="M2.29,17,7,12.29a1,1,0,0,1,1.42,0l2.09,2.1,4.07-4.08a1,1,0,0,1,1.42,0L21.71,16a1,1,0,0,1,.29.71V19a2,2,0,0,1-2,2H4a2,2,0,0,1-2-2V17.71A1,1,0,0,1,2.29,17ZM7.5,7.5A1.5,1.5,0,1,0,9,6,1.5,1.5,0,0,0,7.5,7.5Z" style="fill: #3b82f6;"></path></svg>`;
         else if(name.endsWith('.json')) ico.textContent = "{ }";
@@ -1131,7 +1160,7 @@ function switchTab(tab){
     if(webRunner.url) refreshPreview();
     else if(!isWebContainerBooted) $("btnRunServer").click();
   } else {
-    $("tabCode").classList.add("active");
+    $("tabCode").classList.addactive");
     $("tabPreview").classList.remove("active");
     $("preview").style.display = "none";
     $("previewModeWrap").style.display = "none";
@@ -1149,7 +1178,6 @@ $("tabPreview").onclick = () => switchTab("preview");
 
 function refreshPreview(){
     if (webRunner.url) {
-        // Safely refresh iframe without killing webcontainer
         $("preview").src = webRunner.url;
     }
 }
@@ -1182,7 +1210,7 @@ $("btnRunServer").onclick = async () => {
             iframe.style.display = "block";
             
             if(!$("tabPreview").classList.contains("active")) switchTab("preview");
-        }, (role, text) => { /* ignore normal logs in chat to prevent spam */ });
+        }, (role, text) => { });
 
         isWebContainerBooted = true;
 
@@ -1214,9 +1242,8 @@ function startStream(){
     if(m.type === "status") {
       setProgress(m.text);
       if (m.text.includes("Done") || m.text.includes("Ready") || m.text.includes("Error") || m.text.includes("Waiting for User")) {
-          // Release UI lock and flush files to WebContainer
           setInputState(false);
-          currentThoughtBlock = null;
+          currentThoughtBlock = null; 
           
           if (isWebContainerBooted && webRunner && Object.keys(pendingFileUpdates).length > 0) {
               for (let path in pendingFileUpdates) {
@@ -1238,14 +1265,15 @@ function startStream(){
     if(m.type === "progress") setProgress(m.text, m.pct);
     
     if(m.type === "log") {
-      const role = m.role || "agent";
-      if (role === "system" || role === "coder" || role === "planner" || role === "debugger" || role === "swarm") {
-          addThought(m.text);
-      } else if (role === "assistant") {
+      const role = (m.role || "agent").toLowerCase();
+      
+      if (role === "assistant") {
           currentThoughtBlock = null; 
           addMessage(role, m.text);
-      } else if (role !== "user") {
-          addMessage(role, m.text);
+      } else if (role === "user") {
+          
+      } else {
+          addThought(m.text, role);
       }
     }
     
@@ -1254,7 +1282,6 @@ function startStream(){
       refreshFiles();
       if(m.path === currentFile) loadFile(currentFile);
       
-      // Buffer the write to WebContainer until Done to prevent mid-gen crash loops
       pendingFileUpdates[m.path] = true;
     }
     
@@ -1266,7 +1293,8 @@ function startStream(){
 async function triggerAgent(promptText) {
     if(!promptText && !currentAttachedImage) return;
 
-    // 🛑 DEPLOY INTERCEPTOR 🛑
+    currentThoughtBlock = null;
+
     const deployRegex = /(deploy my app|make it go live|make it live|publish my app|im done let's deploy)/i;
     if (deployRegex.test(promptText)) {
         const msgEl = document.createElement('div');
@@ -1286,8 +1314,7 @@ async function triggerAgent(promptText) {
         return;
     }
 
-    // 🛑 DATABASE INTERCEPTOR 🛑
-    const dbKeywords = /\b(db|database|supabase|postgres|sql)\b/i;
+    const dbKeywords = /\b(db|database|supabase|postgres|sql|backend|auth|login|signup)\b/i;
     const isDbReq = dbKeywords.test(promptText);
     
     const formData = new FormData();
