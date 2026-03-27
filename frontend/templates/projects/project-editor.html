@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <title>Editor · {{ project_name }} · Gor://a Builder</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Funnel+Display:wght@300..800&display=swap" rel="stylesheet">
 
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 
@@ -12,7 +15,6 @@
     import DOMPurify from "https://esm.sh/dompurify@3.0.9";
 
     // 🛑 The ULTIMATE fix for CodeMirror's "Multiple Instances" Error.
-    // By adding ?deps=..., we force esm.sh to use the exact same core across all extensions!
     import { EditorState } from "https://esm.sh/@codemirror/state@6.4.1";
     import { EditorView, keymap, lineNumbers } from "https://esm.sh/@codemirror/view@6.26.3?deps=@codemirror/state@6.4.1";
     import { defaultKeymap, history, historyKeymap } from "https://esm.sh/@codemirror/commands@6.5.0?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3";
@@ -21,7 +23,6 @@
     import { html } from "https://esm.sh/@codemirror/lang-html@6.4.9?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3";
     import { css } from "https://esm.sh/@codemirror/lang-css@6.2.1?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3";
 
-    // ... (keep the rest of your createEditor code exactly the same)
     window.createEditor = (parent, content, onChange, fileName) => {
       const fixedHeightEditor = EditorView.theme({
         "&": { height: "100%", fontSize: "14px", backgroundColor: "transparent" },
@@ -64,11 +65,6 @@
 
   <style>
   /* --- 1. FONTS & RESETS --- */
-  @font-face {
-    font-family: 'din-next-w01-light';
-    src: url('//static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2') format('woff2');
-    font-display: swap;
-  }
 
   :root {
     /* Core Palette - Deep Space Theme */
@@ -103,7 +99,7 @@
     --planner-text: #facc15;
   }
 
-  * { box-sizing: border-box; font-family: 'din-next-w01-light', system-ui, -apple-system, sans-serif; outline: none; }
+  * { box-sizing: border-box; font-family: 'Funnel Display', system-ui, -apple-system, sans-serif; outline: none; }
 
   /* --- 2. LAYOUT & BODY --- */
   body {
@@ -116,6 +112,7 @@
       radial-gradient(circle at 0% 0%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
       radial-gradient(circle at 100% 100%, rgba(124, 58, 237, 0.08) 0%, transparent 50%);
     font-size: 13px;
+    font-weight: 400;
   }
 
   .shell { display: flex; height: 100vh; width: 100%; overflow: hidden; }
@@ -820,8 +817,14 @@ function addThought(text, role = "system") {
         chat.appendChild(currentThoughtBlock);
     }
     
-    // Strip emojis just in case Python missed any
-    let cleanText = text.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{2B50}\u{200D}⚕️💬✏️❓👁️✅⚠️❌🧠📄▶]/gu, '').trim();
+    // The safe, boring, crash-proof version
+    let cleanText = text.trim();
+    
+    // Fallback: If any single stray symbol makes it through, just slice off the first character if it's not a normal letter/bracket
+    if (/^[^a-zA-Z0-9\[]/.test(cleanText)) {
+        cleanText = cleanText.substring(1).trim();
+    }
+    
     if (!cleanText) return;
 
     let iconSvg = '';
@@ -1160,7 +1163,7 @@ function switchTab(tab){
     if(webRunner.url) refreshPreview();
     else if(!isWebContainerBooted) $("btnRunServer").click();
   } else {
-    $("tabCode").classList.addactive");
+    $("tabCode").classList.add("active");
     $("tabPreview").classList.remove("active");
     $("preview").style.display = "none";
     $("previewModeWrap").style.display = "none";
@@ -1332,39 +1335,39 @@ async function triggerAgent(promptText) {
                     <button onclick="window.location.href='/auth/supabase/link'" class="smallbtn" style="background:#3ECF8E; border-color:#3ECF8E; color:#000; width:100%; font-weight:bold; padding:10px;">Link Supabase Account</button>
                 </div>
             `;
-            chat.appendChild(msgEl);
-            chat.scrollTop = chat.scrollHeight;
-            $("prompt").value = promptText;
-            return;
-        } else {
-            formData.append("is_db_request", "true");
-        }
+        chat.appendChild(msgEl);
+        chat.scrollTop = chat.scrollHeight;
+        $("prompt").value = promptText;
+        return;
+    } else {
+        formData.append("is_db_request", "true");
     }
+  }
     
-    setInputState(true);
+  setInputState(true);
 
-    if (currentAttachedImage) {
-        const refCard = document.createElement("div");
-        refCard.style.cssText = "align-self: flex-end; margin: 10px 20px 5px 0; background: rgba(59, 130, 246, 0.1); border: 1px dashed rgba(59, 130, 246, 0.4); border-radius: 12px; padding: 12px; max-width: 60%; text-align: center;";
-        refCard.innerHTML = `<div style="font-size: 10px; text-transform: uppercase; color: var(--accent); font-weight: bold; margin-bottom: 8px; letter-spacing: 1px;"><i class="ph-bold ph-image"></i> Attached Reference</div><img src="${currentAttachedImage}" style="max-width: 100%; max-height: 150px; border-radius: 8px;">`;
-        chat.appendChild(refCard);
-    }
+  if (currentAttachedImage) {
+      const refCard = document.createElement("div");
+      refCard.style.cssText = "align-self: flex-end; margin: 10px 20px 5px 0; background: rgba(59, 130, 246, 0.1); border: 1px dashed rgba(59, 130, 246, 0.4); border-radius: 12px; padding: 12px; max-width: 60%; text-align: center;";
+      refCard.innerHTML = `<div style="font-size: 10px; text-transform: uppercase; color: var(--accent); font-weight: bold; margin-bottom: 8px; letter-spacing: 1px;"><i class="ph-bold ph-image"></i> Attached Reference</div><img src="${currentAttachedImage}" style="max-width: 100%; max-height: 150px; border-radius: 8px;">`;
+      chat.appendChild(refCard);
+  }
     
-    addMessage("user", promptText || "Please update the UI to match the attached reference image.");
+  addMessage("user", promptText || "Please update the UI to match the attached reference image.");
     
-    formData.append("prompt", promptText || "Please update the UI to match the attached reference image.");
-    if (currentAttachedImage) formData.append("image_base64", currentAttachedImage);
+  formData.append("prompt", promptText || "Please update the UI to match the attached reference image.");
+  if (currentAttachedImage) formData.append("image_base64", currentAttachedImage);
     
-    currentAttachedImage = null;
-    if(editorImagePreview) {
-        editorImagePreview.style.display = "none";
-        editorImagePreview.src = "";
-    }
-    document.querySelector('label[for="editorImageInput"]').style.display = 'flex';
-    if(editorImageInput) editorImageInput.value = "";
+  currentAttachedImage = null;
+  if(editorImagePreview) {
+      editorImagePreview.style.display = "none";
+      editorImagePreview.src = "";
+  }
+  document.querySelector('label[for="editorImageInput"]').style.display = 'flex';
+  if(editorImageInput) editorImageInput.value = "";
     
-    await fetch(`/api/project/${PROJECT_ID}/agent/start`, { method: "POST", body: formData });
-    startStream();
+  await fetch(`/api/project/${PROJECT_ID}/agent/start`, { method: "POST", body: formData });
+  startStream();
 }
 
 $("runAgent").onclick = () => {

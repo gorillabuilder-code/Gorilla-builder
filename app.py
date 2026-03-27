@@ -401,9 +401,9 @@ def send_otp_email(to_email: str, code: str):
     try:
         # 1. Send the Verification Email
         params = {
-            "from": "Gor://a Auth Verification <auth@gorillabuilder.dev>", # Use your verified domain
+            "from": "Gor://a OAuth Verification <auth@gorillabuilder.dev>", # Use your verified domain
             "to": [to_email],
-            "subject": "Your Verification Code for Gor://a Builder",
+            "subject": f"{code} - Your Verification Code for Gor://a Builder",
             "html": f"""
             <!DOCTYPE html>
             <html>
@@ -412,7 +412,7 @@ def send_otp_email(to_email: str, code: str):
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Verification Email</title>
             </head>
-            <body style="margin: 0; padding: 0; background-color: #0b1020; font-family: Monospace, sans-serif;">
+            <body style="margin: 0; padding: 0; background-color: #0b1020; font-family: 'Google Sans','Roboto', Monospace, sans-serif;">
                 <div style="width: 100%; padding: 40px 0; background-color: #0b1020;">
                     <div style="max-width: 420px; margin: 0 auto; background-color: #0f1530; padding: 40px; border-radius: 18px; color: #ffffff;">
                         <h1 style="margin: 0 0 10px; font-size: 24px; font-weight: 400; letter-spacing: -0.3px;">Welcome to Gor://a</h1>
@@ -435,6 +435,7 @@ def send_otp_email(to_email: str, code: str):
         # 2. Create/Update Resend Contact (Fixed: No Audience ID needed)
         try:
             contact_params = {
+                "audience_id": "638e2a6b-cf64-4efc-bece-1973216a2825",
                 "email": to_email,
                 "unsubscribed": False
             }
@@ -2980,6 +2981,11 @@ def filtered_log_callback(pid: str, role: str, message: str):
     # 2. Drop useless repetitive execution logs
     if "single task execution" in msg_lower: return
     if "executing 0 tasks" in msg_lower: return
+    if "solving" in msg_lower: return
+    if "Task" in msg_lower: return
+    if "Concerns" in msg_lower: return
+    if "�" in msg_lower: return
+    if "Conversational agent swarm initialized" in msg_lower: return
     if "attempt" in msg_lower and "failed: model output" in msg_lower: return
     if "attempt" in msg_lower and "failed: could not extract" in msg_lower: return
     
