@@ -11,229 +11,332 @@
 <script src="https://unpkg.com/@phosphor-icons/web"></script>
 
 <style>
-
 /* --- THEME VARIABLES --- */
 :root {
-  --bg: #0b1020;
-  --panel: #0f1530;
-  --border: rgba(255,255,255,.10);
+  --bg: #050508;
+  --panel: #0a0e17;
+  --border: rgba(255,255,255,.08);
   --text: #fff;
-  --muted: rgba(255,255,255,.65);
-  --accent: #3b6cff;
-  --btn-text: #fff;
+  --muted: rgba(255,255,255,.5);
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-glow: rgba(59, 130, 246, 0.4);
   --success: #10b981;
 }
 
-/* PREMIUM OVERRIDES */
 body.premium {
-  --bg: #050810;
-  --panel: #121214;
   --accent: #ffd700;
-  --btn-text: #000;
+  --accent-hover: #e6c200;
+  --accent-glow: rgba(255, 215, 0, 0.3);
+}
+
+* { box-sizing: border-box; font-family: 'Funnel Display', system-ui, sans-serif; outline: none; }
+body { margin: 0; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+/* Subtle Background Grid */
+body::before {
+  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background-image: 
-    radial-gradient(circle at 15% 10%, rgba(255, 215, 0, 0.05) 0%, transparent 40%),
-    radial-gradient(circle at 85% 90%, rgba(147, 51, 234, 0.08) 0%, transparent 40%) !important;
+    linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(ellipse at center, black 20%, transparent 80%);
 }
 
-*{box-sizing:border-box;font-family:'Funnel Display',system-ui,-apple-system,BlinkMacSystemFont,sans-serif}
-body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
+.wrap { max-width: 600px; margin: 60px auto; padding: 0 22px; width: 100%; flex: 1; }
 
-.wrap{max-width:800px;margin:0 auto;padding:40px 22px}
-
-.top{
-  display:flex;align-items:center;justify-content:space-between;gap:12px;
-  padding:14px 16px;border:1px solid var(--border);border-radius:16px;
-  background:rgba(255,255,255,.03);
-  margin-bottom: 24px;
+/* Header */
+.top {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 48px;
 }
-.title{display:flex;flex-direction:column;gap:4px}
-.title h1{font-size:16px;margin:0}
-.title .sub{font-size:12px;color:var(--muted)}
+.title h1 { font-size: 24px; margin: 0 0 4px; font-weight: 600; }
+.title .sub { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
 
-.btn{
-  border:1px solid var(--border);
-  background:rgba(255,255,255,.04);
-  color:#fff;
-  border-radius:12px;
-  padding:10px 16px;
-  cursor:pointer;
-  text-decoration:none;
-  display:inline-flex;
-  align-items:center;
-  gap:8px;
-  font-size:13px;
-  transition: all 0.2s;
-  font-weight: 500;
+.btn-back {
+  background: rgba(255,255,255,0.03); border: 1px solid var(--border); color: #fff;
+  padding: 8px 16px; border-radius: 12px; text-decoration: none; font-size: 13px; font-weight: 600;
+  transition: all 0.2s; display: flex; align-items: center; gap: 6px;
 }
-.btn:hover:not(:disabled) { background: rgba(255,255,255,.08); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-back:hover { background: rgba(255,255,255,0.08); transform: translateX(-2px); }
 
-.btn.primary{
-  border-color: var(--accent);
+/* --- SOLID HORIZONTAL STEPPER --- */
+.stepper-container {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto 48px auto;
+}
+
+/* Background Track */
+.stepper-track-bg {
+  position: absolute;
+  top: 20px; /* Aligns with center of 44px node */
+  left: 22px;
+  right: 22px;
+  height: 3px;
+  background: rgba(255,255,255,0.1);
+  z-index: 1;
+}
+
+/* Animated Active Track */
+.stepper-track-fill {
+  position: absolute;
+  top: 20px;
+  left: 22px;
+  height: 3px;
   background: var(--accent);
-  color: var(--btn-text);
-  font-weight: 600;
-}
-.btn.primary:hover:not(:disabled) {
-  filter: brightness(1.1);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-}
-.btn.github {
-  background: #24292e; border-color: #374151; color: white;
-}
-.btn.github:hover { background: #1b1f23; }
-
-.card{
-  border:1px solid var(--border);
-  background:rgba(255,255,255,.02);
-  border-radius:16px;
-  padding:20px;
-  margin-bottom: 16px;
-  transition: all 0.3s ease;
+  box-shadow: 0 0 12px var(--accent-glow);
+  z-index: 2;
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* WIZARD SPECIFICS */
-.step-header {
-  display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
-}
-.step-header h2 { font-size: 15px; margin: 0; color: #fff; font-weight: 600; }
-.step-desc { font-size: 13px; color: var(--muted); margin-bottom: 16px; line-height: 1.5; max-width: 85%; }
-
-/* Logic Classes */
-.locked-step {
-  opacity: 0.4;
-  pointer-events: none;
-  filter: grayscale(1);
-}
-.hidden { display: none !important; }
-
-.status-badge {
-  color: var(--success); font-size: 12px; display: inline-flex; align-items: center; 
-  gap: 6px; font-weight: 600; background: rgba(16, 185, 129, 0.1); 
-  padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.2);
+.step-nodes {
+  display: flex;
+  justify-content: space-between;
+  position: relative;
+  z-index: 3;
 }
 
-.loader {
-  display: none; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3);
-  border-top-color: currentColor; border-radius: 50%; animation: spin 1s linear infinite;
+.step-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 70px;
 }
 
-@keyframes spin { to { transform: rotate(360deg); } }
-
-.error-text { 
-  color: #fca5a5; font-size: 12px; margin-top: 12px; display: none; 
-  background: rgba(239, 68, 68, 0.1); padding: 10px; border-radius: 8px; 
-  border: 1px solid rgba(239, 68, 68, 0.2); 
+.step-circle {
+  width: 44px; height: 44px;
+  background: var(--bg); /* Covers the line behind it */
+  border: 2px solid rgba(255,255,255,0.15);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: 700; color: rgba(255,255,255,0.3);
+  transition: all 0.4s ease;
 }
 
-/* THE VERCEL BOX */
-.vercel-box {
-  padding: 40px; border-radius: 16px; margin-top: 24px;
-  background: linear-gradient(135deg, #050505 0%, rgba(255,255,255,0.02) 100%);
-  border: 1px solid rgba(255,255,255,0.1); text-align: left;
+.step-label {
+  font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.4);
+  text-transform: uppercase; letter-spacing: 0.5px;
+  transition: all 0.4s ease; text-align: center;
 }
-.vercel-box h3 { margin: 0 0 10px; font-size: 20px; font-weight: 500; text-align: center; }
-.vercel-box p.subtitle { color: var(--muted); font-size: 13px; margin: 0 0 32px; text-align: center; }
+
+/* Node States */
+.step-node.completed .step-circle {
+  border-color: var(--success); color: var(--success);
+  box-shadow: 0 0 20px rgba(16,185,129,0.15);
+}
+.step-node.completed .step-label { color: #fff; }
+
+.step-node.active .step-circle {
+  border-color: var(--accent); color: var(--accent);
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+.step-node.active .step-label { color: #fff; }
+
+
+/* --- WIZARD CONTAINER --- */
+.wizard-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+}
+
+.step-container {
+  padding: 48px 40px;
+  min-height: 380px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.wizard-step { display: none; width: 100%; animation: fadeIn 0.4s ease-out forwards; }
+.wizard-step.active { display: block; }
+
+.step-icon {
+  width: 64px; height: 64px; border-radius: 16px;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 32px; color: var(--accent); margin: 0 auto 24px auto;
+}
+.wizard-step h2 { margin: 0 0 12px; font-size: 24px; font-weight: 600; }
+.wizard-step p { color: var(--muted); font-size: 15px; line-height: 1.6; margin: 0 auto 32px auto; max-width: 400px; }
+
+/* --- CUSTOM VERCEL BUTTON --- */
+.btn-vercel {
+  background: #000; color: #fff; border: 1px solid #333;
+  display: inline-flex; align-items: center; justify-content: center; gap: 12px;
+  padding: 14px 28px; border-radius: 12px; font-size: 16px; font-weight: 600;
+  text-decoration: none; transition: all 0.2s ease;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.4);
+  width: 100%; max-width: 320px; margin: 0 auto;
+}
+.btn-vercel:hover {
+  background: #111; border-color: #666; transform: translateY(-2px);
+  box-shadow: 0 15px 30px rgba(0,0,0,0.6), 0 0 15px rgba(255,255,255,0.05);
+}
+
+/* --- OTHER BUTTONS --- */
+.btn-3d {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-hover) 100%);
+  color: #fff; font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+  padding: 16px 32px; border-radius: 12px; border: none; cursor: pointer; text-decoration: none;
+  box-shadow: 0 6px 0px rgba(0,0,0,0.4), 0 6px 0px var(--accent-hover), 0 15px 25px var(--accent-glow);
+  transition: transform 0.1s, box-shadow 0.1s;
+  width: 100%; max-width: 300px; margin: 0 auto;
+}
+body.premium .btn-3d { color: #000; }
+
+.btn-3d:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-2px); box-shadow: 0 8px 0px rgba(0,0,0,0.4), 0 8px 0px var(--accent-hover), 0 20px 30px var(--accent-glow); }
+.btn-3d:active:not(:disabled) { transform: translateY(4px); box-shadow: 0 2px 0px rgba(0,0,0,0.4), 0 2px 0px var(--accent-hover), 0 5px 10px var(--accent-glow); }
+.btn-3d:disabled { background: #333; box-shadow: 0 6px 0px #1a1a1a; color: #888; cursor: not-allowed; }
+
+.btn-github { background: linear-gradient(180deg, #2ea44f 0%, #22863a 100%); box-shadow: 0 6px 0px rgba(0,0,0,0.4), 0 6px 0px #175d28, 0 15px 25px rgba(46, 164, 79, 0.3); }
+.btn-github:hover:not(:disabled) { box-shadow: 0 8px 0px rgba(0,0,0,0.4), 0 8px 0px #175d28, 0 20px 30px rgba(46, 164, 79, 0.4); }
+.btn-github:active:not(:disabled) { box-shadow: 0 2px 0px rgba(0,0,0,0.4), 0 2px 0px #175d28, 0 5px 10px rgba(46, 164, 79, 0.4); }
+
+.loader { display: none; width: 18px; height: 18px; border: 3px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; }
+body.premium .loader { border-top-color: #000; border-color: rgba(0,0,0,0.3); }
+
+.error-text { color: #fca5a5; font-size: 13px; margin-top: 20px; display: none; background: rgba(239, 68, 68, 0.1); padding: 12px; border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.2); }
+
+/* Final Step Specifics */
+.liftoff-icon {
+  width: 64px; height: 64px; border-radius: 16px; margin: 0 auto 24px auto;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+  display: flex; align-items: center; justify-content: center; font-size: 32px; color: var(--success);
+  box-shadow: inset 0 0 20px rgba(16,185,129,0.05);
+}
 
 .env-instructions {
-  background: rgba(15, 20, 30, 0.6);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px;
-  margin-bottom: 32px;
+  background: rgba(0, 0, 0, 0.4); border: 1px dashed rgba(255,255,255,0.15);
+  border-radius: 12px; padding: 20px; margin: 0 auto 32px auto; display: inline-block; text-align: left;
 }
-.env-instructions h4 { margin: 0 0 8px 0; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; }
-.env-instructions h4 i { color: var(--accent); font-size: 18px; }
-.env-instructions p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.env-instructions h4 { margin: 0 0 8px 0; font-size: 14px; display: flex; align-items: center; gap: 8px; color: #fff; }
+.env-instructions p { margin: 0; font-size: 13px; color: rgba(255,255,255,0.6); line-height: 1.5; max-width: 400px; }
 
-.deploy-action { display: flex; justify-content: center; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 </style>
 </head>
 
 <body class="{% if user.plan == 'premium' %}premium{% endif %}">
 
+{% set current_step = 1 %}
+{% set fill_width = "0%" %}
+
+{% if project.github_repo_url %}
+  {% set current_step = 4 %}
+  {% set fill_width = "100%" %}
+{% elif project.vercel_optimized %}
+  {% set current_step = 3 %}
+  {% set fill_width = "66%" %}
+{% elif has_github %}
+  {% set current_step = 2 %}
+  {% set fill_width = "33%" %}
+{% endif %}
+
 <div class="wrap">
   
   <div class="top">
     <div class="title">
-      <h1>Deploy to Production</h1>
-      <div class="sub">{{ project.name if project else project_id }}</div>
+      <h1>Deployment Pipeline</h1>
+      <div class="sub"><i class="ph-fill ph-rocket-launch"></i> {{ project.name if project else project_id }}</div>
     </div>
-    <div style="display:flex;gap:10px">
-      <a class="btn" href="/projects/{{ project_id }}/editor">← Back to Editor</a>
+    <a class="btn-back" href="/projects/{{ project_id }}/editor"><i class="ph-bold ph-arrow-left"></i> Back to Editor</a>
+  </div>
+
+  <div class="stepper-container">
+    <div class="stepper-track-bg"></div>
+    <div class="stepper-track-fill" id="stepFill" style="width: {{ fill_width }};"></div>
+    
+    <div class="step-nodes">
+      
+      <div class="step-node {% if current_step > 1 %}completed{% elif current_step == 1 %}active{% endif %}" id="node1">
+        <div class="step-circle">{% if current_step > 1 %}<i class="ph-bold ph-check"></i>{% else %}1{% endif %}</div>
+        <div class="step-label">Connect</div>
+      </div>
+
+      <div class="step-node {% if current_step > 2 %}completed{% elif current_step == 2 %}active{% endif %}" id="node2">
+        <div class="step-circle">{% if current_step > 2 %}<i class="ph-bold ph-check"></i>{% else %}2{% endif %}</div>
+        <div class="step-label">Optimize</div>
+      </div>
+
+      <div class="step-node {% if current_step > 3 %}completed{% elif current_step == 3 %}active{% endif %}" id="node3">
+        <div class="step-circle">{% if current_step > 3 %}<i class="ph-bold ph-check"></i>{% else %}3{% endif %}</div>
+        <div class="step-label">Push</div>
+      </div>
+
+      <div class="step-node {% if current_step == 4 %}completed active{% endif %}" id="node4">
+        <div class="step-circle">{% if current_step == 4 %}<i class="ph-bold ph-check"></i>{% else %}4{% endif %}</div>
+        <div class="step-label">Deploy</div>
+      </div>
+
     </div>
   </div>
 
-  <div class="card" id="step1">
-    <div class="step-header">
-      <h2>1. Connect GitHub</h2>
-      {% if has_github %}
-        <div class="status-badge">✓ Connected</div>
-      {% endif %}
-    </div>
-    <div class="step-desc">Link your GitHub account so Gor://a can automatically create a private repository for your codebase.</div>
-    
-    {% if not has_github %}
-      <a href="/auth/github" class="btn github">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="margin-right:4px;"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-        Link GitHub Account
-      </a>
-    {% endif %}
-  </div>
+  <div class="wizard-card">
+    <div class="step-container">
 
-  <div class="card {{ 'locked-step' if not has_github else '' }}" id="step2">
-    <div class="step-header">
-      <h2>2. Optimize for Vercel</h2>
-      {% if project.vercel_optimized %}
-        <div class="status-badge">✓ Optimized</div>
-      {% endif %}
-    </div>
-    <div class="step-desc">Vercel requires specific serverless configurations. Our AI will automatically inject <code>vercel.json</code> and adapt your Express server.</div>
-    
-    {% if not project.vercel_optimized %}
-      <button class="btn primary" id="btn-optimize" onclick="runOptimization()">
-        <div class="loader" id="loader-optimize"></div>
-        <span>Optimize Codebase</span>
-      </button>
-      <div class="error-text" id="err-optimize"></div>
-    {% endif %}
-  </div>
+      <div class="wizard-step {% if current_step == 1 %}active{% endif %}" id="step1">
+        <div class="step-icon"><i class="ph-fill ph-github-logo"></i></div>
+        <h2>Link GitHub</h2>
+        <p>Connect your GitHub account to create a secure, private repository for your source code.</p>
+        <a href="/auth/github" class="btn-3d btn-github">Connect Account</a>
+      </div>
 
-  <div class="card {{ 'locked-step' if not project.vercel_optimized else '' }}" id="step3">
-    <div class="step-header">
-      <h2>3. Push to Repository</h2>
-      {% if project.github_repo_url %}
-        <div class="status-badge">✓ Pushed</div>
-      {% endif %}
-    </div>
-    <div class="step-desc">Create a secure private GitHub repository and commit your optimized Full-Stack application.</div>
-    
-    {% if not project.github_repo_url %}
-      <button class="btn primary" id="btn-push" onclick="pushToGithub()">
-        <div class="loader" id="loader-push"></div>
-        <span>Create Repo & Push</span>
-      </button>
-      <div class="error-text" id="err-push"></div>
-    {% else %}
-      <a href="{{ project.github_repo_url }}" target="_blank" style="color: var(--accent); font-size: 13px; text-decoration: none;">
-        View Repository on GitHub &rarr;
-      </a>
-    {% endif %}
-  </div>
+      <div class="wizard-step {% if current_step == 2 %}active{% endif %}" id="step2">
+        <div class="step-icon"><i class="ph-bold ph-magic-wand"></i></div>
+        <h2>Optimize Codebase</h2>
+        <p>Gor://a will restructure your Express server into serverless functions and generate the required <code>vercel.json</code> routing map.</p>
+        <button class="btn-3d" id="btn-optimize" onclick="runOptimization()">
+          <div class="loader" id="loader-optimize"></div>
+          <span>Start Optimization</span>
+        </button>
+        <div class="error-text" id="err-optimize"></div>
+      </div>
 
-  <div class="vercel-box {{ 'hidden' if not project.github_repo_url else '' }}" id="vercel-box">
-    <h3>Ready for Liftoff 🚀</h3>
-    <p class="subtitle">Your codebase is safely stored in a private GitHub repository.</p>
-    
-    <div class="env-instructions" style="text-align: center;">
-      <h4><i class="ph-fill ph-magic-wand"></i> Zero-Config Deployment</h4>
-      <p>We have securely injected your <strong>Gorilla API Key</strong> directly into the deployment configuration. You don't need to set up any environment variables. Just click deploy!</p>
-    </div>
+      <div class="wizard-step {% if current_step == 3 %}active{% endif %}" id="step3">
+        <div class="step-icon"><i class="ph-bold ph-git-commit"></i></div>
+        <h2>Push to Repository</h2>
+        <p>Commit your fully optimized, production-ready codebase to a brand new private repository on your GitHub account.</p>
+        <button class="btn-3d" id="btn-push" onclick="pushToGithub()">
+          <div class="loader" id="loader-push"></div>
+          <span>Create & Push</span>
+        </button>
+        <div class="error-text" id="err-push"></div>
+      </div>
 
-    <div class="deploy-action">
-      <a href="https://vercel.com/new/clone?repository-url={{ project.github_repo_url }}" target="_blank" id="vercel-link" style="display:inline-block; transition: transform 0.2s;">
-        <img src="https://vercel.com/button" alt="Deploy with Vercel" style="height: 44px;" />
-      </a>
+      <div class="wizard-step {% if current_step == 4 %}active{% endif %}" id="step4">
+        <div class="liftoff-icon"><i class="ph-fill ph-rocket-launch"></i></div>
+        <h2>Ready for Liftoff</h2>
+        <p style="margin-bottom: 24px;">Your codebase is safely stored in a private repository and ready to deploy to the edge.</p>
+        
+        <div class="env-instructions">
+          <h4><i class="ph-fill ph-lock-key" style="color: var(--success);"></i> Zero-Config Security</h4>
+          <p>We securely injected your API keys directly into the build environment. Vercel will ask for permission to read your private repo. Just click deploy.</p>
+        </div>
+
+        <div>
+          <a href="{% if project.github_repo_url %}https://vercel.com/new/import?s={{ project.github_repo_url | urlencode }}{% else %}javascript:void(0);{% endif %}" target="_blank" id="vercel-link" class="btn-vercel">
+            <svg viewBox="0 0 76 65" height="14" style="margin-right: 4px;"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z" fill="#ffffff"/></svg>
+            Deploy to Vercel
+          </a>
+        </div>
+        
+        <div style="margin-top: 32px;">
+          <a href="{{ project.github_repo_url }}" target="_blank" id="repo-link" style="color: var(--muted); font-size: 14px; text-decoration: none; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; transition: color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--muted)'">
+            <i class="ph-fill ph-github-logo"></i> View Source Code
+          </a>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -241,6 +344,29 @@ body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
 
 <script>
   const projectId = "{{ project_id }}";
+
+  function advanceProgress(stepNum, percent) {
+    document.getElementById("stepFill").style.width = percent;
+    
+    for(let i=1; i<=4; i++) {
+      const node = document.getElementById("node" + i);
+      
+      if (i < stepNum) {
+        node.className = "step-node completed";
+        node.querySelector('.step-circle').innerHTML = '<i class="ph-bold ph-check"></i>';
+      } else if (i === stepNum) {
+        node.className = "step-node active" + (i === 4 ? " completed" : "");
+        if (i === 4) node.querySelector('.step-circle').innerHTML = '<i class="ph-bold ph-check"></i>';
+      } else {
+        node.className = "step-node";
+      }
+    }
+  }
+
+  function showStep(stepId) {
+    document.querySelectorAll('.wizard-step').forEach(el => el.classList.remove('active'));
+    document.getElementById(stepId).classList.add('active');
+  }
 
   async function runOptimization() {
     const btn = document.getElementById("btn-optimize");
@@ -250,7 +376,7 @@ body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
 
     btn.disabled = true;
     loader.style.display = "block";
-    span.innerText = "Agent Optimizing (This takes ~30s)...";
+    span.innerHTML = "Optimizing (~30s)...";
     errBox.style.display = "none";
 
     try {
@@ -259,12 +385,15 @@ body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
       
       if (!res.ok) throw new Error(data.detail || "Optimization failed");
 
-      // Reload the page to unlock Step 3
-      window.location.reload();
+      advanceProgress(3, "66%");
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
+
     } catch (err) {
       btn.disabled = false;
       loader.style.display = "none";
-      span.innerText = "Retry Optimization";
+      span.innerHTML = 'Retry Optimization';
       errBox.innerText = err.message;
       errBox.style.display = "block";
     }
@@ -278,7 +407,7 @@ body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
 
     btn.disabled = true;
     loader.style.display = "block";
-    span.innerText = "Creating Repo & Pushing Code...";
+    span.innerText = "Encrypting & Pushing...";
     errBox.style.display = "none";
 
     try {
@@ -287,25 +416,24 @@ body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}
       
       if (!res.ok) throw new Error(data.detail || "Push failed");
 
-      // Success! Show the Vercel Button immediately
-      const vercelBox = document.getElementById("vercel-box");
-      const vercelLink = document.getElementById("vercel-link");
+      // 🛑 THE BULLETPROOF URL FIX
+      // If the backend fails to send vercel_url, we manually build the import URL here using the raw repo_url
+      const repoUrl = data.repo_url || data.url; 
+      const encodedRepoUrl = encodeURIComponent(repoUrl);
+      const vercelUrl = data.vercel_url ? data.vercel_url : `https://vercel.com/new/import?s=${encodedRepoUrl}`;
+
+      document.getElementById("vercel-link").href = vercelUrl;
+      document.getElementById("repo-link").href = repoUrl;
       
-      // Update the link
-      vercelLink.href = `https://vercel.com/new/clone?repository-url=${data.repo_url}`;
-      
-      // Transition UI
-      btn.style.display = "none";
-      vercelBox.classList.remove("hidden");
-      
-      // Mark step 3 as done visually
-      const step3Header = document.querySelector("#step3 .step-header");
-      step3Header.innerHTML += '<div class="status-badge">✓ Pushed</div>';
+      advanceProgress(4, "100%");
+      setTimeout(() => {
+        showStep("step4");
+      }, 500);
       
     } catch (err) {
       btn.disabled = false;
       loader.style.display = "none";
-      span.innerText = "Retry Push";
+      span.innerHTML = 'Retry Push';
       errBox.innerText = err.message;
       errBox.style.display = "block";
     }

@@ -2166,17 +2166,23 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                     emit_phase(project_id, "coder")
                     emit_progress(project_id, f"Running Remote Migration: {path}", 70)
 
+                    # 🛑 THE FIX: Wait on 404s, use correct database URL
                     for attempt in range(3):
                         try:
                             headers = {"Authorization": f"Bearer {supa_token}", "Content-Type": "application/json"}
                             async with httpx.AsyncClient(timeout=30.0) as client:
-                                res = await client.post(f"https://api.supabase.com/v1/projects/{project_ref}/query", headers=headers, json={"query": content})
+                                res = await client.post(f"https://api.supabase.com/v1/projects/{project_ref}/database/query", headers=headers, json={"query": content})
                                 
                                 if res.status_code == 404:
-                                    emit_log(project_id, "system", "❌ Fatal Error: Supabase project not found. It may have been deleted manually.")
-                                    emit_log(project_id, "assistant", "I couldn't connect to the database. Did you delete it from your Supabase dashboard? I've unlinked it so we can provision a new one on your next request.")
-                                    supabase.table("projects").update({"supabase_project_ref": None}).eq("id", project_id).execute()
-                                    break
+                                    if attempt == 2:
+                                        emit_log(project_id, "system", "❌ Fatal Error: Supabase project not found. It may have been deleted manually.")
+                                        emit_log(project_id, "assistant", "I couldn't connect to the database. Did you delete it from your Supabase dashboard? I've unlinked it so we can provision a new one on your next request.")
+                                        supabase.table("projects").update({"supabase_project_ref": None}).eq("id", project_id).execute()
+                                        break
+                                    else:
+                                        emit_log(project_id, "debugger", f"Database booting up (404). Waiting 5s... (Attempt {attempt+1}/3)")
+                                        await asyncio.sleep(5)
+                                        continue
                                 
                                 if res.status_code in [200, 201]:
                                     emit_log(project_id, "system", f"✅ Postgres Migration Successful: {path}")
@@ -2192,8 +2198,8 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                                         db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
                                         emit_file_changed(project_id, path)
                         except Exception as e:
-                            emit_log(project_id, "debugger", f"Network Error hitting Remote DB: {e}")
-                            break
+                            emit_log(project_id, "debugger", f"Network Error hitting Remote DB: {e}. Retrying...")
+                            await asyncio.sleep(3)
 
             emit_status(project_id, "Done")
             emit_progress(project_id, "Ready", 100)
@@ -2222,7 +2228,6 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             base_msg = plan_res.get("assistant_message", "I'm working on that...")
             
             # 🛑 THE ORGANIC FIX FOR STANDARD MODE
-            # We do NOT format/append the questions array manually anymore.
             assistant_msg = base_msg.replace("Plan created.\n", "").replace("Plan created.", "").strip()
 
             # 🛑 AMNESIA FIX: Instantly save Assistant Message for standard mode too
@@ -2492,14 +2497,14 @@ async def optimize_for_vercel(request: Request, project_id: str):
         optimization_prompt = """
         We are deploying this full-stack application to Vercel Serverless. You MUST perform this exactly:
         Overwrite `server.js` completely. Do NOT call `app.listen(...)` at the bottom. Vercel requires you to EXPORT the express app instead. End the file with `export default app;` or `module.exports = app;`.
-        Do NOT create or modify `vercel.json` (it has already been handled).
+        Do NOT create or modify `vercel.json` (it has already been handled).   
         """
         
         await run_agent_loop(
             project_id=project_id,
             prompt=optimization_prompt,
             user_id=user["id"],
-            is_xmode=True,
+            is_xmode=False,
             skip_planner=True 
         )
         
@@ -2514,6 +2519,136 @@ async def optimize_for_vercel(request: Request, project_id: str):
         import traceback
         traceback.print_exc()
         raise HTTPException(500, detail=str(e))
+
+# ==========================================================================
+# DEPLOY PUSH (Ships the optimized code to GitHub to trigger Vercel)
+# ==========================================================================
+@app.post("/api/project/{project_id}/deploy-push")
+async def push_for_deployment(request: Request, project_id: str):
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+    
+    try:
+        user_data = db_select_one("users", {"id": user["id"]}, "github_access_token")
+        if not user_data or not user_data.get("github_access_token"):
+            return JSONResponse({"detail": "GitHub account not connected. Please link GitHub in settings."}, status_code=400)
+        
+        token = user_data["github_access_token"]
+        
+        res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
+        project = res.data
+        
+        # Sanitize to replace spaces and special characters with hyphens (required by GitHub)
+        raw_name = project.get("name", "gorilla-project")
+        repo_name = re.sub(r'[^a-z0-9-]', '-', raw_name.lower()).strip('-')
+        
+        if not repo_name:
+            repo_name = f"gorilla-project-{project_id[:6]}"
+            
+        files_res = supabase.table("files").select("path,content").eq("project_id", project_id).execute()
+        files = getattr(files_res, "data", [])
+        if not files and isinstance(files_res, list): files = files_res
+
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"}
+        
+        async with httpx.AsyncClient() as client:
+            # A. Create or Find Repository
+            repo_res = await client.post(
+                "https://api.github.com/user/repos", 
+                json={"name": repo_name, "private": True, "auto_init": True}, 
+                headers=headers
+            )
+            if repo_res.status_code not in [201, 422]:
+                return JSONResponse({"detail": f"GitHub Repo Creation Failed: {repo_res.text}"}, status_code=500)
+            
+            repo_data = repo_res.json()
+            full_name = repo_data.get("full_name")
+            
+            # If repo already exists (422)
+            if repo_res.status_code == 422:
+                user_info_res = await client.get("https://api.github.com/user", headers=headers)
+                if user_info_res.status_code == 200:
+                    login = user_info_res.json().get("login")
+                    full_name = f"{login}/{repo_name}"
+                else:
+                    return JSONResponse({"detail": "Failed to fetch GitHub username for existing repo."}, status_code=500)
+                
+                # SAFETY NET: Check if the existing repo is completely empty!
+                branch_res = await client.get(f"https://api.github.com/repos/{full_name}/branches/main", headers=headers)
+                if branch_res.status_code == 404:
+                    import base64
+                    readme_content = base64.b64encode(b"# Init\n").decode("utf-8")
+                    await client.put(
+                        f"https://api.github.com/repos/{full_name}/contents/README.md",
+                        json={"message": "Initialize empty repository", "content": readme_content},
+                        headers=headers
+                    )
+
+            # B. Bulk Create Blobs & Tree
+            tree = []
+            for f in files:
+                path = f.get("path", "")
+                if path.startswith(".gorilla/"): continue
+                
+                # GitHub API rejects strictly empty strings for inline blobs. Give it a single space.
+                content = f.get("content")
+                if not content:
+                    content = " "
+                    
+                tree.append({
+                    "path": path.lstrip("/"),
+                    "mode": "100644",
+                    "type": "blob",
+                    "content": content
+                })
+            
+            if len(tree) == 0:
+                tree.append({
+                    "path": "README.md",
+                    "mode": "100644",
+                    "type": "blob",
+                    "content": f"# {project.get('name', 'Gorilla Project')}\n\nAuto-generated by Gor://a Builder."
+                })
+                
+            tree_res = await client.post(f"https://api.github.com/repos/{full_name}/git/trees", json={"tree": tree}, headers=headers)
+            
+            if tree_res.status_code != 201:
+                return JSONResponse({"detail": f"Git Tree Error: {tree_res.text}"}, status_code=500)
+                
+            tree_sha = tree_res.json()["sha"]
+            
+            # C. Create Commit
+            commit_res = await client.post(
+                f"https://api.github.com/repos/{full_name}/git/commits", 
+                json={"message": "Git Commit via Gor://a Builder", "tree": tree_sha}, 
+                headers=headers
+            )
+            if commit_res.status_code != 201:
+                return JSONResponse({"detail": f"Commit Error: {commit_res.text}"}, status_code=500)
+            
+            commit_sha = commit_res.json()["sha"]
+            
+            # D. Update Reference (Create or Update Main Branch)
+            ref_res = await client.post(f"https://api.github.com/repos/{full_name}/git/refs", json={"ref": "refs/heads/main", "sha": commit_sha}, headers=headers)
+            if ref_res.status_code == 422: # Reference already exists, force update it
+                await client.patch(f"https://api.github.com/repos/{full_name}/git/refs/heads/main", json={"sha": commit_sha, "force": True}, headers=headers)
+            
+            repo_url = f"https://github.com/{full_name}"
+            
+            # E. Save to DB
+            supabase.table("projects").update({"github_repo_url": repo_url}).eq("id", project_id).execute()
+            
+            return JSONResponse({
+                "status": "ok", 
+                "detail": "Code successfully pushed to GitHub.",
+                "repo_url": repo_url,
+                "full_name": full_name
+            })
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"detail": str(e)}, status_code=500)
 
 # ==========================================================================
 # APP AUTH GATEWAY (For Generated Apps)
@@ -3082,62 +3217,6 @@ async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
         print(f"⚠️ Fetch Error: {e}")
         return {}
 
-@app.post("/api/project/{project_id}/agent/start")
-async def agent_start(
-    request: Request, 
-    project_id: str, 
-):
-    user = get_current_user(request)
-    _require_project_owner(user, project_id)
-    
-    try:
-        enforce_token_limit_or_raise(user["id"])
-    except HTTPException as e:
-        if e.status_code == 402:
-            alert_html = (
-                f'<div style="background:#0f172a; border:1px solid rgba(239,68,68,0.2); border-left:3px solid #ef4444; border-radius:12px; padding:24px; margin-top:20px; font-family:system-ui,-apple-system,sans-serif; box-shadow:0 10px 30px rgba(0,0,0,0.4);">'
-                f'  <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; padding-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.05);">'
-                f'    <div style="width:24px; height:24px; display:flex; align-items:center; justify-content:center; background:rgba(239,68,68,0.1); color:#ef4444; border-radius:50%; font-size:14px; font-weight:bold;">!</div>'
-                f'    <div style="color:#e2e8f0; font-size:16px; font-weight:400; letter-spacing:0.5px; text-transform:uppercase;">Usage Limit Reached</div>'
-                f'  </div>'
-                f'  <div style="color:#cbd5e1; font-size:14px; line-height:1.6; margin-bottom:20px;">You have reached your monthly token limit. Upgrade to Pro to continue generating code and accessing advanced features.</div>'
-                f'  <a href="/pricing" target="_blank" style="display:inline-block; background:#ef4444; color:#ffffff; padding:10px 20px; border-radius:6px; font-size:13px; font-weight:500; text-decoration:none; letter-spacing:0.5px; box-shadow:0 4px 6px rgba(239,68,68,0.2);">Upgrade Plan</a>'
-                f'</div>'
-            )
-            emit_log(project_id, "assistant", alert_html)
-            return {"started": False}
-        raise e
-
-    # Use multi-part parsing to safely handle Base64 strings
-    form_data = await request.form()
-    prompt = str(form_data.get("prompt", ""))
-    xmode_str = str(form_data.get("xmode", "false")).lower()
-    xmode = xmode_str == "true"
-    image_base64 = form_data.get("image_base64")
-
-    # 🛑 Guarantee the old image is overwritten
-    if image_base64:
-        try:
-            db_upsert(
-                "files", 
-                {
-                    "project_id": project_id, 
-                    "path": ".gorilla/prompt_image.b64", 
-                    "content": image_base64
-                }, 
-                on_conflict="project_id,path"
-            )
-            print(f"📸 Mid-chat image successfully overwritten in DB for project {project_id}")
-        except Exception as err:
-            print(f"⚠️ Failed to save mid-chat image: {err}")
-
-    emit_status(project_id, "Agent received prompt")
-    emit_log(project_id, "user", prompt)
-
-    asyncio.create_task(
-        run_agent_loop(project_id, prompt, user["id"], xmode)
-    )
-    return {"started": True}
 
 @app.get("/api/project/{project_id}/events")
 async def agent_events(request: Request, project_id: str):

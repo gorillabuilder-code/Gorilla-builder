@@ -564,11 +564,6 @@
 
     <div style="display:flex; align-items:center;">
        <div class="previewMode" id="previewModeWrap" style="display:none; border:none; padding-left:0; margin-left:0; margin-right: 20px;">
-        <select class="select" id="previewMode">
-          <option value="server">Server Preview</option>
-        </select>
-        <button class="smallbtn" id="btnRunServer" style="margin-left:8px;">▶ Run</button>
-        <button class="smallbtn danger" id="btnStopServer" style="margin-left:4px;">⏹ Stop</button>
         <span class="badge" id="serverStatus" style="margin-left:8px;">stopped</span>
       </div>
 
@@ -745,17 +740,21 @@ function setInputState(locked) {
     const promptEl = $("prompt");
     const runBtn = $("runAgent");
     
-    promptEl.disabled = locked;
-    runBtn.disabled = locked;
+    if (promptEl) promptEl.disabled = locked;
+    if (runBtn) runBtn.disabled = locked;
     
     if (locked) {
-        promptEl.placeholder = "Gorilla is working...";
-        runBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: ag-spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>';
-        runBtn.style.opacity = '0.5';
+        if(promptEl) promptEl.placeholder = "Gorilla is working...";
+        if(runBtn) {
+            runBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: ag-spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>';
+            runBtn.style.opacity = '0.5';
+        }
     } else {
-        promptEl.placeholder = "What shall we build?";
-        runBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576zm6.787-8.201L1.591 6.602l4.339 2.76z"/></svg>';
-        runBtn.style.opacity = '1';
+        if(promptEl) promptEl.placeholder = "What shall we build?";
+        if(runBtn) {
+            runBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576zm6.787-8.201L1.591 6.602l4.339 2.76z"/></svg>';
+            runBtn.style.opacity = '1';
+        }
     }
 }
 
@@ -792,8 +791,10 @@ if (editorImageInput) {
             currentAttachedImage = canvas.toDataURL("image/jpeg", 0.7);
             
             document.querySelector('label[for="editorImageInput"]').style.display = 'none';
-            editorImagePreview.src = objectUrl; 
-            editorImagePreview.style.display = "block";
+            if(editorImagePreview) {
+                editorImagePreview.src = objectUrl; 
+                editorImagePreview.style.display = "block";
+            }
         };
         img.src = objectUrl;
     });
@@ -845,7 +846,7 @@ function addThought(text, role = "system") {
         iconClass = 'anim-shake';
     } else if (lowerText.includes('plan') || lowerText.includes('think') || lowerText.includes('analyz')) {
         // Brain/Sparkle Pulse
-        iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
+        iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1-1-1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
         iconClass = 'anim-pulse';
     } else if (lowerText.includes('done') || lowerText.includes('complete')) {
         // Check mark
@@ -1161,7 +1162,10 @@ function switchTab(tab){
     $("preview").style.display = "block";
     $("previewModeWrap").style.display = "flex";
     if(webRunner.url) refreshPreview();
-    else if(!isWebContainerBooted) $("btnRunServer").click();
+    else {
+        const btnRun = $("btnRunServer");
+        if(btnRun && !isWebContainerBooted) btnRun.click();
+    }
   } else {
     $("tabCode").classList.add("active");
     $("tabPreview").classList.remove("active");
@@ -1176,62 +1180,81 @@ function switchTab(tab){
     }
   }
 }
-$("tabCode").onclick = () => switchTab("code");
-$("tabPreview").onclick = () => switchTab("preview");
+const tCode = $("tabCode");
+if (tCode) tCode.onclick = () => switchTab("code");
+
+const tPrev = $("tabPreview");
+if (tPrev) tPrev.onclick = () => switchTab("preview");
 
 function refreshPreview(){
     if (webRunner.url) {
         $("preview").src = webRunner.url;
     }
 }
-$("previewMode").onchange = refreshPreview;
+const pm = $("previewMode");
+if (pm) pm.onchange = refreshPreview;
 
 // --- RUN SERVER ---
-$("btnRunServer").onclick = async () => {
-    const btn = $("btnRunServer");
-    const status = $("serverStatus");
-    const iframe = $("preview");
+const btnRun = $("btnRunServer");
+if (btnRun) {
+    btnRun.onclick = async () => {
+        const btn = $("btnRunServer");
+        const status = $("serverStatus");
+        const iframe = $("preview");
 
-    try {
-        btn.disabled = true;
-        btn.textContent = "Booting...";
-        status.textContent = "Booting VM...";
-        status.style.color = "var(--warn)";
+        try {
+            btn.disabled = true;
+            btn.textContent = "Booting...";
+            if (status) {
+                status.textContent = "Booting VM...";
+                status.style.color = "var(--warn)";
+            }
 
-        const response = await fetchJSON(`/api/project/${PROJECT_ID}/files`);
-        const files = response.files || [];
+            const response = await fetchJSON(`/api/project/${PROJECT_ID}/files`);
+            const files = response.files || [];
 
-        await webRunner.mount(files);
-        await webRunner.install((role, text) => addMessage("system", text));
-        await webRunner.start((url) => {
-            status.textContent = "Live";
-            status.style.color = "var(--ok)";
-            btn.textContent = "Refresh";
+            await webRunner.mount(files);
+            await webRunner.install((role, text) => addMessage("system", text));
+            await webRunner.start((url) => {
+                if (status) {
+                    status.textContent = "Live";
+                    status.style.color = "var(--ok)";
+                }
+                btn.textContent = "Refresh";
+                btn.disabled = false;
+                
+                iframe.src = url;
+                iframe.style.display = "block";
+                
+                const tPrevTab = $("tabPreview");
+                if(tPrevTab && !tPrevTab.classList.contains("active")) switchTab("preview");
+            }, (role, text) => { });
+
+            isWebContainerBooted = true;
+
+        } catch (e) {
+            console.error(e);
+            if (status) {
+                status.textContent = "Error";
+                status.style.color = "var(--danger)";
+            }
             btn.disabled = false;
-            
-            iframe.src = url;
-            iframe.style.display = "block";
-            
-            if(!$("tabPreview").classList.contains("active")) switchTab("preview");
-        }, (role, text) => { });
+            btn.textContent = "▶ Run";
+        }
+    };
+}
 
-        isWebContainerBooted = true;
-
-    } catch (e) {
-        console.error(e);
-        status.textContent = "Error";
-        status.style.color = "var(--danger)";
-        btn.disabled = false;
-        btn.textContent = "▶ Run";
-    }
-};
-
-$("btnStopServer").onclick = () => {
-    $("preview").src = "about:blank";
-    $("serverStatus").textContent = "Paused";
-};
+const btnStop = $("btnStopServer");
+if (btnStop) {
+    btnStop.onclick = () => {
+        $("preview").src = "about:blank";
+        const status = $("serverStatus");
+        if (status) status.textContent = "Paused";
+    };
+}
 
 // --- AGENT STREAM ---
+// --- AGENT STREAM WITH HEAVY FILTRATION ---
 function startStream(){
   if(es) es.close();
   setConn("warn");
@@ -1259,7 +1282,8 @@ function startStream(){
               pendingFileUpdates = {};
               setTimeout(refreshPreview, 1000);
           } else if (!isWebContainerBooted && m.text.includes("Done")) {
-              $("btnRunServer").click();
+              const runB = $("btnRunServer");
+              if(runB) runB.click();
           }
       }
     }
@@ -1273,10 +1297,20 @@ function startStream(){
       if (role === "assistant") {
           currentThoughtBlock = null; 
           addMessage(role, m.text);
-      } else if (role === "user") {
-          
-      } else {
-          addThought(m.text, role);
+      } else if (role !== "user") {
+          // 🛑 HEAVY FILTRATION: Silence the routing and state-machine spam
+          const tLower = m.text.toLowerCase();
+          const isJunk = tLower.includes("initialized") || 
+                         tLower.includes("need user clarification") || 
+                         tLower.includes("clarification needed") ||
+                         tLower.includes("asking") ||
+                         tLower.includes("bypassing review") ||
+                         tLower.includes("executing") ||
+                         tLower.includes("analyzing: --- previous");
+                         
+          if (!isJunk) {
+              addThought(m.text, role);
+          }
       }
     }
     
@@ -1313,11 +1347,13 @@ async function triggerAgent(promptText) {
         `;
         chat.appendChild(msgEl);
         chat.scrollTop = chat.scrollHeight;
-        $("prompt").value = ""; 
+        const promptInput = $("prompt");
+        if(promptInput) promptInput.value = ""; 
         return;
     }
 
-    const dbKeywords = /\b(db|database|supabase|postgres|sql|backend|auth|login|signup)\b/i;
+    // 🛑 UPGRADED REGEX: Catch user intent much earlier
+    const dbKeywords = /\b(db|database|supabase|postgres|sql)\b/i;
     const isDbReq = dbKeywords.test(promptText);
     
     const formData = new FormData();
@@ -1337,7 +1373,8 @@ async function triggerAgent(promptText) {
             `;
         chat.appendChild(msgEl);
         chat.scrollTop = chat.scrollHeight;
-        $("prompt").value = promptText;
+        const promptInput = $("prompt");
+        if(promptInput) promptInput.value = promptText; 
         return;
     } else {
         formData.append("is_db_request", "true");
@@ -1363,27 +1400,38 @@ async function triggerAgent(promptText) {
       editorImagePreview.style.display = "none";
       editorImagePreview.src = "";
   }
-  document.querySelector('label[for="editorImageInput"]').style.display = 'flex';
+  const imgLabel = document.querySelector('label[for="editorImageInput"]');
+  if(imgLabel) imgLabel.style.display = 'flex';
   if(editorImageInput) editorImageInput.value = "";
     
   await fetch(`/api/project/${PROJECT_ID}/agent/start`, { method: "POST", body: formData });
   startStream();
 }
 
-$("runAgent").onclick = () => {
-  if(window.isAgentWorking) return;
-  const p = $("prompt").value.trim();
-  if(!p && !currentAttachedImage) return; 
-  $("prompt").value = "";
-  triggerAgent(p);
-};
+const btnRunAgent = $("runAgent");
+if (btnRunAgent) {
+    btnRunAgent.onclick = () => {
+      if(window.isAgentWorking) return;
+      const promptInput = $("prompt");
+      if(!promptInput) return;
+      
+      const p = promptInput.value.trim();
+      if(!p && !currentAttachedImage) return; 
+      promptInput.value = "";
+      triggerAgent(p);
+    };
+}
 
-$("prompt").addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault(); 
-        $("runAgent").click();
-    }
-});
+const promptInput = $("prompt");
+if (promptInput) {
+    promptInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault(); 
+            const runAgentBtn = $("runAgent");
+            if(runAgentBtn) runAgentBtn.click();
+        }
+    });
+}
 
 // --- INIT ---
 (async () => {

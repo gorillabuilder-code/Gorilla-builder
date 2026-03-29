@@ -27,7 +27,7 @@ import httpx
 
 # --- Configuration for OpenRouter ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("MODEL", "minimax/minimax-m2.5")
+MODEL = os.getenv("MODEL", "kwaipilot/kat-coder-pro-v2")
 VISION_MODEL = os.getenv("MODEL", "xiaomi/mimo-v2-omni")
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions").strip()
 SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev").strip()
@@ -751,7 +751,7 @@ class BaseAgent:
             "messages": messages,
             "temperature": temperature,
             "provider": {
-                "order": ["together"],
+                "order": ["atlas-cloud/fp8"],
                 "allow_fallbacks": False
             }
         }
@@ -907,10 +907,11 @@ class PlannerAgent(BaseAgent):
     "   - **Voice (TTS)**: DO NOT USE AN API. Strictly use the browser's native `window.speechSynthesis` Web Speech API in frontend components.\n"
     "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background`.\n"
     "3. **Task Bundling & Volume (CRITICAL FOR TOKEN SAVING):** \n"
-    "   - Always try to ask the user at least 1 questions to elaborate on their request, they should be obvious and add functionality to their app if they agree. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY QUESTIONS IF THEY DONT FEEL LIKE IT OR ANY DEBUGGING QUESTIONS.\n"
+    "   - If you are told to use the attached image somewhere, by the user, then use .gorilla/prompt_image.b64, and instruct to coder to use it\n"
+    "   - Always try to ask the user no more than 1 question to elaborate on their request, they should be obvious and add functionality to their app if they agree. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY QUESTIONS IF THEY DONT FEEL LIKE IT OR ANY DEBUGGING QUESTIONS.\n"
     "   - CONSOLIDATE TASKS: You MUST bundle related operations together. Combine them into Macro Steps (e.g., 'Step 1: Database & Backend setup', 'Step 2: Core UI Components', 'Step 3: Frontend Wiring').\n"
     "   - Simple Apps: Maximum 3-4 Macro/clubbed Tasks. + DB TASK (if there are no questions only!)\n"
-"   - Complex Apps: Maximum 5-unlimited Macro/clubbed Tasks. + DB TASK (if there are no questions only!)\n"
+    "   - Complex Apps: Maximum 5-unlimited Macro/clubbed Tasks. + DB TASK (if there are no questions only!)\n"
     "   - Debugging/Simple addition Tasks: 1 task only. DO NOT ASK QUESTIONS FOR DEBUGGING.\n"
     "   - Update `server.js` and `App.tsx` **LAST** to wire up components/routes."
     "\n\n========================================================================\n"
@@ -1079,50 +1080,15 @@ class ReasonerAgent(BaseAgent):
             await self._handle_clarification_needed(msg)
     
     async def _reason_about_plan(self, plan_msg: MCPMessage):
-        """Review and validate the plan before execution."""
-        payload = plan_msg.payload
-        tasks = payload.get("tasks", [])
+        """Bypass reasoning to speed up and prevent dropped payloads."""
+        log_agent("reasoner", "Bypassing review for speed. Forwarding to Coder.", self.project_id)
         
-        log_agent("reasoner", f"Reviewing plan: {len(tasks)} tasks", self.project_id)
-        
-        # Quick heuristic reasoning without LLM for speed
-        concerns = []
-        
-        # Check for common issues
-        task_text = " ".join([str(t) for t in tasks]).lower()
-        
-        if "server.js" in task_text and any("route" in str(t).lower() for t in tasks):
-            concerns.append("Ensure routes are mounted before static file serving")
-        
-        if len(tasks) > 15:
-            concerns.append("Large plan - consider if all tasks are necessary")
-        
-        # Check for frontend/backend balance
-        has_frontend = any(x in task_text for x in ["component", "tsx", "ui", "page"])
-        has_backend = any(x in task_text for x in ["route", "api", "server", "express"])
-        
-        if has_frontend and not has_backend and any(x in task_text for x in ["chat", "api"]):
-            concerns.append("Frontend-focused plan but may need backend routes")
-        
-        if concerns:
-            log_agent("reasoner", f"Concerns: {len(concerns)} issues identified", self.project_id)
-            for c in concerns:
-                log_agent("reasoner", f"  ⚠️ {c}", self.project_id)
-        else:
-            log_agent("reasoner", "Plan looks good, proceeding", self.project_id)
-        
-        # Forward to coder (with or without refinement)
         self.emit(
             intent=Intent.PLAN,
-            payload={
-                "reasoner_review": {
-                    "concerns": concerns,
-                    "approved": True
-                }
-            },
+            payload=plan_msg.payload, # Pass the EXACT payload so no tasks drop
             to="coder",
             task_id=plan_msg.task_id,
-            reasoning=f"Reviewed plan, {len(concerns)} concerns, proceeding"
+            reasoning="Forwarded directly to Coder"
         )
     
     async def _handle_clarification_needed(self, msg: MCPMessage):
@@ -1361,16 +1327,20 @@ class CoderAgent(BaseAgent):
             await asyncio.sleep(0.5)
             waited += 0.5
         
-        # Request review before marking complete
+        # 🛑 UNPLUG FIX: Bypass the Reviewer entirely and mark execution as Done.
+        log_agent("coder", "Bypassing Reviewer for maximum speed, marking complete.", self.project_id)
+        
+        self.execution_complete = True
         self.emit(
-            intent=Intent.REVIEW,
+            intent=Intent.DONE,
             payload={
+                "status": "complete",
                 "operations": self.all_operations,
-                "task_count": len(tasks)
+                "review_feedback": "Review bypassed for speed"
             },
-            to="reviewer",
-            task_id=f"review_{int(time.time())}",
-            reasoning=f"Completed {len(tasks)} tasks, requesting review"
+            to=None,
+            task_id=f"done_{int(time.time())}",
+            reasoning=f"Completed {len(tasks)} tasks"
         )
     
     async def _delegate_task(self, task: str, task_id: str, agent_type: str):
