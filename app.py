@@ -361,24 +361,31 @@ def ensure_public_user(user_id: str, email: str) -> None:
     except Exception:
         pass
 
+from fastapi import Request, HTTPException, status
+from typing import Dict, Any
+
 def get_current_user(request: Request) -> Dict[str, Any]:
-    """Retrieves user from session or creates a Dev Mode user."""
+    """Retrieves user from session. Strictly enforces authentication and blocks dev accounts."""
     user = request.session.get("user")
     
-    if user and user.get("id"):
-        # Refresh public record just in case
-        ensure_public_user(user["id"], user.get("email") or "unknown@local")
-        return user
+    # 1. No user in session? Boot them to the homepage/login.
+    if not user or not user.get("id"):
+        raise HTTPException(
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+            headers={"Location": "/"} # Change to "/login" if you have a dedicated login route
+        )
 
-    if DEV_MODE:
-        # Fallback for dev mode if session is empty
-        anon_id = str(uuid.uuid4())
-        user = {"id": anon_id, "email": "dev@local"}
-        request.session["user"] = user
-        ensure_public_user(user["id"], user["email"])
-        return user
+    # 2. THE KILLSWITCH: Catch old dev@local cookies and destroy them
+    if user.get("email") == "dev@local":
+        request.session.clear() # Completely wipe the ghost session from their browser
+        raise HTTPException(
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+            headers={"Location": "/"}
+        )
 
-    raise HTTPException(status_code=401, detail="Not authenticated")
+    # 3. Valid, real user found. Ensure public record exists.
+    ensure_public_user(user["id"], user.get("email") or "unknown@local")
+    return user
 
 def _require_project_owner(user: Dict[str, Any], project_id: str) -> None:
     """Verifies that the current user owns the project."""
@@ -412,7 +419,7 @@ def send_otp_email(to_email: str, code: str):
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Verification Email</title>
             </head>
-            <body style="margin: 0; padding: 0; background-color: #0b1020; font-family: 'Google Sans','Roboto', Monospace, sans-serif;">
+            <body style="margin: 0; padding: 0; background-color: #0b1020; font-family: 'Google Sans','Calibri','Roboto', Monospace, sans-serif;">
                 <div style="width: 100%; padding: 40px 0; background-color: #0b1020;">
                     <div style="max-width: 420px; margin: 0 auto; background-color: #0f1530; padding: 40px; border-radius: 18px; color: #ffffff;">
                         <h1 style="margin: 0 0 10px; font-size: 24px; font-weight: 400; letter-spacing: -0.3px;">Welcome to Gor://a</h1>
@@ -2050,7 +2057,7 @@ async def agent_start(request: Request, project_id: str):
     )
     return {"started": True}
 
-async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: bool = False, history: List[Dict] = None, skip_planner: bool = False, is_db_request: bool = False):
+async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: bool = False, history: List[Dict] = None, skip_planner: bool = False, is_db_request: bool = False, is_system_task: bool = False):
     try:
         await asyncio.sleep(0.5)
         file_tree = await _fetch_file_tree(project_id)
@@ -2061,7 +2068,10 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         
         # 🛑 AMNESIA FIX: Instantly save the user's prompt to the DB so it's never lost
         db_history = proj_data.get("chat_history", []) if proj_data and proj_data.get("chat_history") else []
-        db_history.append({"role": "user", "content": prompt})
+        if is_system_task:
+            db_history.append({"role": "system", "content": f"SYSTEM AUTOMATION TASK: {prompt}"})
+        else:
+            db_history.append({"role": "user", "content": prompt})
         supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
         
         user_api_data = db_select_one("users", {"id": user_id}, "gorilla_api_key, supabase_access_token")
@@ -2085,37 +2095,66 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             emit_log(project_id, "system", "Spinning up dedicated PostgreSQL instance...")
             try:
                 import secrets
+                import re
                 headers = {"Authorization": f"Bearer {supa_token}", "Content-Type": "application/json"}
                 async with httpx.AsyncClient() as client:
                     orgs = (await client.get("https://api.supabase.com/v1/organizations", headers=headers)).json()
-                    org_id = orgs[0]["id"] if orgs else (await client.post("https://api.supabase.com/v1/organizations", headers=headers, json={"name": "Gorilla Apps"})).json().get("id")
+                
+                    # 🛑 THE FIX: If Supabase returns an error dictionary instead of a list, catch it cleanly!
+                    if isinstance(orgs, dict) and "message" in orgs:
+                        raise Exception(f"Supabase Error: {orgs.get('message')}. Please re-link your Supabase account in the Dashboard.")
+                
+                    # Safely grab the first org, or create one if the user has an empty list
+                    if isinstance(orgs, list) and len(orgs) > 0:
+                        org_id = orgs[0].get("id")
+                    else:
+                        new_org = (await client.post("https://api.supabase.com/v1/organizations", headers=headers, json={"name": "Gorilla Apps"})).json()
+                        org_id = new_org.get("id")
 
-                    if org_id:
-                        db_pass = secrets.token_urlsafe(16)
-                        safe_db_name = re.sub(r'[^a-zA-Z0-9 ]', '', project_name)[:32].strip() or "Gorilla App"
-                        proj_res = await client.post("https://api.supabase.com/v1/projects", headers=headers, json={"organization_id": org_id, "name": safe_db_name, "db_pass": db_pass, "region": "us-east-1", "plan": "free"})
+                    if not org_id:
+                        raise Exception("Could not find or create a Supabase organization.")
+
+                    # Proceed with provisioning now that we safely have an org_id
+                    db_pass = secrets.token_urlsafe(16)
+                    safe_db_name = re.sub(r'[^a-zA-Z0-9 ]', '', project_name)[:32].strip() or "Gorilla App"
+                    proj_res = await client.post("https://api.supabase.com/v1/projects", headers=headers, json={"organization_id": org_id, "name": safe_db_name, "db_pass": db_pass, "region": "us-east-1", "plan": "free"})
+                
+                    if proj_res.status_code == 201:
+                        project_ref = proj_res.json().get("id")
+                        supabase.table("projects").update({"supabase_project_ref": project_ref}).eq("id", project_id).execute()
+                    
+                        supa_anon_key = "PROVISIONING_IN_PROGRESS"
+                        emit_log(project_id, "system", "Waiting for Postgres instance to boot (this can take 1-2 minutes)...")
                         
-                        if proj_res.status_code == 201:
-                            project_ref = proj_res.json().get("id")
-                            supabase.table("projects").update({"supabase_project_ref": project_ref}).eq("id", project_id).execute()
-                            
-                            supa_anon_key = "PROVISIONING_IN_PROGRESS"
-                            for _ in range(5):
-                                keys_res = await client.get(f"https://api.supabase.com/v1/projects/{project_ref}/api-keys", headers=headers)
-                                if keys_res.status_code == 200:
-                                    anon_obj = next((k for k in keys_res.json() if k.get("name") == "anon"), None)
-                                    if anon_obj:
+                        # 🛑 THE ANON_KEY FIX: Poll up to 30 times (120 seconds) for the DB to fully boot
+                        for attempt in range(30):
+                            keys_res = await client.get(f"https://api.supabase.com/v1/projects/{project_ref}/api-keys", headers=headers)
+                            if keys_res.status_code == 200:
+                                keys_list = keys_res.json()
+                                # Make sure the DB is actually returning the keys array, not an empty list
+                                if isinstance(keys_list, list) and len(keys_list) > 0:
+                                    anon_obj = next((k for k in keys_list if k.get("name") == "anon"), None)
+                                    if anon_obj and anon_obj.get("api_key"):
                                         supa_anon_key = anon_obj.get("api_key")
+                                        emit_log(project_id, "system", "✅ Database keys generated successfully!")
                                         break
-                                await asyncio.sleep(1.5)
-
-                            env_content = f"\nVITE_SUPABASE_URL=https://{project_ref}.supabase.co\nVITE_SUPABASE_ANON_KEY={supa_anon_key}\n"
                             
-                            # Safely inject into existing .env
-                            existing_env = file_tree.get(".env", "")
-                            db_upsert("files", {"project_id": project_id, "path": ".env", "content": existing_env + env_content}, on_conflict="project_id,path")
-                            emit_file_changed(project_id, ".env")
-                            emit_log(project_id, "system", f"Database successfully provisioned! Ref: {project_ref}")
+                            # Keep the user informed that it's still polling
+                            if attempt % 3 == 0:
+                                emit_log(project_id, "debugger", f"Instance still booting... (Attempt {attempt+1}/30)")
+                            await asyncio.sleep(4)
+
+                        # Write exactly what Vite expects
+                        env_content = f"\nVITE_SUPABASE_URL=https://{project_ref}.supabase.co\nVITE_SUPABASE_ANON_KEY={supa_anon_key}\n"
+                    
+                        # Safely inject into existing .env
+                        existing_env = file_tree.get(".env", "")
+                        db_upsert("files", {"project_id": project_id, "path": ".env", "content": existing_env + env_content}, on_conflict="project_id,path")
+                        emit_file_changed(project_id, ".env")
+                        emit_log(project_id, "system", f"Database successfully provisioned! Ref: {project_ref}")
+                    else:
+                        raise Exception(f"Project creation failed: {proj_res.text}")
+                    
             except Exception as e:
                 emit_log(project_id, "system", f"Failed to provision database: {e}")
 
@@ -2261,7 +2300,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         for i, task in enumerate(tasks, 1):
             if user_id:
                 try: enforce_token_limit_or_raise(user_id)
-                except HTTPException: return
+                except Exception: return # Changed to generic Exception to avoid undefined HTTPException if not imported globally
 
             pct = 30 + (60 * (i / total))
             emit_progress(project_id, f"Building...", pct)
@@ -2305,7 +2344,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                 try:
                     lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
                     if lint_err: emit_log(project_id, "system", f"Syntax Error in {path}:\n{lint_err}")
-                except: pass
+                except Exception: pass
 
             db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
             emit_file_changed(project_id, path)
@@ -2372,7 +2411,8 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
                 user_id=owner_id,
                 history=chat_history,
                 is_xmode=False, 
-                skip_planner=True 
+                skip_planner=True,
+                is_system_task=True
             )
             
     except Exception as e:
@@ -2505,7 +2545,8 @@ async def optimize_for_vercel(request: Request, project_id: str):
             prompt=optimization_prompt,
             user_id=user["id"],
             is_xmode=False,
-            skip_planner=True 
+            skip_planner=True,
+            is_system_task=True
         )
         
         try:

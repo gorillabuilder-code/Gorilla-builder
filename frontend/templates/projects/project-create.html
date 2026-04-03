@@ -342,16 +342,12 @@
 
         <div class="btn-group">
           {% if user.plan == 'premium' %}
-            <button type="submit" name="xmode" value="true" class="btn btn-xmode">
-              <i class="ph-fill ph-lightning"></i> Create in X-Mode (Manual Prompting)
-            </button>
-            
             <button type="submit" name="xmode" value="false" class="btn btn-primary" style="background:transparent; color:var(--text-muted); border:1px solid var(--border);">
-              Standard Build
+              Build it!
             </button>
           {% else %}
             <button type="submit" class="btn btn-primary">
-              Build Project <i class="ph-bold ph-arrow-right"></i>
+              Build it! <i class="ph-bold ph-arrow-right"></i>
             </button>
           {% endif %}
         </div>

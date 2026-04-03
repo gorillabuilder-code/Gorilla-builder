@@ -72,11 +72,11 @@ export class WebRunner {
     _createDebouncedLogger(logger, contextName, projectId) {
         let buffer = "";
         let timeout = null;
+        let allClearTimer = null; // 🛑 The 15s All-Clear Timer
 
         const flush = () => {
             if (buffer.trim() === "") return;
 
-            // 🛑 THE PATIENT LOGGER: If AI is fixing, don't drop the error. Wait and try again!
             if (this.isFixing) {
                 timeout = setTimeout(flush, 2000);
                 return;
@@ -92,12 +92,34 @@ export class WebRunner {
         return {
             push: (data) => {
                 buffer += data + "\n";
+                // 🛑 Kill the All-Clear timer immediately if an error is caught
+                if (allClearTimer) clearTimeout(allClearTimer);
+                
                 if (timeout) clearTimeout(timeout);
                 timeout = setTimeout(flush, 3000); 
             },
             flushImmediate: () => {
+                if (allClearTimer) clearTimeout(allClearTimer);
                 if (timeout) clearTimeout(timeout);
                 flush();
+            },
+            startAllClear: () => {
+                if (allClearTimer) clearTimeout(allClearTimer);
+                console.info("⏳ Starting 15s stability check...");
+                
+                allClearTimer = setTimeout(() => {
+                    console.info("✅ [ALL CLEAR] No errors detected for 15s. App is stable.");
+                    
+                    // Fire the all-clear message to the backend
+                    const formData = new FormData();
+                    formData.append("level", "INFO");
+                    formData.append("message", "SYSTEM ALERT: ALL_CLEAR. The application has successfully booted and run for 15 seconds with zero runtime errors. You may transition the user to the live preview.");
+                    
+                    const pid = projectId || window.PROJECT_ID || (window.location.pathname.match(/\/projects\/([^\/]+)/) || [])[1];
+                    if (pid) {
+                        fetch(`/api/project/${pid}/log`, { method: 'POST', body: formData }).catch(()=>{});
+                    }
+                }, 15000); // 15 seconds
             }
         };
     }
@@ -128,7 +150,6 @@ export class WebRunner {
             console.info("❌ Failed to reach AI Auto-Fixer:", err);
         } finally {
             if (this.fixUnlockTimer) clearTimeout(this.fixUnlockTimer);
-            // Ensure AI has enough time to write files before unlocking
             this.fixUnlockTimer = setTimeout(() => { 
                 this.isFixing = false; 
                 console.info("🔓 AI Fix Lock released.");
@@ -144,16 +165,20 @@ export class WebRunner {
 
         while (!success && attempts < 3) {
             attempts++;
-            logger("system", `Installing Dependencies (Attempt ${attempts})`);
+            
+            logger("system", attempts === 1 ? "Installing Dependencies (Fast Sync)..." : `Installing Dependencies (Clean Attempt ${attempts})...`);
             let errorLogs = ""; 
 
-            const rmProcess = await this.instance.spawn('rm', ['-rf', 'node_modules', 'package-lock.json', 'pnpm-lock.yaml']);
-            await rmProcess.exit; 
+            if (attempts > 1) {
+                logger("system", "Clearing dependency cache and retrying...");
+                const rmProcess = await this.instance.spawn('rm', ['-rf', 'node_modules', 'package-lock.json', 'pnpm-lock.yaml']);
+                await rmProcess.exit; 
+            }
 
-            const process = await this.instance.spawn('npx', [
-                'pnpm', 
+            const process = await this.instance.spawn('pnpm', [
                 'install', 
-                '--shamefully-hoist'
+                '--shamefully-hoist',
+                '--no-frozen-lockfile'
             ]);
             
             process.output.pipeTo(new WritableStream({
@@ -166,20 +191,23 @@ export class WebRunner {
             const exitCode = await process.exit;
             
             if (exitCode !== 0) {
-                logger("system", `⚠️ pnpm install failed (code ${exitCode}). Notifying AI Coder...`);
+                logger("system", `⚠️ pnpm install failed (code ${exitCode}).`);
                 
-                if (!this.isFixing) {
+                if (!this.isFixing && attempts === 2) {
+                    logger("system", "Notifying AI Auto-Fixer...");
                     const autoPrompt = `SYSTEM ALERT: package installation failed. Logs:\n<logs>\n${errorLogs.slice(-8000)}\n</logs>\nPlease review package.json for invalid packages or version conflicts and rewrite it.`;
                     await this._notifyCoder(projectId, autoPrompt);
                 }
 
-                logger("system", "Waiting for AI to apply fixes before retrying...");
-                let waitTicks = 0;
-                while (this.isFixing && waitTicks < 60) {
-                    await new Promise(r => setTimeout(r, 1000));
-                    waitTicks++;
+                if (this.isFixing) {
+                    logger("system", "Waiting for AI to apply fixes before retrying...");
+                    let waitTicks = 0;
+                    while (this.isFixing && waitTicks < 60) {
+                        await new Promise(r => setTimeout(r, 1000));
+                        waitTicks++;
+                    }
+                    await new Promise(r => setTimeout(r, 2000)); 
                 }
-                await new Promise(r => setTimeout(r, 2000)); 
             } else {
                 logger("system", "✅ Dependencies installed beautifully.");
                 success = true;
@@ -190,7 +218,6 @@ export class WebRunner {
     async start(onReady, logger, projectId) {
         if (!this.instance) throw new Error("Container not booted");
 
-        // 🛑 BULLETPROOF ENVIRONMENT INJECTION
         const envVars = {
             GORILLA_API_KEY: window.GORILLA_API_KEY || " not found! ", 
             VITE_GORILLA_AUTH_ID: window.GORILLA_AUTH_ID || "", 
@@ -198,18 +225,15 @@ export class WebRunner {
 
         const serverErrorTracker = this._createDebouncedLogger(logger, "Runtime/Server", projectId);
 
-            // 🛑 Listen for Browser errors from our injected script
-        window.addEventListener("message", (e) => {
-            if (e.data && e.data.type === 'iframe_error') {
-                // Filter out the empty "Console Error: {}" messages
-                if (e.data.message !== "Console Error: {}") {
-                    console.info("🔴 [BROWSER ERROR CAUGHT]", e.data.message);
-                    serverErrorTracker.push(e.data.message);
-                }
-            }
-        });
+        window.addEventListener("message", (e) => {
+            if (e.data && e.data.type === 'iframe_error') {
+                if (e.data.message !== "Console Error: {}") {
+                    console.info("🔴 [BROWSER ERROR CAUGHT]", e.data.message);
+                    serverErrorTracker.push(e.data.message);
+                }
+            }
+        });
 
-        // 🛑 Zombie Server Auto-Restarter
         const bootServer = async () => {
             logger("system", "🚀 Starting Dev Server...");
             this.shell = await this.instance.spawn('npm', ['run', 'dev'], { env: envVars });
@@ -251,6 +275,9 @@ export class WebRunner {
             console.log(`⚡ Server ready at ${url}`);
             this.url = url;
             onReady(url);
+            
+            // 🛑 Start the All-Clear countdown the moment the server is ready!
+            serverErrorTracker.startAllClear();
         });
     }
 

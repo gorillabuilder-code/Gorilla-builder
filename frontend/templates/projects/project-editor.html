@@ -9,6 +9,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Funnel+Display:wght@300..800&display=swap" rel="stylesheet">
 
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+  
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1594181130407895" crossorigin="anonymous"></script>
 
   <script type="module">
     import { marked } from "https://esm.sh/marked@12.0.1";
@@ -51,6 +53,8 @@
               extensions.push(html());
           } else if (fileName.endsWith('.css')) {
               extensions.push(css());
+          } else if (fileName.endsWith('.sql')) {
+              extensions.push(javascript());
           }
       }
 
@@ -117,6 +121,45 @@
 
   .shell { display: flex; height: 100vh; width: 100%; overflow: hidden; }
 
+  /* --- THEATRE MODE (Wide Chat UX) --- */
+  .shell.theatre-mode {
+      justify-content: center;
+      background: var(--bg);
+  }
+  .shell.theatre-mode .main {
+      display: none !important;
+  }
+  .shell.theatre-mode .left {
+      width: 800px;
+      max-width: 95vw;
+      height: calc(100vh - 40px);
+      margin: 20px auto;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 20px 80px rgba(0,0,0,0.8), 0 0 0 1px var(--accent-glow);
+      transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .ad-side {
+      display: none;
+      width: 160px;
+      margin: 20px;
+      align-items: center;
+      justify-content: center;
+  }
+  .shell.theatre-mode .ad-side {
+      display: flex;
+  }
+  .ad-bottom {
+      padding: 12px;
+      border-top: 1px solid var(--border);
+      background: rgba(0,0,0,0.4);
+      text-align: center;
+      min-height: 90px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+  }
+
   /* --- 3. THEME OVERRIDES --- */
   body.premium {
     --accent: #ffd700; 
@@ -148,6 +191,7 @@
     backdrop-filter: var(--glass);
     position: relative;
     z-index: 20;
+    transition: width 0.4s ease;
   }
 
   .left header {
@@ -430,20 +474,6 @@
   #editor { flex: 1; height: 100%; overflow: hidden; }
   #preview { width: 100%; height: 100%; border: 0; display: none; background: #fff; }
 
-  /* --- 6. AD STYLES (Cleaned Up) --- */
-  .ad-strip-horiz {
-      background: #000;
-      border-bottom: 1px solid var(--border);
-      display: flex; justify-content: center; align-items: center;
-      padding: 10px; width: 100%; min-height: 90px;
-  }
-  .ad-box-square {
-      margin: 10px; background: rgba(0,0,0,0.5);
-      border: 1px solid var(--border); border-radius: 8px;
-      display: flex; justify-content: center; align-items: center;
-      min-height: 200px;
-  }
-
   /* Scrollbar Customization */
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -472,14 +502,26 @@
   </h2>
 </div>
 
-<div class="shell">
+<div class="shell theatre-mode">
 
-<aside class="left">
-  <header>
-    <div class="hgroup">
-      <div class="t">
-        <svg version="1.0" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 600 600" style="filter: drop-shadow(0 0 5px var(--accent));"> 
-            <g transform="translate(0.000000,603.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none"> <path d="M1497 6023 c827 -2 2179 -2 3005 0 827 1 151 2 -1502 2 -1653 0 -2329 -1 -1503 -2z"/> <path d="M2802 5273 c-43 -24 -131 -143 -182 -246 -99 -202 -106 -410 -19 -598 59 -128 153 -189 246 -158 56 18 81 37 108 84 34 57 32 112 -6 216 -54 145 -51 327 7 490 41 113 27 176 -46 214 -38 20 -68 19 -108 -2z"/> <path d="M3290 5268 c-74 -50 -185 -230 -228 -369 -44 -142 -37 -293 19 -440 52 -134 141 -208 234 -195 131 20 194 151 136 281 -67 150 -67 316 0 522 26 80 29 98 20 126 -28 83 -116 119 -181 75z"/> <path d="M685 4560 c-171 -34 -283 -139 -331 -306 -15 -50 -18 -129 -23 -519 -4 -321 -10 -466 -18 -480 -32 -56 -64 -70 -205 -90 -26 -4 -46 -17 -72 -45 -33 -36 -36 -45 -36 -99 0 -98 62 -161 157 -161 59 0 119 -26 146 -64 22 -31 22 -35 28 -496 5 -424 8 -471 26 -531 11 -37 31 -87 46 -111 72 -124 228 -198 418 -198 125 0 200 111 151 223 -26 59 -64 82 -148 90 -73 7 -116 27 -148 70 -20 28 -21 41 -27 490 -6 505 -8 526 -68 632 l-28 50 28 50 c60 106 62 128 68 630 6 427 7 462 25 491 26 44 68 65 139 71 81 7 131 35 157 88 26 53 25 91 -2 145 -32 61 -73 80 -168 79 -41 -1 -93 -5 -115 -9z"/> <path d="M5102 4550 c-68 -42 -92 -135 -54 -209 26 -52 60 -72 140 -81 83 -9 128 -32 157 -80 19 -33 20 -56 26 -500 6 -505 6 -513 66 -621 l26 -45 -26 -45 c-59 -103 -61 -113 -67 -619 -5 -461 -5 -465 -28 -501 -28 -45 -72 -67 -156 -77 -111 -14 -160 -66 -153 -165 4 -66 26 -103 78 -130 28 -15 50 -18 124 -13 218 12 351 101 416 278 22 61 23 74 28 533 6 503 6 500 58 547 19 18 78 34 155 43 33 4 56 15 78 35 29 27 30 31 30 118 0 88 -1 91 -31 116 -33 28 -45 32 -127 40 -66 7 -110 31 -137 76 -19 33 -20 56 -26 505 -6 496 -6 500 -55 598 -70 138 -221 217 -414 217 -57 0 -83 -5 -108 -20z"/> <path d="M1965 3849 c-113 -9 -166 -24 -280 -79 -312 -150 -493 -462 -471 -810 13 -209 89 -379 238 -529 161 -163 321 -236 545 -248 269 -14 478 70 667 267 61 65 95 111 130 179 70 136 89 217 89 386 0 124 -3 151 -27 230 -53 176 -145 314 -282 425 -174 139 -372 197 -609 179z m214 -324 c173 -46 319 -185 372 -354 23 -76 28 -212 9 -282 -50 -186 -208 -340 -391 -384 -181 -42 -372 15 -499 152 -100 106 -144 218 -143 363 1 290 228 517 518 519 44 0 104 -6 134 -14z"/> <path d="M3880 3849 c-190 -17 -341 -86 -488 -224 -112 -104 -200 -249 -239 -395 -25 -92 -25 -339 0 -430 78 -281 316 -519 597 -597 101 -28 339 -25 443 5 152 44 285 128 397 250 146 158 211 332 212 557 0 244 -82 436 -259 606 -181 175 -402 251 -663 228z m213 -324 c282 -73 454 -362 382 -640 -45 -171 -179 -312 -355 -371 -80 -27 -243 -25 -324 5 -202 73 -337 252 -353 466 -17 243 150 475 388 539 71 19 191 20 262 1z"/> </g> 
+  {% if user.plan != 'premium' %}
+  <div class="ad-side">
+      <ins class="adsbygoogle"
+           style="display:block"
+           data-ad-client="ca-pub-1594181130407895"
+           data-ad-slot="4574000639"
+           data-ad-format="vertical"
+           data-full-width-responsive="true"></ins>
+      <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+  </div>
+  {% endif %}
+
+  <aside class="left">
+    <header>
+      <div class="hgroup">
+        <div class="t">
+          <svg version="1.0" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 600 600" style="filter: drop-shadow(0 0 5px var(--accent));"> 
+              <g transform="translate(0.000000,603.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none"> <path d="M1497 6023 c827 -2 2179 -2 3005 0 827 1 151 2 -1502 2 -1653 0 -2329 -1 -1503 -2z"/> <path d="M2802 5273 c-43 -24 -131 -143 -182 -246 -99 -202 -106 -410 -19 -598 59 -128 153 -189 246 -158 56 18 81 37 108 84 34 57 32 112 -6 216 -54 145 -51 327 7 490 41 113 27 176 -46 214 -38 20 -68 19 -108 -2z"/> <path d="M3290 5268 c-74 -50 -185 -230 -228 -369 -44 -142 -37 -293 19 -440 52 -134 141 -208 234 -195 131 20 194 151 136 281 -67 150 -67 316 0 522 26 80 29 98 20 126 -28 83 -116 119 -181 75z"/> <path d="M685 4560 c-171 -34 -283 -139 -331 -306 -15 -50 -18 -129 -23 -519 -4 -321 -10 -466 -18 -480 -32 -56 -64 -70 -205 -90 -26 -4 -46 -17 -72 -45 -33 -36 -36 -45 -36 -99 0 -98 62 -161 157 -161 59 0 119 -26 146 -64 22 -31 22 -35 28 -496 5 -424 8 -471 26 -531 11 -37 31 -87 46 -111 72 -124 228 -198 418 -198 125 0 200 111 151 223 -26 59 -64 82 -148 90 -73 7 -116 27 -148 70 -20 28 -21 41 -27 490 -6 505 -8 526 -68 632 l-28 50 28 50 c60 106 62 128 68 630 6 427 7 462 25 491 26 44 68 65 139 71 81 7 131 35 157 88 26 53 25 91 -2 145 -32 61 -73 80 -168 79 -41 -1 -93 -5 -115 -9z"/> <path d="M5102 4550 c-68 -42 -92 -135 -54 -209 26 -52 60 -72 140 -81 83 -9 128 -32 157 -80 19 -33 20 -56 26 -500 6 -505 6 -513 66 -621 l26 -45 -26 -45 c-59 -103 -61 -113 -67 -619 -5 -461 -5 -465 -28 -501 -28 -45 -72 -67 -156 -77 -111 -14 -160 -66 -153 -165 4 -66 26 -103 78 -130 28 -15 50 -18 124 -13 218 12 351 101 416 278 22 61 23 74 28 533 6 503 6 500 58 547 19 18 78 34 155 43 33 4 56 15 78 35 29 27 30 31 30 118 0 88 -1 91 -31 116 -33 28 -45 32 -127 40 -66 7 -110 31 -137 76 -19 33 -20 56 -26 505 -6 496 -6 500 -55 598 -70 138 -221 217 -414 217 -57 0 -83 -5 -108 -20z"/> <path d="M1965 3849 c-113 -9 -166 -24 -280 -79 -312 -150 -493 -462 -471 -810 13 -209 89 -379 238 -529 161 -163 321 -236 545 -248 269 -14 478 70 667 267 61 65 95 111 130 179 70 136 89 217 89 386 0 124 -3 151 -27 230 -53 176 -145 314 -282 425 -174 139 -372 197 -609 179z m214 -324 c173 -46 319 -185 372 -354 23 -76 28 -212 9 -282 -50 -186 -208 -340 -391 -384 -181 -42 -372 15 -499 152 -100 106 -144 218 -143 363 1 290 228 517 518 519 44 0 104 -6 134 -14z"/> <path d="M3880 3849 c-190 -17 -341 -86 -488 -224 -112 -104 -200 -249 -239 -395 -25 -92 -25 -339 0 -430 78 -281 316 -519 597 -597 101 -28 339 -25 443 5 152 44 285 128 397 250 146 158 211 332 212 557 0 244 -82 436 -259 606 -181 175 -402 251 -663 228z m213 -324 c282 -73 454 -362 382 -640 -45 -171 -179 -312 -355 -371 -80 -27 -243 -25 -324 5 -202 73 -337 252 -353 466 -17 243 150 475 388 539 71 19 191 20 262 1z"/> </g> 
         </svg> 
         <span> Gor://a {% if xmode %}X{% endif %}</span>
       </div>
@@ -526,6 +568,18 @@
 
   <div class="chat" id="chat"></div>
 
+  {% if user.plan != 'premium' %}
+  <div class="ad-bottom">
+      <ins class="adsbygoogle"
+           style="display:block; width:100%"
+           data-ad-client="ca-pub-1594181130407895"
+           data-ad-slot="4574000639"
+           data-ad-format="auto"
+           data-full-width-responsive="true"></ins>
+      <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+  </div>
+  {% endif %}
+
   <div class="agent-input" style="align-items: center; padding: 15px 20px;">
     
     <input type="file" id="editorImageInput" accept="image/png, image/jpeg, image/webp" hidden />
@@ -553,7 +607,19 @@
       </svg>
     </button>
   </div>
-</aside>
+  </aside>
+
+  {% if user.plan != 'premium' %}
+  <div class="ad-side">
+      <ins class="adsbygoogle"
+           style="display:block"
+           data-ad-client="ca-pub-1594181130407895"
+           data-ad-slot="4574000639"
+           data-ad-format="vertical"
+           data-full-width-responsive="true"></ins>
+      <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+  </div>
+  {% endif %}
 
 <section class="main">
   <div class="topbar">
@@ -624,6 +690,14 @@
     <div class="stage">
       <div id="editor"></div>
       <div id="imageViewer" style="display:none; flex:1; align-items:center; justify-content:center; overflow:auto; background:#0d111c; padding: 20px;"></div>
+      
+      <div id="previewLoader" style="display:none; position:absolute; inset:0; background:#0d111c; z-index:10; flex-direction:column; align-items:center; justify-content:center;">
+          <div class="loading-wave active" style="transform: scale(2); margin-bottom: 20px;">
+              <div class="loading-bar"></div><div class="loading-bar"></div><div class="loading-bar"></div>
+          </div>
+          <p id="previewLoaderText" style="color:var(--text-muted); font-family:monospace; letter-spacing: 1px;">Mounting WebContainer...</p>
+      </div>
+
       <iframe id="preview"></iframe>
     </div>
   </div>
@@ -684,6 +758,7 @@ const RESUME_DB_AGENT = {{ 'true' if resume_db_agent else 'false' }};
 
 window.isAgentWorking = false;
 let pendingFileUpdates = {}; 
+let needsNpmInstall = false; // 🛑 Tracks if package.json was modified
 let currentThoughtBlock = null;
 let thoughtList = null;
 
@@ -818,14 +893,10 @@ function addThought(text, role = "system") {
         chat.appendChild(currentThoughtBlock);
     }
     
-    // The safe, boring, crash-proof version
     let cleanText = text.trim();
-    
-    // Fallback: If any single stray symbol makes it through, just slice off the first character if it's not a normal letter/bracket
     if (/^[^a-zA-Z0-9\[]/.test(cleanText)) {
         cleanText = cleanText.substring(1).trim();
     }
-    
     if (!cleanText) return;
 
     let iconSvg = '';
@@ -833,23 +904,18 @@ function addThought(text, role = "system") {
     
     const lowerText = cleanText.toLowerCase();
     if (lowerText.includes('analyzed') || lowerText.includes('read') || lowerText.includes('gathering')) {
-        // Document Scan
         iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`;
         iconClass = 'anim-scan';
     } else if (lowerText.includes('update') || lowerText.includes('build') || lowerText.includes('edit')) {
-        // Gear Spin
         iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`;
         iconClass = 'anim-spin';
     } else if (lowerText.includes('error') || lowerText.includes('fail')) {
-        // Warning Shake
         iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
         iconClass = 'anim-shake';
     } else if (lowerText.includes('plan') || lowerText.includes('think') || lowerText.includes('analyz')) {
-        // Brain/Sparkle Pulse
         iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1-1-1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
         iconClass = 'anim-pulse';
     } else if (lowerText.includes('done') || lowerText.includes('complete')) {
-        // Check mark
         iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
         iconClass = '';
     } else {
@@ -876,59 +942,89 @@ function addThought(text, role = "system") {
     chat.scrollTop = chat.scrollHeight;
 }
 
+// 🛑 1. SUPER SAFE: Load Chat History
 function loadChatHistory() {
   try {
     const dbHistory = {{ chat_history | safe }};
+    
     if (Array.isArray(dbHistory) && dbHistory.length > 0) {
-      dbHistory.forEach(m => addMessage(m.role, m.content || m.text, false));
+      localStorage.removeItem(CHAT_KEY);
+      
+      dbHistory.forEach(m => {
+        const text = m.content || m.text || "";
+        const role = m.role || "user";
+        
+        addMessage(role, text, false); 
+      });
+      
+      const freshHistory = dbHistory
+         .filter(h => h.role !== "system" && !(h.content || h.text || "").includes("data:image"))
+         .map(h => ({ role: h.role, text: h.content || h.text }));
+         
+      localStorage.setItem(CHAT_KEY, JSON.stringify(freshHistory));
       chat.scrollTop = chat.scrollHeight;
-      localStorage.setItem(CHAT_KEY, JSON.stringify(dbHistory.map(h => ({ role: h.role, text: h.content || h.text }))));
     }
-  } catch (e) { console.error("Chat Load Error", e); }
+  } catch (e) { 
+    console.error("Chat Load Error: Data corrupted. Falling back to fresh start.", e); 
+    localStorage.removeItem(CHAT_KEY);
+  }
 }
 
+// 🛑 2. SUPER SAFE: Save Chat History
 function saveChatHistory(role, text) {
-  if (text.includes("data:image")) return;
+  if (!text) return;
+  if (role === "system" || text.includes("data:image") || text.length > 50000) return;
+
   try {
     const raw = localStorage.getItem(CHAT_KEY);
     const history = raw ? JSON.parse(raw) : [];
+    
     history.push({ role, text });
-    if(history.length > 50) history.shift();
+    
+    if (history.length > 50) history.shift();
+    
     localStorage.setItem(CHAT_KEY, JSON.stringify(history));
-  } catch (e) {}
+  } catch (e) {
+    console.warn("Storage warning:", e);
+    if (e.name === 'QuotaExceededError') {
+      localStorage.removeItem(CHAT_KEY);
+    }
+  }
 }
 
-function addMessage(role, text, save=true){
-  // 🛑 FIX: Format squished numbered lists from the assistant so they render beautifully
-  if (role === "assistant" && text) {
+// 🛑 3. SUPER SAFE: Add Message to DOM
+function addMessage(role, text, save=true) {
+  if (!text) return;
+
+  if (role === "system") {
+      // Intercept formatting for system messages silently
+  } else if (role === "assistant") {
       text = text.replace(/([.?!])\s+(?=\d+\.)/g, '$1\n\n');
   }
 
   const el = document.createElement("div");
   el.className = "msg " + role;
 
-  if (role === "system") {
-      try {
-          const safeHtml = DOMPurify.sanitize(marked.parse(text || ""));
-          el.innerHTML = `<div class="md">${safeHtml}</div>`;
-      } catch(e) { el.textContent = text; }
-  } else if (role === "planner") {
+  if (role === "planner") {
       if (text.includes('agent-step') || text.includes('<script')) {
           el.innerHTML = DOMPurify.sanitize(text, { ADD_TAGS: ['script'], ADD_ATTR: ['onclick', 'onload', 'id', 'class', 'style', 'data-status'] });
       } else {
-          el.innerHTML = `<div class="meta">${role}</div><div class="md">${DOMPurify.sanitize(marked.parse(text || ""))}</div>`;
+          el.innerHTML = `<div class="meta">${role}</div><div class="md">${DOMPurify.sanitize(marked.parse(text))}</div>`;
       }
+  } else if (role === "system") {
+      el.innerHTML = DOMPurify.sanitize(marked.parse(text));
   } else {
       try {
-          el.innerHTML = `<div class="meta">${role}</div><div class="md">${DOMPurify.sanitize(marked.parse(text || ""))}</div>`;
+          el.innerHTML = `<div class="meta">${role}</div><div class="md">${DOMPurify.sanitize(marked.parse(text))}</div>`;
       } catch(e) { el.textContent = text; }
   }
 
-  if(chat) {
+  if (chat) {
       chat.appendChild(el);
       chat.scrollTop = chat.scrollHeight;
   }
-  if(save && role !== "system") saveChatHistory(role, text);
+  
+  if (save) saveChatHistory(role, text);
 }
 
 // --- STATUS UI ---
@@ -1055,6 +1151,13 @@ async function refreshFiles(){
   const data = await fetchJSON(`/api/project/${PROJECT_ID}/files`);
   const paths = (data.files || []).map(x => x.path);
   
+  // Manage Theatre Mode if we aren't actively waiting for ALL_CLEAR
+  if (paths.length > 0 && !window.isAgentWorking) {
+      document.querySelector('.shell').classList.remove('theatre-mode');
+  } else if (paths.length === 0) {
+      document.querySelector('.shell').classList.add('theatre-mode');
+  }
+  
   if (paths.length > 0 && !paths.includes(currentFile)) {
       if (paths.includes('README.md')) currentFile = 'README.md';
       else if (paths.includes('package.json')) currentFile = 'package.json';
@@ -1068,6 +1171,7 @@ async function refreshFiles(){
       mount.innerHTML = "";
       renderTree(mount, tree, 0);
   }
+  return paths;
 }
 
 function buildEditor(content, fileName){
@@ -1130,7 +1234,6 @@ async function saveCurrentFile(){
   }
 }
 
-// --- BUTTONS & TABS ---
 const btnUpload = $("btnUpload");
 if(btnUpload) btnUpload.onclick = () => $("uploadInput").click();
 const upInput = $("uploadInput");
@@ -1153,18 +1256,84 @@ if(upInput) upInput.onchange = (e) => {
   reader.readAsText(file);
 };
 
+// 🛑 AUTONOMOUS BOOT SEQUENCE WITH LOADER
+async function bootWebContainer() {
+    if (isWebContainerBooted) {
+        refreshPreview();
+        return;
+    }
+
+    const iframe = $("preview");
+    const loader = $("previewLoader");
+    const loaderText = $("previewLoaderText");
+    const status = $("serverStatus");
+
+    try {
+        iframe.style.display = "none";
+        loader.style.display = "flex"; // Show boot loader
+        loaderText.textContent = "Booting Virtual Machine...";
+
+        if (status) {
+            status.textContent = "Booting VM...";
+            status.style.color = "var(--warn)";
+        }
+
+        const response = await fetchJSON(`/api/project/${PROJECT_ID}/files`);
+        const files = response.files || [];
+
+        loaderText.textContent = "Mounting File System...";
+        await webRunner.mount(files);
+        
+        loaderText.textContent = "Installing Dependencies...";
+        await webRunner.install((role, text) => {
+             // addMessage("system", text); // Skip logging install directly to chat to keep it clean
+        }, PROJECT_ID);
+        
+        loaderText.textContent = "Starting Development Server...";
+        await webRunner.start((url) => {
+            loader.style.display = "none"; // Hide loader
+            
+            if (status) {
+                status.textContent = "Live";
+                status.style.color = "var(--ok)";
+            }
+            setProgress("Live", 100);
+            
+            iframe.src = url;
+            iframe.style.display = "block";
+            isWebContainerBooted = true;
+            
+            setTimeout(() => setProgress("Ready", 0), 2000);
+        }, (role, text) => { }, PROJECT_ID);
+
+    } catch (e) {
+        console.error(e);
+        loaderText.textContent = "Boot Failed. Checking Logs...";
+        loaderText.style.color = "var(--danger)";
+        if (status) {
+            status.textContent = "Error";
+            status.style.color = "var(--danger)";
+        }
+        setProgress("Environment Boot Failed.", 0);
+    }
+}
+
+// 🛑 SEAMLESS TAB SWITCHER
 function switchTab(tab){
   if(tab === "preview"){
     $("tabPreview").classList.add("active");
     $("tabCode").classList.remove("active");
     $("editor").style.display = "none";
     $("imageViewer").style.display = "none";
-    $("preview").style.display = "block";
+    
+    // We do NOT set display:block on preview iframe here unconditionally because the loader might be showing
     $("previewModeWrap").style.display = "flex";
-    if(webRunner.url) refreshPreview();
-    else {
-        const btnRun = $("btnRunServer");
-        if(btnRun && !isWebContainerBooted) btnRun.click();
+    
+    if (isWebContainerBooted && webRunner.url) {
+        $("preview").style.display = "block";
+        refreshPreview();
+    } else {
+        bootWebContainer();
     }
   } else {
     $("tabCode").classList.add("active");
@@ -1180,6 +1349,7 @@ function switchTab(tab){
     }
   }
 }
+
 const tCode = $("tabCode");
 if (tCode) tCode.onclick = () => switchTab("code");
 
@@ -1194,67 +1364,29 @@ function refreshPreview(){
 const pm = $("previewMode");
 if (pm) pm.onchange = refreshPreview;
 
-// --- RUN SERVER ---
-const btnRun = $("btnRunServer");
-if (btnRun) {
-    btnRun.onclick = async () => {
-        const btn = $("btnRunServer");
-        const status = $("serverStatus");
-        const iframe = $("preview");
+// 🛑 DETERMINISTIC FILE SYNC & NPM INSTALL
+async function applyPendingUpdates() {
+    if (!isWebContainerBooted || !webRunner || Object.keys(pendingFileUpdates).length === 0) return;
+    
+    setProgress("Applying changes...", 90);
+    for (let path in pendingFileUpdates) {
+        const d = await fetchJSON(`/api/project/${PROJECT_ID}/file?path=${encodeURIComponent(path)}`);
+        const c = (d.content !== undefined) ? d.content : (d.raw || "");
+        await webRunner.writeFile(path, c);
+    }
+    pendingFileUpdates = {};
 
-        try {
-            btn.disabled = true;
-            btn.textContent = "Booting...";
-            if (status) {
-                status.textContent = "Booting VM...";
-                status.style.color = "var(--warn)";
-            }
+    if (needsNpmInstall) {
+        setProgress("Installing new dependencies...", 95);
+        await webRunner.install((role, text) => addMessage("system", text), PROJECT_ID);
+        needsNpmInstall = false;
+    }
 
-            const response = await fetchJSON(`/api/project/${PROJECT_ID}/files`);
-            const files = response.files || [];
-
-            await webRunner.mount(files);
-            await webRunner.install((role, text) => addMessage("system", text));
-            await webRunner.start((url) => {
-                if (status) {
-                    status.textContent = "Live";
-                    status.style.color = "var(--ok)";
-                }
-                btn.textContent = "Refresh";
-                btn.disabled = false;
-                
-                iframe.src = url;
-                iframe.style.display = "block";
-                
-                const tPrevTab = $("tabPreview");
-                if(tPrevTab && !tPrevTab.classList.contains("active")) switchTab("preview");
-            }, (role, text) => { });
-
-            isWebContainerBooted = true;
-
-        } catch (e) {
-            console.error(e);
-            if (status) {
-                status.textContent = "Error";
-                status.style.color = "var(--danger)";
-            }
-            btn.disabled = false;
-            btn.textContent = "▶ Run";
-        }
-    };
+    setTimeout(refreshPreview, 1000);
+    setProgress("Ready", 0);
 }
 
-const btnStop = $("btnStopServer");
-if (btnStop) {
-    btnStop.onclick = () => {
-        $("preview").src = "about:blank";
-        const status = $("serverStatus");
-        if (status) status.textContent = "Paused";
-    };
-}
-
-// --- AGENT STREAM ---
-// --- AGENT STREAM WITH HEAVY FILTRATION ---
+// --- AGENT STREAM WITH ALL-CLEAR INTERCEPTOR ---
 function startStream(){
   if(es) es.close();
   setConn("warn");
@@ -1268,22 +1400,28 @@ function startStream(){
     if(m.type === "status") {
       setProgress(m.text);
       if (m.text.includes("Done") || m.text.includes("Ready") || m.text.includes("Error") || m.text.includes("Waiting for User")) {
-          setInputState(false);
+          
           currentThoughtBlock = null; 
           
-          if (isWebContainerBooted && webRunner && Object.keys(pendingFileUpdates).length > 0) {
-              for (let path in pendingFileUpdates) {
-                  fetchJSON(`/api/project/${PROJECT_ID}/file?path=${encodeURIComponent(path)}`)
-                  .then(d => {
-                      const c = (d.content !== undefined) ? d.content : (d.raw || "");
-                      webRunner.writeFile(path, c);
-                  });
+          if (m.text.includes("Waiting for User") || m.text.includes("Error")) {
+              setInputState(false);
+          } else if (m.text.includes("Done")) {
+              // Agent finished writing files. Apply and Boot.
+              addMessage("system", "Agent tasks complete. Booting and verifying application stability...");
+              
+              if (isWebContainerBooted && webRunner && Object.keys(pendingFileUpdates).length > 0) {
+                  applyPendingUpdates();
+              } else if (!isWebContainerBooted) {
+                  bootWebContainer();
               }
-              pendingFileUpdates = {};
-              setTimeout(refreshPreview, 1000);
-          } else if (!isWebContainerBooted && m.text.includes("Done")) {
-              const runB = $("btnRunServer");
-              if(runB) runB.click();
+
+              // Safety Fallback: Unlock UI after 25s if ALL_CLEAR fails to arrive
+              setTimeout(() => {
+                  if (window.isAgentWorking) {
+                      document.querySelector('.shell').classList.remove('theatre-mode');
+                      setInputState(false);
+                  }
+              }, 25000);
           }
       }
     }
@@ -1293,13 +1431,26 @@ function startStream(){
     
     if(m.type === "log") {
       const role = (m.role || "agent").toLowerCase();
+      const text = m.text || "";
+
+      // 🛑 ALL CLEAR INTERCEPTOR
+      if (text.includes("SYSTEM ALERT: ALL_CLEAR")) {
+          document.querySelector('.shell').classList.remove('theatre-mode');
+          setInputState(false);
+          currentThoughtBlock = null;
+          addMessage("system", `<div style="padding:12px; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); border-radius:8px; color:#10b981; font-weight:bold;">✨ App successfully compiled and verified! Opening preview...</div>`);
+          
+          setTimeout(() => {
+              switchTab("preview");
+          }, 1500);
+          return; // Skip normal logging
+      }
       
       if (role === "assistant") {
           currentThoughtBlock = null; 
-          addMessage(role, m.text);
+          addMessage(role, text);
       } else if (role !== "user") {
-          // 🛑 HEAVY FILTRATION: Silence the routing and state-machine spam
-          const tLower = m.text.toLowerCase();
+          const tLower = text.toLowerCase();
           const isJunk = tLower.includes("initialized") || 
                          tLower.includes("need user clarification") || 
                          tLower.includes("clarification needed") ||
@@ -1309,7 +1460,7 @@ function startStream(){
                          tLower.includes("analyzing: --- previous");
                          
           if (!isJunk) {
-              addThought(m.text, role);
+              addThought(text, role);
           }
       }
     }
@@ -1320,6 +1471,10 @@ function startStream(){
       if(m.path === currentFile) loadFile(currentFile);
       
       pendingFileUpdates[m.path] = true;
+      
+      if (m.path === "package.json") {
+          needsNpmInstall = true;
+      }
     }
     
     if(m.type === "token_usage") updateTokens(m.used);
@@ -1339,7 +1494,7 @@ async function triggerAgent(promptText) {
         msgEl.innerHTML = `
             <div style="border:1px solid var(--accent); padding:16px; border-radius:12px; background:rgba(59,130,246,0.1); width:100%;">
                 <div style="font-weight:bold; color:#fff; margin-bottom:8px; display:flex; align-items:center; gap:8px;">
-                   🚀 Ready to Launch?
+                    🚀 Ready to Launch?
                 </div>
                 <p style="margin:0 0 16px 0; color:var(--text-muted); font-size:13px;">It looks like you're ready to deploy your application to the world!</p>
                 <button onclick="window.open('/projects/${PROJECT_ID}/deploy', '_blank')" class="smallbtn" style="background:var(--accent); border-color:var(--accent); color:#fff; width:100%; font-weight:bold; padding:10px; cursor:pointer;">Go to Deployment Dashboard</button>
@@ -1352,7 +1507,6 @@ async function triggerAgent(promptText) {
         return;
     }
 
-    // 🛑 UPGRADED REGEX: Catch user intent much earlier
     const dbKeywords = /\b(db|database|supabase|postgres|sql)\b/i;
     const isDbReq = dbKeywords.test(promptText);
     
@@ -1371,41 +1525,41 @@ async function triggerAgent(promptText) {
                     <button onclick="window.location.href='/auth/supabase/link'" class="smallbtn" style="background:#3ECF8E; border-color:#3ECF8E; color:#000; width:100%; font-weight:bold; padding:10px;">Link Supabase Account</button>
                 </div>
             `;
-        chat.appendChild(msgEl);
-        chat.scrollTop = chat.scrollHeight;
-        const promptInput = $("prompt");
-        if(promptInput) promptInput.value = promptText; 
-        return;
-    } else {
-        formData.append("is_db_request", "true");
+            chat.appendChild(msgEl);
+            chat.scrollTop = chat.scrollHeight;
+            const promptInput = $("prompt");
+            if(promptInput) promptInput.value = promptText; 
+            return;
+        } else {
+            formData.append("is_db_request", "true");
+        }
     }
-  }
     
-  setInputState(true);
+    setInputState(true);
 
-  if (currentAttachedImage) {
-      const refCard = document.createElement("div");
-      refCard.style.cssText = "align-self: flex-end; margin: 10px 20px 5px 0; background: rgba(59, 130, 246, 0.1); border: 1px dashed rgba(59, 130, 246, 0.4); border-radius: 12px; padding: 12px; max-width: 60%; text-align: center;";
-      refCard.innerHTML = `<div style="font-size: 10px; text-transform: uppercase; color: var(--accent); font-weight: bold; margin-bottom: 8px; letter-spacing: 1px;"><i class="ph-bold ph-image"></i> Attached Reference</div><img src="${currentAttachedImage}" style="max-width: 100%; max-height: 150px; border-radius: 8px;">`;
-      chat.appendChild(refCard);
-  }
+    if (currentAttachedImage) {
+        const refCard = document.createElement("div");
+        refCard.style.cssText = "align-self: flex-end; margin: 10px 20px 5px 0; background: rgba(59, 130, 246, 0.1); border: 1px dashed rgba(59, 130, 246, 0.4); border-radius: 12px; padding: 12px; max-width: 60%; text-align: center;";
+        refCard.innerHTML = `<div style="font-size: 10px; text-transform: uppercase; color: var(--accent); font-weight: bold; margin-bottom: 8px; letter-spacing: 1px;"><i class="ph-bold ph-image"></i> Attached Reference</div><img src="${currentAttachedImage}" style="max-width: 100%; max-height: 150px; border-radius: 8px;">`;
+        chat.appendChild(refCard);
+    }
     
-  addMessage("user", promptText || "Please update the UI to match the attached reference image.");
+    addMessage("user", promptText || "Please update the UI to match the attached reference image.");
     
-  formData.append("prompt", promptText || "Please update the UI to match the attached reference image.");
-  if (currentAttachedImage) formData.append("image_base64", currentAttachedImage);
+    formData.append("prompt", promptText || "Please update the UI to match the attached reference image.");
+    if (currentAttachedImage) formData.append("image_base64", currentAttachedImage);
     
-  currentAttachedImage = null;
-  if(editorImagePreview) {
-      editorImagePreview.style.display = "none";
-      editorImagePreview.src = "";
-  }
-  const imgLabel = document.querySelector('label[for="editorImageInput"]');
-  if(imgLabel) imgLabel.style.display = 'flex';
-  if(editorImageInput) editorImageInput.value = "";
+    currentAttachedImage = null;
+    if(editorImagePreview) {
+        editorImagePreview.style.display = "none";
+        editorImagePreview.src = "";
+    }
+    const imgLabel = document.querySelector('label[for="editorImageInput"]');
+    if(imgLabel) imgLabel.style.display = 'flex';
+    if(editorImageInput) editorImageInput.value = "";
     
-  await fetch(`/api/project/${PROJECT_ID}/agent/start`, { method: "POST", body: formData });
-  startStream();
+    await fetch(`/api/project/${PROJECT_ID}/agent/start`, { method: "POST", body: formData });
+    startStream();
 }
 
 const btnRunAgent = $("runAgent");
@@ -1436,16 +1590,20 @@ if (promptInput) {
 // --- INIT ---
 (async () => {
   loadChatHistory();
-  await refreshFiles();
+  const paths = await refreshFiles();
   try { await loadFile(currentFile); } catch(e) {}
   
   startStream();
   setProgress("Ready", 0);
   hideEditorLoader();
+
+  // If files exist, Auto-Boot the VM in the background immediately!
+  if (paths && paths.length > 0) {
+      bootWebContainer();
+  }
   
   if (RESUME_DB_AGENT) {
       addThought("Resuming Supabase Architecture Session...");
-      triggerAgent("Review the current database schema and ensure everything is correctly provisioned.");
   } else if (INITIAL_PROMPT && INITIAL_PROMPT.length > 0 && !INITIAL_PROMPT.includes("figma.json")) {
       setTimeout(() => triggerAgent(INITIAL_PROMPT), 1000);
   }

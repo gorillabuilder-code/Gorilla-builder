@@ -12,7 +12,7 @@
 </pre>
 
 **The Autonomous Multi-Agent Orchestration Engine for Full-Stack SaaS.**
-
+[![SPONSORED BY E2B FOR STARTUPS](https://img.shields.io/badge/SPONSORED%20BY-E2B%20FOR%20STARTUPS-ff8800?style=for-the-badge)](https://e2b.dev/startups)
 [![Discord](https://img.shields.io/badge/Discord-Join_the_Beta-7289da?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/V3f3PkwQbY)
 [![Website](https://img.shields.io/badge/Website-gorillabuilder.dev-00ff41?style=for-the-badge)](https://gorillabuilder.dev)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-GorillaBuilder-blue?style=for-the-badge&logo=linkedin)](https://www.linkedin.com/in/gorillabuilder)

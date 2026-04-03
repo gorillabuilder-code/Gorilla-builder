@@ -879,12 +879,6 @@
               <span><i class="ph ph-clock"></i> {{ project.updated_at.split('T')[0] }}</span>
               
               <div class="card-actions">
-                {% if user.plan == 'premium' %}
-                  <a href="/projects/{{ project.id }}/editor/xmode" class="btn-xmode" onclick="event.stopPropagation();">
-                    <i class="ph-fill ph-lightning"></i> X-MODE
-                  </a>
-                {% endif %}
-                
                 <a href="/projects/{{ project.id }}/editor" class="btn-icon">
                   Open <i class="ph-bold ph-arrow-right"></i>
                 </a>
@@ -972,7 +966,37 @@
     </div>
   </div>
 
-  <script>
+<script>
+    // --- GHOST BUG FIX: Hard Reset on Page Load / Back Button ---
+    window.addEventListener('pageshow', (e) => {
+      const figmaHidden = document.getElementById('figmaUrlInput');
+      const supabaseHidden = document.getElementById('useSupabaseInput');
+      const imgHidden = document.getElementById('imageBase64');
+      const mainPrompt = document.getElementById('mainPromptInput');
+      const fBtn = document.getElementById('figmaUploadBtn');
+      const sBtn = document.getElementById('supabaseToggleBtn');
+      const sbmBtn = document.getElementById('submitPromptBtn');
+
+      if (figmaHidden) figmaHidden.value = "";
+      if (supabaseHidden) supabaseHidden.value = "false";
+      if (imgHidden) imgHidden.value = "";
+
+      if (mainPrompt && mainPrompt.placeholder.includes('Figma')) {
+          mainPrompt.placeholder = "Describe your app idea (e.g. 'A kanban board for tracking tasks')";
+          mainPrompt.value = "";
+          mainPrompt.style.borderColor = "var(--border)";
+          mainPrompt.style.boxShadow = "none";
+          if (fBtn) fBtn.style.background = "none";
+          if (sBtn) sBtn.classList.remove('input-action-locked');
+      }
+
+      if (sbmBtn) {
+        sbmBtn.innerHTML = '<i class="ph-bold ph-arrow-right"></i>';
+        sbmBtn.style.opacity = '1';
+        sbmBtn.style.pointerEvents = 'auto';
+      }
+    });
+
     // --- Ideas Chip Logic ---
     const ideas = document.getElementById("ideas");
     const input = document.querySelector("input[name='prompt']");
@@ -1035,13 +1059,13 @@
     
     if (!hasSkills && localStorage.getItem('hideSkillsModal') !== 'true') {
       setTimeout(() => {
-        skillsModal.classList.add('active');
+        if(skillsModal) skillsModal.classList.add('active');
       }, 800);
     }
 
     function dismissSkillsModal() {
       localStorage.setItem('hideSkillsModal', 'true');
-      skillsModal.classList.remove('active');
+      if(skillsModal) skillsModal.classList.remove('active');
     }
 
     // --- Daily Spin Wheel Logic ---
@@ -1056,7 +1080,7 @@
     
     if (lastSpinDateStr !== todayStr && sessionStorage.getItem('spinSkipped') !== 'true') {
       setTimeout(() => {
-        if (!skillsModal.classList.contains('active')) {
+        if (skillsModal && !skillsModal.classList.contains('active') && spinModal) {
            spinModal.classList.add('active');
         }
       }, 1500);
@@ -1064,7 +1088,7 @@
 
     function dismissSpinModal() {
       sessionStorage.setItem('spinSkipped', 'true');
-      spinModal.classList.remove('active');
+      if(spinModal) spinModal.classList.remove('active');
     }
 
     async function spinWheel() {
@@ -1140,28 +1164,23 @@
     const mainForm = document.getElementById('mainPromptForm');
     const submitBtn = document.getElementById('submitPromptBtn');
 
-    // Mutually Exclusive Toggles
     function toggleFigmaMode() {
       const isFigmaMode = promptInput.placeholder.includes('Figma');
       if (isFigmaMode) {
-        // Turn OFF Figma
         promptInput.placeholder = "Describe your app idea (e.g. 'A kanban board for tracking tasks')";
         promptInput.value = "";
         figmaHiddenInput.value = "";
         promptInput.style.borderColor = "var(--border)";
         promptInput.style.boxShadow = "none";
         figmaBtn.style.background = "none";
-        // Unlock Supabase
         if(supabaseBtn) supabaseBtn.classList.remove('input-action-locked');
       } else {
-        // Turn ON Figma
         promptInput.placeholder = "Paste your Figma Frame URL here...";
         promptInput.value = "";
         promptInput.focus();
         promptInput.style.borderColor = "#0ACF83"; 
         promptInput.style.boxShadow = "0 0 0 1px #0ACF83";
         figmaBtn.style.background = "rgba(10, 207, 131, 0.15)"; 
-        // Lock Supabase
         if(supabaseBtn) {
           supabaseBtn.classList.remove('active');
           useSupabaseInput.value = "false";
@@ -1173,21 +1192,16 @@
     function toggleSupabaseMode() {
       const isSupabaseActive = supabaseBtn.classList.contains('active');
       if (isSupabaseActive) {
-        // Turn OFF Supabase
         supabaseBtn.classList.remove('active');
         useSupabaseInput.value = "false";
-        // Unlock Figma
         if(figmaBtn) figmaBtn.classList.remove('input-action-locked');
       } else {
-        // Turn ON Supabase
         supabaseBtn.classList.add('active');
         useSupabaseInput.value = "true";
-        // Lock Figma
         if(figmaBtn) figmaBtn.classList.add('input-action-locked');
       }
     }
 
-    // 1. Auto-trigger Figma Mode if returning from a successful OAuth redirect
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('success') === 'figma_linked' && figmaBtn) {
       figmaBtn.setAttribute('data-linked', 'true');
@@ -1195,14 +1209,12 @@
       window.history.replaceState({}, document.title, "/dashboard");
     }
     
-    // 2. Auto-trigger Supabase Mode if returning from successful OAuth
     if (urlParams.get('success') === 'supabase_linked' && supabaseBtn) {
       supabaseBtn.setAttribute('data-linked', 'true');
       toggleSupabaseMode();
       window.history.replaceState({}, document.title, "/dashboard");
     }
 
-    // Handle Manual Button Clicks
     if (figmaBtn) {
       figmaBtn.addEventListener('click', () => {
         const isLinked = figmaBtn.getAttribute('data-linked') === 'true';
@@ -1219,18 +1231,20 @@
       });
     }
 
-    // 3. Intercept form submission to swap the prompt text under the hood and animate button
+    // 🛑 THE NUCLEAR INTERCEPT 🛑
     if (mainForm) {
       mainForm.addEventListener('submit', (e) => {
         const val = promptInput.value.trim();
         
         if (val.includes('figma.com/')) {
           figmaHiddenInput.value = val;
-          // Hide the ugly URL from the AI and tell it to look for the virtual file we create in backend
           promptInput.value = "Build a pixel-perfect React and Tailwind replica of the design structure. I have provided the exact layout rules, spacing, typography, and hex colors in the `.gorilla/figma.json` file. Read that file and implement it exactly.";
+        } else {
+          // If it does NOT contain a figma link, absolutely destroy the hidden input value
+          // before the form payload is generated.
+          figmaHiddenInput.value = "";
         }
 
-        // Add a loading state to the submit button
         if(submitBtn) {
            submitBtn.innerHTML = '<i class="ph ph-spinner" style="animation: spin 1s linear infinite;"></i>';
            submitBtn.style.opacity = '0.7';
@@ -1246,7 +1260,7 @@
     let projectToDeleteId = null;
 
     function promptDelete(projectId, projectName, event) {
-      event.stopPropagation(); // Prevent opening the project
+      event.stopPropagation(); 
       projectToDeleteId = projectId;
       deleteProjectName.textContent = projectName;
       deleteModal.classList.add('active');
@@ -1270,7 +1284,6 @@
           });
 
           if (res.ok) {
-            // Visually remove the card and close modal
             const card = document.getElementById(`card-${projectToDeleteId}`);
             if (card) card.remove();
             closeDeleteModal();
@@ -1286,7 +1299,6 @@
         }
       });
     }
-
   </script>
   <style>
     @keyframes spin { 100% { transform: rotate(360deg); } }

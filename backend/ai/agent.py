@@ -907,7 +907,7 @@ class PlannerAgent(BaseAgent):
     "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background`.\n"
     "3. **Task Bundling & Volume (CRITICAL FOR TOKEN SAVING):** \n"
     "   - If you are told to use the attached image somewhere, by the user, then use .gorilla/prompt_image.b64, and instruct to coder to use it\n"
-    "   - Always try to ask the user no more than 1 questions to elaborate on their request, they should be obvious and add functionality to their app if they agree DO NOT BOTHER THEM MORE THAN ONCE. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY QUESTIONS IF THEY DONT FEEL LIKE IT OR ANY DEBUGGING QUESTIONS.\n"
+    "   - Do not try to ask the user multiple questions to elaborate on their request, if you do, they should be obvious and add functionality to their app if they agree DO NOT BOTHER THEM MORE THAN ONCE. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY QUESTIONS IF THEY DONT FEEL LIKE IT OR ANY DEBUGGING QUESTIONS.\n"
     "   - CONSOLIDATE TASKS: You MUST bundle related operations together. Combine them into Macro Steps (e.g., 'Step 1: Database & Backend setup', 'Step 2: Core UI Components', 'Step 3: Frontend Wiring').\n"
     "   - Simple Apps: Maximum 3-4 Macro/clubbed Tasks. (if there are no questions only!)\n"
     "   - Complex Apps: Maximum 5-unlimited Macro/clubbed Tasks. (if there are no questions only!)\n"
@@ -1166,7 +1166,8 @@ class CoderAgent(BaseAgent):
         "SPECIFIC RULES:\n"
         "1. **Frontend (React)**: Use Functional Components. MAKE EVERYTHING LOOK VERY GOOD! WITH EYECANDY FOR THE USER.\n"
         "2. **Backend (Node)**: Use `async/await`. Return JSON (`res.json`). Handle errors with `try/catch`.\n"
-        "3. **Self-Correction**: If the user prompt reports a crash, analyze the stack trace and fix the specific file causing it. IF THERE IS AN UNINSTALLED DEPENDENCY LATER ON JUST MAKE THE COMPONENT NOT USE IT AS MUCH AS POSSIBLE."
+        "3. **Self-Correction**: If the user prompt reports a crash, analyze the stack trace and fix the specific file causing it. IF THERE IS AN UNINSTALLED DEPENDENCY LATER ON JUST MAKE THE COMPONENT NOT USE IT AS MUCH AS POSSIBLE.\n"
+        "**FINALLY, REMEMBER** to go ALL OUT on everything and impress the USER, while not USING TOO MANY TOKENS OR EXCEEDING CONTEXT LIMITS. BE EFFICIENT, CREATIVE, AND AIM FOR MAXIMUM IMPACT WITH MINIMAL CHANGES."
     )
 
 
