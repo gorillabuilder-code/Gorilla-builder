@@ -2124,25 +2124,43 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                         supabase.table("projects").update({"supabase_project_ref": project_ref}).eq("id", project_id).execute()
                     
                         supa_anon_key = "PROVISIONING_IN_PROGRESS"
-                        emit_log(project_id, "system", "Waiting for Postgres instance to boot (this can take 1-2 minutes)...")
+                        emit_log(project_id, "system", "Waiting for Postgres instance to fully boot (this can take 1-2 minutes)...")
                         
-                        # 🛑 THE ANON_KEY FIX: Poll up to 30 times (120 seconds) for the DB to fully boot
-                        for attempt in range(30):
+                        db_is_active = False
+                        
+                        # 🛑 THE STATUS FIX: Phase A - Wait for the project status to be ACTIVE
+                        for attempt in range(45): # Up to 3 minutes
+                            status_res = await client.get(f"https://api.supabase.com/v1/projects/{project_ref}", headers=headers)
+                            if status_res.status_code == 200:
+                                proj_status_data = status_res.json()
+                                # Check for active statuses
+                                if proj_status_data.get("status") in ["ACTIVE_HEALTHY", "ACTIVE"]:
+                                    db_is_active = True
+                                    emit_log(project_id, "system", "✅ Compute instance is active!")
+                                    break
+                            
+                            if attempt % 3 == 0:
+                                emit_log(project_id, "debugger", f"Instance still booting... (Attempt {attempt+1}/45)")
+                            await asyncio.sleep(4)
+
+                        if not db_is_active:
+                            raise Exception("Timed out waiting for database compute instance to become active.")
+
+                        # Phase B: Now that it's active, fetch the keys
+                        for _ in range(10): # Quick retry for keys just in case
                             keys_res = await client.get(f"https://api.supabase.com/v1/projects/{project_ref}/api-keys", headers=headers)
                             if keys_res.status_code == 200:
                                 keys_list = keys_res.json()
-                                # Make sure the DB is actually returning the keys array, not an empty list
                                 if isinstance(keys_list, list) and len(keys_list) > 0:
                                     anon_obj = next((k for k in keys_list if k.get("name") == "anon"), None)
                                     if anon_obj and anon_obj.get("api_key"):
                                         supa_anon_key = anon_obj.get("api_key")
                                         emit_log(project_id, "system", "✅ Database keys generated successfully!")
                                         break
+                            await asyncio.sleep(2)
                             
-                            # Keep the user informed that it's still polling
-                            if attempt % 3 == 0:
-                                emit_log(project_id, "debugger", f"Instance still booting... (Attempt {attempt+1}/30)")
-                            await asyncio.sleep(4)
+                        if supa_anon_key == "PROVISIONING_IN_PROGRESS":
+                            raise Exception("Database became active, but could not retrieve the anon key.")
 
                         # Write exactly what Vite expects
                         env_content = f"\nVITE_SUPABASE_URL=https://{project_ref}.supabase.co\nVITE_SUPABASE_ANON_KEY={supa_anon_key}\n"

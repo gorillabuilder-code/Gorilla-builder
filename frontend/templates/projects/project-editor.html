@@ -301,6 +301,8 @@
   /* Markdown Styles inside Chat */
   .md p { margin: 0 0 10px 0; }
   .md p:last-child { margin: 0; }
+  .md ul, .md ol { margin: 0 0 10px 0; padding-left: 20px; }
+  .md li { margin-bottom: 6px; }
   .md strong { color: #fff; font-weight: 600; }
   .md code { 
       background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; 
@@ -624,7 +626,8 @@
 
     <div class="stage">
       <div id="code-loading-overlay" style="display: none; position: absolute; inset: 0; background: var(--panel); backdrop-filter: blur(10px); z-index: 100; flex-direction: column; align-items: center; justify-content: center; color: var(--accent);">
-        <img src="/static/loading.gif" alt="Loading..." style="width: 200px; height: 200px; margin-bottom: 20px; filter: drop-shadow(0 4px 12px rgba(59, 130, 246, 0.3));" />
+        <img src="/static/gorilla.gif" alt="Loading..." style="width: 300px; height: 300px; margin-bottom: 20px; filter: drop-shadow(0 4px 12px rgba(59, 130, 246, 0.3));" />
+        <div style="font-size: 14px; font-weight: medium; letter-spacing: 2px; color: #fff; text-transform: uppercase; animation: ag-pulse 2s infinite;">Sit back and relax while Gor://a Builds your INFRASTRUCUTRE</div>
       </div>
       <div id="editor"></div>
       <div id="imageViewer" style="display:none; flex:1; align-items:center; justify-content:center; overflow:auto; background:#0d111c; padding: 20px;"></div>
@@ -962,8 +965,9 @@ function addMessage(role, text, save=true) {
       return; 
   }
 
-  if (role === "assistant") {
-      text = text.replace(/([.?!])\s+(?=\d+\.)/g, '$1\n\n');
+  if (role === "assistant" || role === "agent") {
+      // 🛑 The Fix for run-on markdown lists with bolded numbers (e.g. "**1.**")
+      text = text.replace(/(\S)\s+(?=(?:\*\*)?\d+\.\s*(?:\*\*)?)/g, '$1\n\n');
   }
 
   const el = document.createElement("div");
@@ -1386,12 +1390,7 @@ function startStream(){
                          tLower.includes("asking") ||
                          tLower.includes("bypassing review") ||
                          tLower.includes("executing") ||
-                         tLower.includes("--- previous");
-                         tLower.includes("planning...");
-                         tLower.includes("building...");
-                         tLower.includes("stable:");
-                         tLower.includes("final:");
-                         tLower.includes("building..");
+                         tLower.includes("analyzing: --- previous");
                          
           if (!isJunk) {
               addThought(m.text, role);
