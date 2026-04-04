@@ -13,6 +13,10 @@ export class WebRunner {
         // 🛑 THE BOUNCER: Prevents the AI Clone War race condition
         this.isFixing = false; 
         this.fixUnlockTimer = null;
+        
+        // 🛑 NEW FLAGS: For dependency management
+        this.hasInstalled = false;
+        this.isInstalling = false; 
     }
 
     async boot() {
@@ -34,7 +38,6 @@ export class WebRunner {
                 if (isFile) {
                     let content = f.content || "";
                     
-                    // 🛑 THE IFRAME INTERCEPTOR: Inject script to catch React/Vite Browser Errors!
                     if (part === "index.html") {
                         const interceptor = `\n<script>
                             window.addEventListener('error', (e) => {
@@ -72,7 +75,35 @@ export class WebRunner {
     _createDebouncedLogger(logger, contextName, projectId) {
         let buffer = "";
         let timeout = null;
-        let allClearTimer = null; // 🛑 The 15s All-Clear Timer
+        let allClearTimer = null; 
+
+        // 🛑 TRUE DEBOUNCED STABILITY CHECK
+        const startAllClear = () => {
+            if (this.isInstalling) return;
+
+            if (allClearTimer) clearTimeout(allClearTimer);
+            console.info("⏳ Starting 15s stability check...");
+            
+            allClearTimer = setTimeout(() => {
+                // If the AI is currently fixing, we aren't stable yet. Extend the check.
+                if (this.isFixing) {
+                    console.info("⏳ AI is currently applying fixes. Extending stability check...");
+                    startAllClear();
+                    return;
+                }
+
+                console.info("✅ [ALL CLEAR] No errors detected for 15s. App is stable.");
+                
+                const formData = new FormData();
+                formData.append("level", "INFO");
+                formData.append("message", "SYSTEM ALERT: ALL_CLEAR. The application has successfully booted and run for 15 seconds with zero runtime errors. You may transition the user to the live preview.");
+                
+                const pid = projectId || window.PROJECT_ID || (window.location.pathname.match(/\/projects\/([^\/]+)/) || [])[1];
+                if (pid) {
+                    fetch(`/api/project/${pid}/log`, { method: 'POST', body: formData }).catch(()=>{});
+                }
+            }, 15000); 
+        };
 
         const flush = () => {
             if (buffer.trim() === "") return;
@@ -91,36 +122,24 @@ export class WebRunner {
 
         return {
             push: (data) => {
+                // 🛑 THE MUTE BUTTON: Completely ignore dev server errors while dependencies are installing
+                if (this.isInstalling) return;
+
                 buffer += data + "\n";
-                // 🛑 Kill the All-Clear timer immediately if an error is caught
-                if (allClearTimer) clearTimeout(allClearTimer);
                 
                 if (timeout) clearTimeout(timeout);
                 timeout = setTimeout(flush, 3000); 
+                
+                // Restart the stability clock every time a new error is pushed
+                startAllClear();
             },
             flushImmediate: () => {
-                if (allClearTimer) clearTimeout(allClearTimer);
+                if (this.isInstalling) return;
+                
                 if (timeout) clearTimeout(timeout);
                 flush();
             },
-            startAllClear: () => {
-                if (allClearTimer) clearTimeout(allClearTimer);
-                console.info("⏳ Starting 15s stability check...");
-                
-                allClearTimer = setTimeout(() => {
-                    console.info("✅ [ALL CLEAR] No errors detected for 15s. App is stable.");
-                    
-                    // Fire the all-clear message to the backend
-                    const formData = new FormData();
-                    formData.append("level", "INFO");
-                    formData.append("message", "SYSTEM ALERT: ALL_CLEAR. The application has successfully booted and run for 15 seconds with zero runtime errors. You may transition the user to the live preview.");
-                    
-                    const pid = projectId || window.PROJECT_ID || (window.location.pathname.match(/\/projects\/([^\/]+)/) || [])[1];
-                    if (pid) {
-                        fetch(`/api/project/${pid}/log`, { method: 'POST', body: formData }).catch(()=>{});
-                    }
-                }, 15000); // 15 seconds
-            }
+            startAllClear: startAllClear
         };
     }
 
@@ -160,58 +179,81 @@ export class WebRunner {
     async install(logger, projectId) {
         if (!this.instance) throw new Error("Container not booted");
         
-        let success = false;
-        let attempts = 0; 
+        // 🛑 MUTE DEV SERVER ERRORS WHILE INSTALLING
+        this.isInstalling = true;
 
-        while (!success && attempts < 3) {
-            attempts++;
-            
-            logger("system", attempts === 1 ? "Installing Dependencies (Fast Sync)..." : `Installing Dependencies (Clean Attempt ${attempts})...`);
-            let errorLogs = ""; 
+        try {
+            let success = false;
+            let attempts = 0; 
+            const isUpdate = this.hasInstalled; // Did the agent change package.json mid-flight?
 
-            if (attempts > 1) {
-                logger("system", "Clearing dependency cache and retrying...");
-                const rmProcess = await this.instance.spawn('rm', ['-rf', 'node_modules', 'package-lock.json', 'pnpm-lock.yaml']);
-                await rmProcess.exit; 
-            }
+            while (!success && attempts < 3) {
+                attempts++;
+                let errorLogs = ""; 
 
-            const process = await this.instance.spawn('pnpm', [
-                'install', 
-                '--shamefully-hoist',
-                '--no-frozen-lockfile'
-            ]);
-            
-            process.output.pipeTo(new WritableStream({
-                write(data) {
-                    errorLogs += data; 
-                    console.info("[PNPM]", data); 
-                }
-            }));
+                let installArgs = ['install', '--shamefully-hoist', '--no-frozen-lockfile'];
 
-            const exitCode = await process.exit;
-            
-            if (exitCode !== 0) {
-                logger("system", `⚠️ pnpm install failed (code ${exitCode}).`);
-                
-                if (!this.isFixing && attempts === 2) {
-                    logger("system", "Notifying AI Auto-Fixer...");
-                    const autoPrompt = `SYSTEM ALERT: package installation failed. Logs:\n<logs>\n${errorLogs.slice(-8000)}\n</logs>\nPlease review package.json for invalid packages or version conflicts and rewrite it.`;
-                    await this._notifyCoder(projectId, autoPrompt);
-                }
-
-                if (this.isFixing) {
-                    logger("system", "Waiting for AI to apply fixes before retrying...");
-                    let waitTicks = 0;
-                    while (this.isFixing && waitTicks < 60) {
-                        await new Promise(r => setTimeout(r, 1000));
-                        waitTicks++;
+                if (isUpdate) {
+                    if (attempts === 1) {
+                        logger("system", "📦 Package.json modified. Forcing full dependency re-installation...");
+                        installArgs.push('--force'); // 🛑 Ruthlessly overwrite all dependencies
+                    } else {
+                        logger("system", "Clearing dependency cache and retrying hard install...");
+                        const rmProcess = await this.instance.spawn('rm', ['-rf', 'node_modules', 'package-lock.json', 'pnpm-lock.yaml']);
+                        await rmProcess.exit; 
                     }
-                    await new Promise(r => setTimeout(r, 2000)); 
+                } else {
+                    if (attempts === 1) {
+                        logger("system", "Installing Dependencies (Fast Sync)...");
+                    } else {
+                        logger("system", "Clearing dependency cache and retrying...");
+                        const rmProcess = await this.instance.spawn('rm', ['-rf', 'node_modules', 'package-lock.json', 'pnpm-lock.yaml']);
+                        await rmProcess.exit; 
+                    }
                 }
-            } else {
-                logger("system", "✅ Dependencies installed beautifully.");
-                success = true;
+
+                const process = await this.instance.spawn('pnpm', installArgs);
+                
+                process.output.pipeTo(new WritableStream({
+                    write(data) {
+                        errorLogs += data; 
+                        console.info("[PNPM]", data); 
+                    }
+                }));
+
+                const exitCode = await process.exit;
+                
+                if (exitCode !== 0) {
+                    logger("system", `⚠️ pnpm install failed (code ${exitCode}).`);
+                    
+                    if (!this.isFixing && attempts === 2) {
+                        logger("system", "Notifying AI Auto-Fixer...");
+                        const autoPrompt = `SYSTEM ALERT: package installation failed. Logs:\n<logs>\n${errorLogs.slice(-8000)}\n</logs>\nPlease review package.json for invalid packages or version conflicts and rewrite it.`;
+                        
+                        // Temporarily drop the mute to allow the Auto-Fix notification to go through
+                        this.isInstalling = false;
+                        await this._notifyCoder(projectId, autoPrompt);
+                        this.isInstalling = true;
+                    }
+
+                    if (this.isFixing) {
+                        logger("system", "Waiting for AI to apply fixes before retrying...");
+                        let waitTicks = 0;
+                        while (this.isFixing && waitTicks < 60) {
+                            await new Promise(r => setTimeout(r, 1000));
+                            waitTicks++;
+                        }
+                        await new Promise(r => setTimeout(r, 2000)); 
+                    }
+                } else {
+                    logger("system", "✅ Dependencies installed beautifully.");
+                    success = true;
+                    this.hasInstalled = true; // Mark that initial boot is complete
+                }
             }
+        } finally {
+            // 🛑 INSTALL COMPLETE. UNMUTE THE SERVER TRACKER
+            this.isInstalling = false;
         }
     }
 
@@ -276,7 +318,6 @@ export class WebRunner {
             this.url = url;
             onReady(url);
             
-            // 🛑 Start the All-Clear countdown the moment the server is ready!
             serverErrorTracker.startAllClear();
         });
     }

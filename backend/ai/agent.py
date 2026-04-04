@@ -862,7 +862,7 @@ class PlannerAgent(BaseAgent):
                 skills_addon += "- Communication: Casual, friendly, use emojis.\n"
 
         return (
-    "You are the Lead Architect for a high-performance **Full-Stack** web application, you are the GOR://A BUILDER multi agent AI BUILDER. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in **React (Frontend)** AND **Node.js/Express (Backend)**. Strictly give NO CODE AT ALL, in no form. But you MUST REASON HARD.\n"
+    "You are the AMBITIOUS Lead Architect for a high-performance **Full-Stack** web application, you are the GOR://A BUILDER multi agent AI BUILDER. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in **React (Frontend)** AND **Node.js/Express (Backend)**. Strictly give NO CODE AT ALL, in no form. But you MUST REASON HARD.\n"
     "CRITICAL CONTEXT: The AI Coder executes tasks in isolation. It has NO memory of previous files unless you provide context in *every single task description*.\n\n"
     "Rules:\n"
     "MANDATORY OUTPUT FORMAT: JSON OBJECT ONLY. Do NOT wrap in markdown blocks.\n"
@@ -1420,7 +1420,7 @@ class CoderAgent(BaseAgent):
                         log_agent("coder", f"  ✓ {op.get('action')}: {op.get('path')}", self.project_id)
                     
                     if reflection:
-                        log_agent("coder", f"  🤔 Reflection: {reflection[:80]}...", self.project_id)
+                        log_agent("coder", f"  Reflection: {reflection[:80]}...", self.project_id)
                     
                     _append_history(self.project_id, "user", f"Task: {task}")
                     _append_history(self.project_id, "assistant", raw)
@@ -1548,7 +1548,7 @@ class ReviewerAgent(BaseAgent):
         passed = len(issues) == 0
         
         if passed:
-            log_agent("reviewer", "✅ All checks passed", self.project_id)
+            log_agent("reviewer", "All checks passed", self.project_id)
         else:
             log_agent("reviewer", f"⚠️ Found {len(issues)} issues", self.project_id)
             for issue in issues[:3]:
@@ -1802,7 +1802,7 @@ class AgentSwarm:
             self.ui_agent, self.api_agent, self.logic_agent
         ]
         total = sum(agent.get_tokens_used() for agent in agents)
-        log_agent("swarm", f"💰 Total tokens used: {total}", self.project_id)
+        log_agent("swarm", f"Total tokens used: {total}", self.project_id)
         return total
     
     def reset_all_tokens(self):
@@ -1835,7 +1835,6 @@ class AgentSwarm:
             self.coder.emit(
                 intent=Intent.PLAN,
                 payload={
-                    "assistant_message": "Applying fix...",
                     "tasks": [user_request],
                     "is_debug": True
                 },
@@ -1843,7 +1842,6 @@ class AgentSwarm:
                 task_id="direct",
                 reasoning="Direct execution"
             )
-            assistant_message = "Applying fix..."
         else:
             # Phase 1: Planning
             plan_result = await self.planner.plan(user_request, file_tree, agent_skills)
@@ -1914,7 +1912,7 @@ class AgentSwarm:
                 seen_paths[path] = op
         all_ops = list(seen_paths.values())
         
-        log_agent("swarm", f"📦 Complete: {len(all_ops)} unique file operations", self.project_id)
+        log_agent("swarm", f" Complete: {len(all_ops)} unique file operations", self.project_id)
         for op in all_ops:
             log_agent("swarm", f"  📄 {op.get('action')}: {op.get('path')}", self.project_id)
         
@@ -2102,7 +2100,7 @@ class Agent:
                 seen_paths[path] = op
         operations = list(seen_paths.values())
         
-        log_agent("agent", f"📦 Final: {len(operations)} unique file operations", project_name)
+        log_agent("agent", f" Final: {len(operations)} unique file operations", project_name)
         
         # Await background tasks
         await swarm.bus.await_all_tasks(timeout=3.0)

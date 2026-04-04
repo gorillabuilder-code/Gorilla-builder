@@ -371,16 +371,16 @@ def get_current_user(request: Request) -> Dict[str, Any]:
     # 1. No user in session? Boot them to the homepage/login.
     if not user or not user.get("id"):
         raise HTTPException(
-            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
-            headers={"Location": "/"} # Change to "/login" if you have a dedicated login route
+            status_code=403,
+            detail="Invalid user session."
         )
 
     # 2. THE KILLSWITCH: Catch old dev@local cookies and destroy them
     if user.get("email") == "dev@local":
         request.session.clear() # Completely wipe the ghost session from their browser
         raise HTTPException(
-            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
-            headers={"Location": "/"}
+            status_code=403,
+            detail="Invalid user session."
         )
 
     # 3. Valid, real user found. Ensure public record exists.

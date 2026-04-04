@@ -9,8 +9,6 @@
   <link href="https://fonts.googleapis.com/css2?family=Funnel+Display:wght@300..800&display=swap" rel="stylesheet">
 
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
-  
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1594181130407895" crossorigin="anonymous"></script>
 
   <script type="module">
     import { marked } from "https://esm.sh/marked@12.0.1";
@@ -121,45 +119,6 @@
 
   .shell { display: flex; height: 100vh; width: 100%; overflow: hidden; }
 
-  /* --- THEATRE MODE (Wide Chat UX) --- */
-  .shell.theatre-mode {
-      justify-content: center;
-      background: var(--bg);
-  }
-  .shell.theatre-mode .main {
-      display: none !important;
-  }
-  .shell.theatre-mode .left {
-      width: 800px;
-      max-width: 95vw;
-      height: calc(100vh - 40px);
-      margin: 20px auto;
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      box-shadow: 0 20px 80px rgba(0,0,0,0.8), 0 0 0 1px var(--accent-glow);
-      transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  .ad-side {
-      display: none;
-      width: 160px;
-      margin: 20px;
-      align-items: center;
-      justify-content: center;
-  }
-  .shell.theatre-mode .ad-side {
-      display: flex;
-  }
-  .ad-bottom {
-      padding: 12px;
-      border-top: 1px solid var(--border);
-      background: rgba(0,0,0,0.4);
-      text-align: center;
-      min-height: 90px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-  }
-
   /* --- 3. THEME OVERRIDES --- */
   body.premium {
     --accent: #ffd700; 
@@ -191,7 +150,6 @@
     backdrop-filter: var(--glass);
     position: relative;
     z-index: 20;
-    transition: width 0.4s ease;
   }
 
   .left header {
@@ -318,7 +276,6 @@
       background: #0f131a; 
       border: 1px solid var(--coder-border); 
       border-left: 3px solid var(--coder-text);
-      font-family: monospace;
   }
   .msg.planner { 
       align-self: flex-start; 
@@ -474,6 +431,20 @@
   #editor { flex: 1; height: 100%; overflow: hidden; }
   #preview { width: 100%; height: 100%; border: 0; display: none; background: #fff; }
 
+  /* --- 6. AD STYLES (Cleaned Up) --- */
+  .ad-strip-horiz {
+      background: #000;
+      border-bottom: 1px solid var(--border);
+      display: flex; justify-content: center; align-items: center;
+      padding: 10px; width: 100%; min-height: 90px;
+  }
+  .ad-box-square {
+      margin: 10px; background: rgba(0,0,0,0.5);
+      border: 1px solid var(--border); border-radius: 8px;
+      display: flex; justify-content: center; align-items: center;
+      min-height: 200px;
+  }
+
   /* Scrollbar Customization */
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -497,31 +468,19 @@
 
 <div id="editor-loading-overlay" style="position: fixed; inset: 0; z-index: 9999; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.5s ease, visibility 0.5s ease;">
   <img src="/static/gorilla.gif" alt="Waking up Gorilla..." style="width: 250px; height: 250px; object-fit: contain; filter: drop-shadow(0 10px 30px rgba(59, 108, 255, 0.2));" />
-  <h2 style="color: #fff; font-family: monospace; font-size: 18px; margin-top: -10px; font-weight: 300; letter-spacing: 2px;">
+  <h2 style="color: #fff; font-size: 18px; margin-top: -10px; font-weight: 300; letter-spacing: 2px;">
     WAKING UP GORILLA...
   </h2>
 </div>
 
-<div class="shell theatre-mode">
+<div class="shell">
 
-  {% if user.plan != 'premium' %}
-  <div class="ad-side">
-      <ins class="adsbygoogle"
-           style="display:block"
-           data-ad-client="ca-pub-1594181130407895"
-           data-ad-slot="4574000639"
-           data-ad-format="vertical"
-           data-full-width-responsive="true"></ins>
-      <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
-  </div>
-  {% endif %}
-
-  <aside class="left">
-    <header>
-      <div class="hgroup">
-        <div class="t">
-          <svg version="1.0" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 600 600" style="filter: drop-shadow(0 0 5px var(--accent));"> 
-              <g transform="translate(0.000000,603.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none"> <path d="M1497 6023 c827 -2 2179 -2 3005 0 827 1 151 2 -1502 2 -1653 0 -2329 -1 -1503 -2z"/> <path d="M2802 5273 c-43 -24 -131 -143 -182 -246 -99 -202 -106 -410 -19 -598 59 -128 153 -189 246 -158 56 18 81 37 108 84 34 57 32 112 -6 216 -54 145 -51 327 7 490 41 113 27 176 -46 214 -38 20 -68 19 -108 -2z"/> <path d="M3290 5268 c-74 -50 -185 -230 -228 -369 -44 -142 -37 -293 19 -440 52 -134 141 -208 234 -195 131 20 194 151 136 281 -67 150 -67 316 0 522 26 80 29 98 20 126 -28 83 -116 119 -181 75z"/> <path d="M685 4560 c-171 -34 -283 -139 -331 -306 -15 -50 -18 -129 -23 -519 -4 -321 -10 -466 -18 -480 -32 -56 -64 -70 -205 -90 -26 -4 -46 -17 -72 -45 -33 -36 -36 -45 -36 -99 0 -98 62 -161 157 -161 59 0 119 -26 146 -64 22 -31 22 -35 28 -496 5 -424 8 -471 26 -531 11 -37 31 -87 46 -111 72 -124 228 -198 418 -198 125 0 200 111 151 223 -26 59 -64 82 -148 90 -73 7 -116 27 -148 70 -20 28 -21 41 -27 490 -6 505 -8 526 -68 632 l-28 50 28 50 c60 106 62 128 68 630 6 427 7 462 25 491 26 44 68 65 139 71 81 7 131 35 157 88 26 53 25 91 -2 145 -32 61 -73 80 -168 79 -41 -1 -93 -5 -115 -9z"/> <path d="M5102 4550 c-68 -42 -92 -135 -54 -209 26 -52 60 -72 140 -81 83 -9 128 -32 157 -80 19 -33 20 -56 26 -500 6 -505 6 -513 66 -621 l26 -45 -26 -45 c-59 -103 -61 -113 -67 -619 -5 -461 -5 -465 -28 -501 -28 -45 -72 -67 -156 -77 -111 -14 -160 -66 -153 -165 4 -66 26 -103 78 -130 28 -15 50 -18 124 -13 218 12 351 101 416 278 22 61 23 74 28 533 6 503 6 500 58 547 19 18 78 34 155 43 33 4 56 15 78 35 29 27 30 31 30 118 0 88 -1 91 -31 116 -33 28 -45 32 -127 40 -66 7 -110 31 -137 76 -19 33 -20 56 -26 505 -6 496 -6 500 -55 598 -70 138 -221 217 -414 217 -57 0 -83 -5 -108 -20z"/> <path d="M1965 3849 c-113 -9 -166 -24 -280 -79 -312 -150 -493 -462 -471 -810 13 -209 89 -379 238 -529 161 -163 321 -236 545 -248 269 -14 478 70 667 267 61 65 95 111 130 179 70 136 89 217 89 386 0 124 -3 151 -27 230 -53 176 -145 314 -282 425 -174 139 -372 197 -609 179z m214 -324 c173 -46 319 -185 372 -354 23 -76 28 -212 9 -282 -50 -186 -208 -340 -391 -384 -181 -42 -372 15 -499 152 -100 106 -144 218 -143 363 1 290 228 517 518 519 44 0 104 -6 134 -14z"/> <path d="M3880 3849 c-190 -17 -341 -86 -488 -224 -112 -104 -200 -249 -239 -395 -25 -92 -25 -339 0 -430 78 -281 316 -519 597 -597 101 -28 339 -25 443 5 152 44 285 128 397 250 146 158 211 332 212 557 0 244 -82 436 -259 606 -181 175 -402 251 -663 228z m213 -324 c282 -73 454 -362 382 -640 -45 -171 -179 -312 -355 -371 -80 -27 -243 -25 -324 5 -202 73 -337 252 -353 466 -17 243 150 475 388 539 71 19 191 20 262 1z"/> </g> 
+<aside class="left">
+  <header>
+    <div class="hgroup">
+      <div class="t">
+        <svg version="1.0" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 600 600" style="filter: drop-shadow(0 0 5px var(--accent));"> 
+            <g transform="translate(0.000000,603.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none"> <path d="M1497 6023 c827 -2 2179 -2 3005 0 827 1 151 2 -1502 2 -1653 0 -2329 -1 -1503 -2z"/> <path d="M2802 5273 c-43 -24 -131 -143 -182 -246 -99 -202 -106 -410 -19 -598 59 -128 153 -189 246 -158 56 18 81 37 108 84 34 57 32 112 -6 216 -54 145 -51 327 7 490 41 113 27 176 -46 214 -38 20 -68 19 -108 -2z"/> <path d="M3290 5268 c-74 -50 -185 -230 -228 -369 -44 -142 -37 -293 19 -440 52 -134 141 -208 234 -195 131 20 194 151 136 281 -67 150 -67 316 0 522 26 80 29 98 20 126 -28 83 -116 119 -181 75z"/> <path d="M685 4560 c-171 -34 -283 -139 -331 -306 -15 -50 -18 -129 -23 -519 -4 -321 -10 -466 -18 -480 -32 -56 -64 -70 -205 -90 -26 -4 -46 -17 -72 -45 -33 -36 -36 -45 -36 -99 0 -98 62 -161 157 -161 59 0 119 -26 146 -64 22 -31 22 -35 28 -496 5 -424 8 -471 26 -531 11 -37 31 -87 46 -111 72 -124 228 -198 418 -198 125 0 200 111 151 223 -26 59 -64 82 -148 90 -73 7 -116 27 -148 70 -20 28 -21 41 -27 490 -6 505 -8 526 -68 632 l-28 50 28 50 c60 106 62 128 68 630 6 427 7 462 25 491 26 44 68 65 139 71 81 7 131 35 157 88 26 53 25 91 -2 145 -32 61 -73 80 -168 79 -41 -1 -93 -5 -115 -9z"/> <path d="M5102 4550 c-68 -42 -92 -135 -54 -209 26 -52 60 -72 140 -81 83 -9 128 -32 157 -80 19 -33 20 -56 26 -500 6 -505 6 -513 66 -621 l26 -45 -26 -45 c-59 -103 -61 -113 -67 -619 -5 -461 -5 -465 -28 -501 -28 -45 -72 -67 -156 -77 -111 -14 -160 -66 -153 -165 4 -66 26 -103 78 -130 28 -15 50 -18 124 -13 218 12 351 101 416 278 22 61 23 74 28 533 6 503 6 500 58 547 19 18 78 34 155 43 33 4 56 15 78 35 29 27 30 31 30 118 0 88 -1 91 -31 116 -33 28 -45 32 -127 40 -66 7 -110 31 -137 76 -19 33 -20 56 -26 505 -6 496 -6 500 -55 598 -70 138 -221 217 -414 217 -57 0 -83 -5 -108 -20z"/> <path d="M1965 3849 c-113 -9 -166 -24 -280 -79 -312 -150 -493 -462 -471 -810 13 -209 89 -379 238 -529 161 -163 321 -236 545 -248 269 -14 478 70 667 267 61 65 95 111 130 179 70 136 89 217 89 386 0 124 -3 151 -27 230 -53 176 -145 314 -282 425 -174 139 -372 197 -609 179z m214 -324 c173 -46 319 -185 372 -354 23 -76 28 -212 9 -282 -50 -186 -208 -340 -391 -384 -181 -42 -372 15 -499 152 -100 106 -144 218 -143 363 1 290 228 517 518 519 44 0 104 -6 134 -14z"/> <path d="M3880 3849 c-190 -17 -341 -86 -488 -224 -112 -104 -200 -249 -239 -395 -25 -92 -25 -339 0 -430 78 -281 316 -519 597 -597 101 -28 339 -25 443 5 152 44 285 128 397 250 146 158 211 332 212 557 0 244 -82 436 -259 606 -181 175 -402 251 -663 228z m213 -324 c282 -73 454 -362 382 -640 -45 -171 -179 -312 -355 -371 -80 -27 -243 -25 -324 5 -202 73 -337 252 -353 466 -17 243 150 475 388 539 71 19 191 20 262 1z"/> </g> 
         </svg> 
         <span> Gor://a {% if xmode %}X{% endif %}</span>
       </div>
@@ -568,18 +527,6 @@
 
   <div class="chat" id="chat"></div>
 
-  {% if user.plan != 'premium' %}
-  <div class="ad-bottom">
-      <ins class="adsbygoogle"
-           style="display:block; width:100%"
-           data-ad-client="ca-pub-1594181130407895"
-           data-ad-slot="4574000639"
-           data-ad-format="auto"
-           data-full-width-responsive="true"></ins>
-      <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
-  </div>
-  {% endif %}
-
   <div class="agent-input" style="align-items: center; padding: 15px 20px;">
     
     <input type="file" id="editorImageInput" accept="image/png, image/jpeg, image/webp" hidden />
@@ -607,19 +554,7 @@
       </svg>
     </button>
   </div>
-  </aside>
-
-  {% if user.plan != 'premium' %}
-  <div class="ad-side">
-      <ins class="adsbygoogle"
-           style="display:block"
-           data-ad-client="ca-pub-1594181130407895"
-           data-ad-slot="4574000639"
-           data-ad-format="vertical"
-           data-full-width-responsive="true"></ins>
-      <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
-  </div>
-  {% endif %}
+</aside>
 
 <section class="main">
   <div class="topbar">
@@ -688,16 +623,11 @@
     </aside>
 
     <div class="stage">
+      <div id="code-loading-overlay" style="display: none; position: absolute; inset: 0; background: var(--panel); backdrop-filter: blur(10px); z-index: 100; flex-direction: column; align-items: center; justify-content: center; color: var(--accent);">
+        <img src="/static/loading.gif" alt="Loading..." style="width: 200px; height: 200px; margin-bottom: 20px; filter: drop-shadow(0 4px 12px rgba(59, 130, 246, 0.3));" />
+      </div>
       <div id="editor"></div>
       <div id="imageViewer" style="display:none; flex:1; align-items:center; justify-content:center; overflow:auto; background:#0d111c; padding: 20px;"></div>
-      
-      <div id="previewLoader" style="display:none; position:absolute; inset:0; background:#0d111c; z-index:10; flex-direction:column; align-items:center; justify-content:center;">
-          <div class="loading-wave active" style="transform: scale(2); margin-bottom: 20px;">
-              <div class="loading-bar"></div><div class="loading-bar"></div><div class="loading-bar"></div>
-          </div>
-          <p id="previewLoaderText" style="color:var(--text-muted); font-family:monospace; letter-spacing: 1px;">Mounting WebContainer...</p>
-      </div>
-
       <iframe id="preview"></iframe>
     </div>
   </div>
@@ -747,6 +677,37 @@ import { webRunner } from '/static/webrunner.js';
 import { marked } from 'https://esm.sh/marked@9.1.2';
 import DOMPurify from 'https://esm.sh/dompurify@3.0.6';
 
+window.isAppStable = false; // Add global stability flag
+
+// 🛑 OVERRIDE FETCH TO INTERCEPT ALL_CLEAR AND MUTE ERRORS 🛑
+const originalFetch = window.fetch;
+window.fetch = async function(...args) {
+    const url = args[0];
+    const options = args[1];
+
+    if (url && typeof url === 'string' && url.includes('/log') && options && options.method === 'POST') {
+        if (options.body && options.body instanceof FormData) {
+            const msg = options.body.get('message') || '';
+            const lvl = options.body.get('level') || '';
+
+            if (msg.includes('ALL_CLEAR')) {
+                console.info("🟢 [SYSTEM] All clear received! Unlocking UI.");
+                window.isAppStable = true;
+                setInputState(false);
+                const codeOverlay = document.getElementById('code-loading-overlay');
+                if(codeOverlay) codeOverlay.style.display = 'none';
+                switchTab('preview'); // Automatically switch to preview
+            }
+
+            if (window.isAppStable && lvl === 'ERROR') {
+                console.info("🛡️ [SHIELD] Suppressed error from AI because app is stable.");
+                return new Response(JSON.stringify({success: true}), { status: 200 });
+            }
+        }
+    }
+    return originalFetch.apply(this, args);
+};
+
 const PROJECT_ID = "{{ project_id }}";
 const INITIAL_PROMPT = "{{ initial_prompt or '' }}"; 
 const CHAT_KEY = `gorilla_chat_${PROJECT_ID}`;
@@ -781,6 +742,7 @@ function captureConsole() {
 
     function sendLog(level, args) {
         if (!window.isAgentWorking) return; 
+        if (window.isAppStable && level === 'ERROR') return; // MUTE ERRORS AFTER ALL CLEAR
         try {
             const msg = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
             const data = new FormData();
@@ -997,8 +959,10 @@ function addMessage(role, text, save=true) {
   if (!text) return;
 
   if (role === "system") {
-      // Intercept formatting for system messages silently
-  } else if (role === "assistant") {
+      return; 
+  }
+
+  if (role === "assistant") {
       text = text.replace(/([.?!])\s+(?=\d+\.)/g, '$1\n\n');
   }
 
@@ -1011,8 +975,6 @@ function addMessage(role, text, save=true) {
       } else {
           el.innerHTML = `<div class="meta">${role}</div><div class="md">${DOMPurify.sanitize(marked.parse(text))}</div>`;
       }
-  } else if (role === "system") {
-      el.innerHTML = DOMPurify.sanitize(marked.parse(text));
   } else {
       try {
           el.innerHTML = `<div class="meta">${role}</div><div class="md">${DOMPurify.sanitize(marked.parse(text))}</div>`;
@@ -1151,13 +1113,6 @@ async function refreshFiles(){
   const data = await fetchJSON(`/api/project/${PROJECT_ID}/files`);
   const paths = (data.files || []).map(x => x.path);
   
-  // Manage Theatre Mode if we aren't actively waiting for ALL_CLEAR
-  if (paths.length > 0 && !window.isAgentWorking) {
-      document.querySelector('.shell').classList.remove('theatre-mode');
-  } else if (paths.length === 0) {
-      document.querySelector('.shell').classList.add('theatre-mode');
-  }
-  
   if (paths.length > 0 && !paths.includes(currentFile)) {
       if (paths.includes('README.md')) currentFile = 'README.md';
       else if (paths.includes('package.json')) currentFile = 'package.json';
@@ -1171,7 +1126,6 @@ async function refreshFiles(){
       mount.innerHTML = "";
       renderTree(mount, tree, 0);
   }
-  return paths;
 }
 
 function buildEditor(content, fileName){
@@ -1256,7 +1210,7 @@ if(upInput) upInput.onchange = (e) => {
   reader.readAsText(file);
 };
 
-// 🛑 AUTONOMOUS BOOT SEQUENCE WITH LOADER
+// 🛑 AUTONOMOUS BOOT SEQUENCE
 async function bootWebContainer() {
     if (isWebContainerBooted) {
         refreshPreview();
@@ -1264,15 +1218,10 @@ async function bootWebContainer() {
     }
 
     const iframe = $("preview");
-    const loader = $("previewLoader");
-    const loaderText = $("previewLoaderText");
     const status = $("serverStatus");
 
     try {
-        iframe.style.display = "none";
-        loader.style.display = "flex"; // Show boot loader
-        loaderText.textContent = "Booting Virtual Machine...";
-
+        setProgress("Booting Virtual Machine...", 20);
         if (status) {
             status.textContent = "Booting VM...";
             status.style.color = "var(--warn)";
@@ -1281,35 +1230,28 @@ async function bootWebContainer() {
         const response = await fetchJSON(`/api/project/${PROJECT_ID}/files`);
         const files = response.files || [];
 
-        loaderText.textContent = "Mounting File System...";
+        setProgress("Mounting Files...", 40);
         await webRunner.mount(files);
         
-        loaderText.textContent = "Installing Dependencies...";
-        await webRunner.install((role, text) => {
-             // addMessage("system", text); // Skip logging install directly to chat to keep it clean
-        }, PROJECT_ID);
+        setProgress("Installing Dependencies (this takes a minute)...", 60);
+        await webRunner.install((role, text) => addMessage("system", text));
         
-        loaderText.textContent = "Starting Development Server...";
+        setProgress("Starting Development Server...", 80);
         await webRunner.start((url) => {
-            loader.style.display = "none"; // Hide loader
-            
             if (status) {
                 status.textContent = "Live";
                 status.style.color = "var(--ok)";
             }
             setProgress("Live", 100);
-            
             iframe.src = url;
             iframe.style.display = "block";
             isWebContainerBooted = true;
             
             setTimeout(() => setProgress("Ready", 0), 2000);
-        }, (role, text) => { }, PROJECT_ID);
+        }, (role, text) => { });
 
     } catch (e) {
         console.error(e);
-        loaderText.textContent = "Boot Failed. Checking Logs...";
-        loaderText.style.color = "var(--danger)";
         if (status) {
             status.textContent = "Error";
             status.style.color = "var(--danger)";
@@ -1320,17 +1262,20 @@ async function bootWebContainer() {
 
 // 🛑 SEAMLESS TAB SWITCHER
 function switchTab(tab){
+  if (tab === "preview" && !window.isAppStable) {
+      return; // Block switching before ALL_CLEAR
+  }
+
   if(tab === "preview"){
     $("tabPreview").classList.add("active");
     $("tabCode").classList.remove("active");
     $("editor").style.display = "none";
     $("imageViewer").style.display = "none";
-    
-    // We do NOT set display:block on preview iframe here unconditionally because the loader might be showing
+    $("preview").style.display = "block";
     $("previewModeWrap").style.display = "flex";
     
+    // Automatically boot the VM if it isn't running yet!
     if (isWebContainerBooted && webRunner.url) {
-        $("preview").style.display = "block";
         refreshPreview();
     } else {
         bootWebContainer();
@@ -1376,9 +1321,10 @@ async function applyPendingUpdates() {
     }
     pendingFileUpdates = {};
 
+    // Only run install if the agent explicitly modified the package.json!
     if (needsNpmInstall) {
         setProgress("Installing new dependencies...", 95);
-        await webRunner.install((role, text) => addMessage("system", text), PROJECT_ID);
+        await webRunner.install((role, text) => addMessage("system", text));
         needsNpmInstall = false;
     }
 
@@ -1386,7 +1332,7 @@ async function applyPendingUpdates() {
     setProgress("Ready", 0);
 }
 
-// --- AGENT STREAM WITH ALL-CLEAR INTERCEPTOR ---
+// --- AGENT STREAM WITH DETERMINISM ---
 function startStream(){
   if(es) es.close();
   setConn("warn");
@@ -1400,28 +1346,25 @@ function startStream(){
     if(m.type === "status") {
       setProgress(m.text);
       if (m.text.includes("Done") || m.text.includes("Ready") || m.text.includes("Error") || m.text.includes("Waiting for User")) {
-          
           currentThoughtBlock = null; 
           
-          if (m.text.includes("Waiting for User") || m.text.includes("Error")) {
-              setInputState(false);
-          } else if (m.text.includes("Done")) {
-              // Agent finished writing files. Apply and Boot.
-              addMessage("system", "Agent tasks complete. Booting and verifying application stability...");
-              
-              if (isWebContainerBooted && webRunner && Object.keys(pendingFileUpdates).length > 0) {
+          if (!isWebContainerBooted && m.text.includes("Done")) {
+              bootWebContainer();
+          } else if (isWebContainerBooted) {
+              if (Object.keys(pendingFileUpdates).length > 0) {
                   applyPendingUpdates();
-              } else if (!isWebContainerBooted) {
-                  bootWebContainer();
               }
-
-              // Safety Fallback: Unlock UI after 25s if ALL_CLEAR fails to arrive
               setTimeout(() => {
-                  if (window.isAgentWorking) {
-                      document.querySelector('.shell').classList.remove('theatre-mode');
-                      setInputState(false);
-                  }
-              }, 25000);
+                  window.isAppStable = true;
+                  setInputState(false);
+                  const codeOverlay = document.getElementById('code-loading-overlay');
+                  if(codeOverlay) codeOverlay.style.display = 'none';
+              }, 2000);
+          } else {
+              window.isAppStable = true;
+              setInputState(false);
+              const codeOverlay = document.getElementById('code-loading-overlay');
+              if(codeOverlay) codeOverlay.style.display = 'none';
           }
       }
     }
@@ -1431,36 +1374,27 @@ function startStream(){
     
     if(m.type === "log") {
       const role = (m.role || "agent").toLowerCase();
-      const text = m.text || "";
-
-      // 🛑 ALL CLEAR INTERCEPTOR
-      if (text.includes("SYSTEM ALERT: ALL_CLEAR")) {
-          document.querySelector('.shell').classList.remove('theatre-mode');
-          setInputState(false);
-          currentThoughtBlock = null;
-          addMessage("system", `<div style="padding:12px; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); border-radius:8px; color:#10b981; font-weight:bold;">✨ App successfully compiled and verified! Opening preview...</div>`);
-          
-          setTimeout(() => {
-              switchTab("preview");
-          }, 1500);
-          return; // Skip normal logging
-      }
       
       if (role === "assistant") {
           currentThoughtBlock = null; 
-          addMessage(role, text);
+          addMessage(role, m.text);
       } else if (role !== "user") {
-          const tLower = text.toLowerCase();
+          const tLower = m.text.toLowerCase();
           const isJunk = tLower.includes("initialized") || 
                          tLower.includes("need user clarification") || 
                          tLower.includes("clarification needed") ||
                          tLower.includes("asking") ||
                          tLower.includes("bypassing review") ||
                          tLower.includes("executing") ||
-                         tLower.includes("analyzing: --- previous");
+                         tLower.includes("--- previous");
+                         tLower.includes("planning...");
+                         tLower.includes("building...");
+                         tLower.includes("stable:");
+                         tLower.includes("final:");
+                         tLower.includes("building..");
                          
           if (!isJunk) {
-              addThought(text, role);
+              addThought(m.text, role);
           }
       }
     }
@@ -1472,6 +1406,7 @@ function startStream(){
       
       pendingFileUpdates[m.path] = true;
       
+      // 🛑 The deterministic package.json trigger
       if (m.path === "package.json") {
           needsNpmInstall = true;
       }
@@ -1535,6 +1470,9 @@ async function triggerAgent(promptText) {
         }
     }
     
+    window.isAppStable = false;
+    const codeOverlay = document.getElementById('code-loading-overlay');
+    if (codeOverlay) codeOverlay.style.display = 'flex';
     setInputState(true);
 
     if (currentAttachedImage) {
@@ -1590,17 +1528,12 @@ if (promptInput) {
 // --- INIT ---
 (async () => {
   loadChatHistory();
-  const paths = await refreshFiles();
+  await refreshFiles();
   try { await loadFile(currentFile); } catch(e) {}
   
   startStream();
   setProgress("Ready", 0);
   hideEditorLoader();
-
-  // If files exist, Auto-Boot the VM in the background immediately!
-  if (paths && paths.length > 0) {
-      bootWebContainer();
-  }
   
   if (RESUME_DB_AGENT) {
       addThought("Resuming Supabase Architecture Session...");
