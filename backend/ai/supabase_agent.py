@@ -1158,7 +1158,7 @@ class CoderAgent(BaseAgent):
         "    {\n"
         '      "action": "create_file" | "overwrite_file" | "read_file",\n'
         '      "path": "src/pages/Dashboard.tsx" OR "routes/api.js",\n'
-        '      "content": "FULL FILE CONTENT HERE (only for create_file/overwrite_file)"\n'
+        '      "content": "FULL FILE CONTENT HERE (only for create_file/overwrite_file)"\n' 
         "    }\n"
         "  ]\n"
         "}\n\n"
