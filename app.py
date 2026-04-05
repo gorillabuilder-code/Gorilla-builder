@@ -2123,9 +2123,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                         project_ref = proj_res.json().get("id")
                         supabase.table("projects").update({"supabase_project_ref": project_ref}).eq("id", project_id).execute()
                     
-                        supa_anon_key = "PROVISIONING_IN_PROGRESS"
-                        emit_log(project_id, "system", "Waiting for Postgres instance to fully boot (this can take 1-2 minutes)...")
-                        
+                        supa_anon_key = "PROVISIONING_IN_PROGRESS"                        
                         db_is_active = False
                         
                         # 🛑 THE STATUS FIX: Phase A - Wait for the project status to be ACTIVE
@@ -2136,7 +2134,6 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                                 # Check for active statuses
                                 if proj_status_data.get("status") in ["ACTIVE_HEALTHY", "ACTIVE"]:
                                     db_is_active = True
-                                    emit_log(project_id, "system", "✅ Compute instance is active!")
                                     break
                             
                             if attempt % 3 == 0:
@@ -2147,31 +2144,32 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                             raise Exception("Timed out waiting for database compute instance to become active.")
 
                         # Phase B: Now that it's active, fetch the keys
-                        for _ in range(10): # Quick retry for keys just in case
+                        for attempt in range(15): # Bumped to 15 just in case
                             keys_res = await client.get(f"https://api.supabase.com/v1/projects/{project_ref}/api-keys", headers=headers)
+                            
                             if keys_res.status_code == 200:
                                 keys_list = keys_res.json()
+                                
+                                # 🔍 X-RAY LOGGING: What is Supabase actually handing us?                                
                                 if isinstance(keys_list, list) and len(keys_list) > 0:
-                                    anon_obj = next((k for k in keys_list if k.get("name") == "anon"), None)
+                                    # 🛑 THE FIX: Look for 'anon' OR 'publishable'
+                                    anon_obj = next((k for k in keys_list if k.get("name") in ["anon", "publishable"]), None)
+                                    
                                     if anon_obj and anon_obj.get("api_key"):
                                         supa_anon_key = anon_obj.get("api_key")
-                                        emit_log(project_id, "system", "✅ Database keys generated successfully!")
                                         break
-                            await asyncio.sleep(2)
+                                    else:
+                                        emit_log(project_id, "debugger", "List returned, but no 'anon' or 'publishable' key found inside.")
+                                else:
+                                    emit_log(project_id, "debugger", "Payload was not a list or was empty.")
+                            else:
+                                # 🔍 X-RAY LOGGING: Why did it fail?
+                                emit_log(project_id, "debugger", f"Keys API Error ({keys_res.status_code}): {keys_res.text}")
+                                
+                            await asyncio.sleep(3)
                             
                         if supa_anon_key == "PROVISIONING_IN_PROGRESS":
-                            raise Exception("Database became active, but could not retrieve the anon key.")
-
-                        # Write exactly what Vite expects
-                        env_content = f"\nVITE_SUPABASE_URL=https://{project_ref}.supabase.co\nVITE_SUPABASE_ANON_KEY={supa_anon_key}\n"
-                    
-                        # Safely inject into existing .env
-                        existing_env = file_tree.get(".env", "")
-                        db_upsert("files", {"project_id": project_id, "path": ".env", "content": existing_env + env_content}, on_conflict="project_id,path")
-                        emit_file_changed(project_id, ".env")
-                        emit_log(project_id, "system", f"Database successfully provisioned! Ref: {project_ref}")
-                    else:
-                        raise Exception(f"Project creation failed: {proj_res.text}")
+                            raise Exception("Database became active, but could not retrieve the anon/publishable key. Check debugger logs.")
                     
             except Exception as e:
                 emit_log(project_id, "system", f"Failed to provision database: {e}")

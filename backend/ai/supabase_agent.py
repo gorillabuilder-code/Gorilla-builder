@@ -867,9 +867,9 @@ class PlannerAgent(BaseAgent):
     "You are the AMBITIOUS Lead Architect for a high-performance **Full-Stack** web application, you are the GOR://A BUILDER multi agent AI BUILDER. Your goal is to create a strategic, step-by-step build plan for an AI Coder specialized in **React (Frontend)** AND **Node.js/Express (Backend)**. Strictly give NO CODE AT ALL, in no form. But you MUST REASON HARD.\n"
     "CRITICAL CONTEXT: The AI Coder executes tasks in isolation. It has NO memory of previous files unless you provide context in *every single task description*.\n\n"
     "Rules:\n"
-    "MANDATORY OUTPUT FORMAT: JSON OBJECT ONLY. Do NOT wrap in markdown blocks.\n"
+    "**VERY CRITICAL** MANDATORY OUTPUT FORMAT: JSON OBJECT ONLY. Do NOT wrap in markdown blocks.\n"
     "{\n"
-    '  "assistant_message": "Sure I will build the ... application for you with...and...it will be...", --> this should be long and very precise.\n'
+    '  "assistant_message": "Sure I will build the ... application for you with...and...it will be...", --> this should be comforting for the user, but not talk about technical code specifications but how the application will function and look.\n'
     '  "tasks": [\n'
     '    "Step 1: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Create `App.tsx` to begint the process...",\n'
     '    "Step 2: [Project: AppName | Stack: FullStack | Context: (FULL SUMMARY)] Modify `server.js` to setup API..."\n'
@@ -911,9 +911,10 @@ class PlannerAgent(BaseAgent):
     "   - Do not try to ask the user more than 1 question to elaborate on their request, if you do, they should be obvious and add functionality to their app if they agree DO NOT BOTHER THEM MORE THAN ONCE. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY QUESTIONS IF THEY DONT FEEL LIKE IT OR ANY DEBUGGING QUESTIONS.\n"
     "   - CONSOLIDATE TASKS: You MUST bundle related operations together. Combine them into Macro Steps (e.g., 'Step 1: Database & Backend setup', 'Step 2: Core UI Components', 'Step 3: Frontend Wiring').\n"
     "   - Simple Apps: Maximum 3-4 Macro/clubbed Tasks. + DB TASK (if there are no questions only!)\n"
-    "   - Complex Apps: Maximum 5-unlimited Macro/clubbed Tasks. + DB TASK (if there are no questions only!)\n"
+    "   - Complex Apps: UNLIMITED Macro/clubbed Tasks. + DB TASK (if there are no questions only!)\n"
     "   - Debugging/Simple addition Tasks: 1 task only. DO NOT ASK QUESTIONS FOR DEBUGGING.\n"
     "   - Update `server.js` and `App.tsx` **LAST** to wire up components/routes.\n"
+    "   - NEVER bundle more than 3-4 files into a single task. Break large frontend or backend builds into multiple, smaller steps to prevent output truncation. AND ALWAYS TRY TO USE MULTI PAGE ARCHITECTURES.\n"
     " **CRITICAL:** NEVER EVER USE DRIZZLE ORM  OR JSON STORGAE OR ANY OTHER LOCAL DB IN ANY WAY, USE SUPABASE"
     "\n\n========================================================================\n"
     "🔥 SUPABASE FULL-STACK & INTEGRATION ARCHITECTURE UNLOCKED 🔥\n"
@@ -1747,43 +1748,69 @@ class LogicSubAgent(BaseAgent):
 # ============================================================================
 
 class DebuggerAgent(BaseAgent):
-    """Debugger - direct fixes, no overthinking."""
+    """Debugger - High-context auto-healer using the Coder's architectural knowledge."""
     
-    SYSTEM_PROMPT = (
-        "You are the Debugger.\n\n"
-        "YOUR JOB: Fix errors. Be DIRECT.\n\n"
-        "RULES:\n"
-        "1. Look at the error message\n"
-        "2. Find the problematic file/line\n"
-        "3. Fix with MINIMAL changes\n\n"
-        "NO explaining. Just fix.\n\n"
-        "RESPONSE FORMAT (JSON):\n"
-        "{\n"
-        '  "message": "Fixed: ...",\n'
-        '  "operations": [{"action": "overwrite_file", "path": "...", "content": "..."}]\n'
-        "}"
-    )
-
-    async def debug(self, error_message: str, file_tree: Dict[str, str]) -> List[Dict]:
+    async def debug(self, error_message: str, file_tree: Dict[str, str], target_path: Optional[str] = None) -> List[Dict]:
         log_agent("debugger", f"Fixing: {error_message[:60]}...", self.project_id)
         
-        file_match = re.search(r'(?:in|at)\s+(\S+\.(?:tsx|ts|js|jsx))', error_message)
-        relevant_file = file_match.group(1) if file_match else "unknown"
+        # 1. Identify the file (Prioritize explicit target_path, fallback to regex that includes .sql)
+        relevant_file = target_path
+        if not relevant_file:
+            file_match = re.search(r'(?:in|at|file)\s+([^\s\'"]+\.(?:tsx|ts|js|jsx|sql))', error_message, re.IGNORECASE)
+            relevant_file = file_match.group(1) if file_match else "unknown"
+            
         file_content = file_tree.get(relevant_file, "")
         
-        messages = [
-            {"role": "system", "content": self.SYSTEM_PROMPT},
-            {"role": "user", "content": f"""ERROR:\n{error_message}\n\nFILE: {relevant_file}\nCONTENT:\n{file_content[:1500]}\n\nFix this. Output JSON."""}
-        ]
+        # 2. Build the System Prompt by combining Coder context with Debugger directives
+        system_prompt = CoderAgent.SYSTEM_PROMPT + (
+            "\n\n========================================================================\n"
+            "🚨 CRITICAL DEBUGGING OVERRIDE 🚨\n"
+            "========================================================================\n"
+            "You are currently operating in DEBUG MODE.\n"
+            "The user's application just crashed or encountered a syntax/SQL error.\n"
+            "Your ONLY job is to fix the error provided in the prompt.\n"
+            "Do NOT generate new features. Do NOT rewrite the whole file unless necessary to fix the error.\n"
+            "Make sure to output the EXACT SAME valid JSON format requested above, containing the 'overwrite_file' action to patch the broken file."
+        )
         
-        raw, _ = await self.call_llm(messages, temperature=0.2)
+        # 3. Pull in a bit of chat history so it knows WHAT it was trying to build when it failed
+        chat_history = _get_history(self.project_id)[-4:]
+        
+        messages = [{"role": "system", "content": system_prompt}]
+        for h in chat_history:
+            messages.append({"role": h["role"], "content": h["content"]})
+            
+        # 4. Formulate the explicit error prompt (5000 char window so it can read the whole file)
+        messages.append({
+            "role": "user", 
+            "content": f"🚨 WE HIT AN ERROR! 🚨\n\nERROR LOG:\n{error_message}\n\nTARGET FILE: {relevant_file}\n\nCURRENT FILE CONTENT:\n})
+        
+        # Use call_llm with a lower temperature for strict, analytical bug fixing
+        raw, tokens = await self.call_llm(messages, temperature=0.3)
         data = self.extract_json(raw)
         
         if data:
             ops = data.get("operations", [])
+            
+            # Normalize operations just to be safe
+            normalized_ops = []
             for op in ops:
-                log_agent("debugger", f"  ✓ {op.get('action')}: {op.get('path')}", self.project_id)
-            return ops
+                action = op.get("action", "overwrite_file")
+                path = op.get("path", relevant_file)
+                content = op.get("content", "")
+                
+                if action in ["patch_file", "patch", "update_file", "modify_file"]:
+                    action = "overwrite_file"
+                    
+                if path and content:
+                    normalized_ops.append({
+                        "action": action,
+                        "path": path,
+                        "content": content
+                    })
+                    log_agent("debugger", f"  ✓ Fixed {path}", self.project_id)
+            
+            return normalized_ops
         
         return []
 
@@ -1910,7 +1937,6 @@ class SupabaseAgentSwarm:
                     stable_count += 1
                     # Stable for 3 seconds and no pending tasks = done
                     if stable_count >= 6 and not self.coder.pending_tasks:
-                        log_agent("swarm", f"✅ Stable: {len(current_ops)} operations", self.project_id)
                         break
                 else:
                     stable_count = 0
@@ -2121,9 +2147,7 @@ class Agent:
             if path:
                 seen_paths[path] = op
         operations = list(seen_paths.values())
-        
-        log_agent("agent", f"Final: {len(operations)} unique file operations", project_name)
-        
+                
         # Await background tasks
         await swarm.bus.await_all_tasks(timeout=3.0)
         
