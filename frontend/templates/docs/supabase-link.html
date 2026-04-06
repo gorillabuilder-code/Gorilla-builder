@@ -1,0 +1,48 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Linking Supabase{% endblock %}
+{% block breadcrumb %}Linking Supabase{% endblock %}
+
+{% block content %}
+<h1>Linking Your Supabase Account</h1>
+<p class="subtitle">Granting the Swarm permission to act as your dedicated DevOps engineer and Database Administrator.</p>
+
+<h2>Why Supabase?</h2>
+<p>To build a production-ready SaaS, you need a production-ready database. We chose Supabase because it provides scalable PostgreSQL databases, an incredible REST API, and native edge functions. However, manually setting up a database, finding your API keys, writing the schema, and injecting it into your app takes hours.</p>
+<p>Gor://a Builder turns this into a zero-click operation via <strong>OAuth Integration</strong>.</p>
+
+<h2>The OAuth Handshake</h2>
+<p>To allow Gor://a to provision databases for you, you must link your account using the Supabase Management API.</p>
+
+<ol>
+  <li>Navigate to <strong>Account & Settings</strong> in the Gor://a Dashboard.</li>
+  <li>Click the <strong>Link Supabase Account</strong> button.</li>
+  <li>You will be securely redirected to Supabase to authorize Gor://a Builder.</li>
+  <li>Once authorized, Supabase hands Gor://a a secure Management Token, allowing our backend to interact with your organization.</li>
+</ol>
+
+<div class="callout warning">
+  <i class="ph-bold ph-shield-check"></i>
+  <div class="callout-content">
+    <p><strong>Security & Scopes:</strong> We take your security seriously. Gor://a Builder only uses this Management Token to create *new* projects and execute SQL migrations on the specific databases it generates for you. It does not tamper with your pre-existing manual Supabase projects.</p>
+  </div>
+</div>
+
+<h2>Activating the Database Mode</h2>
+<p>Once linked, a new superpower is unlocked on your Dashboard. In the main prompt bar, you will notice a <strong>Supabase Toggle Button</strong> (the green circular icon). </p>
+
+<p>When you are about to prompt an app that requires a database (e.g., <em>"Build a CRM that tracks customer purchases"</em>), simply click the Supabase toggle to turn it <strong>ON</strong>. This sends a hidden <code>is_db_request=true</code> flag to the orchestration engine, kicking off the Autonomous Provisioning sequence.</p>
+
+<p>Alternatively, if you type keywords like "database", "postgres", or "supabase" in your prompt, the AI will naturally infer the requirement, provided your account is linked.</p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/backend-overview" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Node.js + Express Backend</strong>
+</a>
+<a href="/docs/db-provisioning" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Autonomous Provisioning</strong>
+</a>
+{% endblock %}

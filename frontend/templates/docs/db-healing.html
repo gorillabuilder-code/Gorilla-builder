@@ -1,0 +1,45 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Database Auto-Healing{% endblock %}
+{% block breadcrumb %}Database Auto-Healing{% endblock %}
+
+{% block content %}
+<h1>Database Auto-Healing</h1>
+<p class="subtitle">No more manual SQL debugging. The AI analyzes its own database errors and patches them instantly.</p>
+
+<h2>Handling Postgres Exceptions</h2>
+<p>Even the most advanced LLMs occasionally write invalid SQL. They might reference a column that doesn't exist, mess up a foreign key constraint, or forget a closing parenthesis. In a traditional workflow, debugging a remote Postgres database is a tedious, manual process.</p>
+
+<p>Gor://a Builder eliminates this friction entirely. Our engine doesn't just execute the SQL; it listens intently to the response from the Supabase API.</p>
+
+<h2>The Auto-Healing Loop in Action</h2>
+<p>If the AI executes a migration and Supabase rejects it, here is exactly what happens:</p>
+
+<ol>
+  <li><strong>Error Interception:</strong> The Gor://a backend catches the non-200 HTTP response. It extracts the raw PostgreSQL error string (e.g., <code>"ERROR: column 'user_id' referenced in foreign key constraint does not exist"</code>).</li>
+  <li><strong>The Debugger Agent Awakens:</strong> The engine silently halts the UI progress bar and feeds the exact error text, along with the broken <code>.sql</code> file, directly to the <strong>Debugger Agent</strong>.</li>
+  <li><strong>Surgical Patching:</strong> The Debugger analyzes the logic gap, rewrites the faulty SQL statement, and emits an <code>overwrite_file</code> command to patch the migration file in the VFS.</li>
+  <li><strong>Retry Mechanism:</strong> The backend automatically attempts to re-execute the patched SQL against the Supabase database. It will attempt this auto-healing loop up to 3 times to ensure the schema mounts perfectly.</li>
+</ol>
+
+<div class="callout warning">
+  <i class="ph-bold ph-hourglass-high"></i>
+  <div class="callout-content">
+    <p><strong>The 404 Boot-Up Wait:</strong> Occasionally, the Supabase API returns a <code>404 Not Found</code> error if the compute instance is still warming up from a cold start. The Gor://a backend is smart enough to differentiate a syntax error from a cold-start. If it sees a 404, it simply sleeps for 5 seconds and retries the connection until the database is awake.</p>
+  </div>
+</div>
+
+<h2>The Result</h2>
+<p>Because of this closed-loop architecture, you as the developer almost never see a database error. You simply prompt for a feature, and the engine ensures that the Postgres tables are created flawlessly before your WebContainer even boots your application.</p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/sql-migrations" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Automated SQL Migrations</strong>
+</a>
+<a href="/docs/auth-gateway" class="docs-nav-btn next">
+  <span>Next (Part 6)</span>
+  <strong>Gor://a Auth Gateway</strong>
+</a>
+{% endblock %}

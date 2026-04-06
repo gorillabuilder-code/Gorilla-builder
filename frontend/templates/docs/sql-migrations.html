@@ -1,0 +1,54 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Automated SQL Migrations{% endblock %}
+{% block breadcrumb %}Automated SQL Migrations{% endblock %}
+
+{% block content %}
+<h1>Automated SQL Migrations</h1>
+<p class="subtitle">The AI acts as your dedicated Database Administrator, executing structural changes via raw SQL.</p>
+
+<h2>Why We Avoid ORMs</h2>
+<p>Many frameworks rely on ORMs (Object-Relational Mappers) like Prisma or Drizzle. While great for human developers, they are notorious "VybeCoding" traps for AI. ORMs require the AI to write a schema file, run terminal commands to generate types, and execute push commands—which frequently fail or get stuck in loop errors inside headless containers.</p>
+
+<p>Gor://a bypasses this fragility. We instruct the Swarm to write <strong>Raw SQL</strong>.</p>
+<p>SQL is deterministic, universally understood by LLMs, and leaves zero room for translation errors.</p>
+
+<h2>The Migration Workflow</h2>
+<p>When you ask the AI to build a feature that requires new database tables (e.g., <em>"Add a table to track customer reviews"</em>), the <strong>Supabase Agent Swarm</strong> takes over.</p>
+
+<ol>
+  <li><strong>Writing the Migration:</strong> The Coder agent writes a standard SQL file and saves it to the <code>migrations/</code> directory in your Virtual File System (e.g., <code>migrations/001_init.sql</code>).</li>
+  <li><strong>API Execution:</strong> The Gor://a backend detects that a <code>.sql</code> file was generated. It immediately pauses the WebContainer boot sequence.</li>
+  <li><strong>The Remote Query:</strong> Using your secure Supabase Management Token, the engine fires the raw SQL directly into the Supabase Postgres instance via their <code>/v1/projects/{ref}/database/query</code> REST API endpoint.</li>
+</ol>
+
+<pre><code>-- Example Migration written and executed by the AI:
+CREATE TABLE IF NOT EXISTS public.reviews (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    customer_name TEXT NOT NULL,
+    rating INTEGER CHECK (rating >= 1 AND rating <= 5),
+    comment TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Note: The AI will also handle Row Level Security (RLS) 
+-- policies automatically if instructed.</code></pre>
+
+<div class="callout success">
+  <i class="ph-bold ph-magic-wand"></i>
+  <div class="callout-content">
+    <p><strong>Seamless Updates:</strong> Once the remote database returns a 200 OK status indicating the tables were created successfully, the Swarm proceeds to write the Node.js Express routes to query those new tables, ensuring perfect synchronization between your DB and your backend.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/db-provisioning" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Autonomous Provisioning</strong>
+</a>
+<a href="/docs/db-healing" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Database Auto-Healing</strong>
+</a>
+{% endblock %}

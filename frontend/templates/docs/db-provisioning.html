@@ -1,0 +1,49 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Autonomous Provisioning{% endblock %}
+{% block breadcrumb %}Autonomous Database Provisioning{% endblock %}
+
+{% block content %}
+<h1>Autonomous Database Provisioning</h1>
+<p class="subtitle">Zero-click infrastructure. You ask for a database, the engine builds it while you watch.</p>
+
+<h2>The Mid-Chat Provisioning Engine</h2>
+<p>If you've activated the Supabase toggle or requested a database in your prompt, the Gor://a Builder backend intercepts the request <em>before</em> the AI even starts writing your React code. This is our <strong>Mid-Chat Provisioning Engine</strong>.</p>
+
+<p>While the UI displays <em>"Provisioning Remote Database..."</em>, a massive background operation is occurring in a matter of seconds:</p>
+
+<ol>
+  <li><strong>Organization Check:</strong> The engine pings the Supabase API to find your default Organization. If you don't have one, it creates one named "Gorilla Apps".</li>
+  <li><strong>Instance Spin-Up:</strong> It generates a secure, randomized 16-character database password and tells Supabase to spin up a new PostgreSQL instance on the Free Tier (usually in <code>us-east-1</code>).</li>
+  <li><strong>The Status Loop:</strong> Creating a cloud database takes time. The engine enters a polling loop, checking the Supabase API every few seconds until the project status returns <code>ACTIVE_HEALTHY</code>.</li>
+  <li><strong>Key Extraction:</strong> Once active, the engine queries the API to extract your <code>anon_key</code> (Publishable Key) and your Project URL.</li>
+</ol>
+
+<h2>Environment Variable Injection</h2>
+<p>The magic happens here: you never have to copy-paste these keys. The orchestration engine takes the <code>anon_key</code> and the database URL and dynamically creates a <code>.env</code> file inside your virtual workspace.</p>
+
+<pre><code># The engine auto-generates this file in the VFS
+VITE_SUPABASE_URL=https://xyz123.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5c...
+VITE_GORILLA_AUTH_ID=db-uuid-for-app-auth</code></pre>
+
+<div class="callout success">
+  <i class="ph-bold ph-database"></i>
+  <div class="callout-content">
+    <p><strong>Permanent Linkage:</strong> The engine also saves the <code>supabase_project_ref</code> directly to your project record in the Gor://a Builder database. This guarantees that if you leave the app and come back tomorrow, the AI will still know exactly which database belongs to your project so it can run future migrations.</p>
+  </div>
+</div>
+
+<p>Once the database is fully booted and the `.env` file is injected, the engine hands control back to the AI Swarm to begin designing the backend logic.</p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/supabase-link" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Linking Supabase</strong>
+</a>
+<a href="/docs/sql-migrations" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Automated SQL Migrations</strong>
+</a>
+{% endblock %}

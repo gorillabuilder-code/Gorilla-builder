@@ -1,0 +1,55 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Node.js + Express Backend{% endblock %}
+{% block breadcrumb %}Node.js + Express Backend{% endblock %}
+
+{% block content %}
+<h1>The Node.js + Express Backend</h1>
+<p class="subtitle">Escaping the "Frontend-Only" trap. How Gor://a Builder orchestrates real, live backend infrastructure in your browser.</p>
+
+<h2>The VybeCoding Illusion</h2>
+<p>Most AI coding tools on the market today are fundamentally crippled: they can only build static frontends. If you ask them for a database or a backend route, they either mock the data using <code>localStorage</code> or instruct you to manually set up a server, manage CORS, and juggle environment variables. They leave you stranded when it comes to actual infrastructure.</p>
+
+<p>Gor://a Builder was engineered to kill backend boilerplate. Every project you create is a true full-stack application, running a headless Node.js environment directly inside the WebContainer alongside your React frontend.</p>
+
+<h2>The Golden Boilerplate: Backend Architecture</h2>
+<p>When the Gor://a Swarm spins up a new project, it inherently understands our <strong>Golden Boilerplate</strong> backend structure. It uses modern ES Modules (<code>import/export</code>) and Express.js to build your API.</p>
+
+<pre><code>/
+├── server.js             # The main Express application entry point
+├── routes/               # Modular API routes
+│   ├── api.js            # General API endpoints
+│   ├── auth.js           # Authentication endpoints (via Unified Gateway)
+│   └── stripe.js         # Webhook handlers
+└── .env                  # Securely injected environment variables</code></pre>
+
+<h2>How the Swarm Writes Backend Code</h2>
+<p>Because the AI understands this architecture, it doesn't dump thousands of lines of spaghetti code into a single file. </p>
+<p>When you prompt, <em>"Add an email waitlist,"</em> the <strong>Planner Agent</strong> will instruct the <strong>Coder Agent</strong> to:</p>
+<ol>
+  <li>Create a new file at <code>routes/waitlist.js</code> to handle the POST request.</li>
+  <li>Update <code>server.js</code> to import and mount the new route (<code>app.use('/api/waitlist', waitlistRouter)</code>).</li>
+  <li>Update the React frontend to fetch data from <code>/api/waitlist</code>.</li>
+</ol>
+
+<div class="callout success">
+  <i class="ph-bold ph-plugs-connected"></i>
+  <div class="callout-content">
+    <p><strong>The Unified Gateway Injection:</strong> If your backend requires AI LLM generation, image processing, or authentication, the agent writes routes that securely communicate with the <strong>Gor://a AI & Auth Proxy Gateway</strong>. It utilizes your <code>process.env.GORILLA_API_KEY</code>, meaning you never have to expose your own OpenAI keys or set up complex third-party SDKs.</p>
+  </div>
+</div>
+
+<h2>Seamless Frontend/Backend Communication</h2>
+<p>You never have to worry about CORS (Cross-Origin Resource Sharing) errors. The WebContainer environment uses Vite's proxy capabilities. When your React app makes a <code>fetch('/api/data')</code> request, Vite natively routes it to your running Express server on port 3000. It works locally exactly as it will when you deploy to Vercel.</p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/export-zip" class="docs-nav-btn prev">
+  <span>Previous (Part 4)</span>
+  <strong>Exporting to ZIP</strong>
+</a>
+<a href="/docs/supabase-link" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Linking Supabase</strong>
+</a>
+{% endblock %}
