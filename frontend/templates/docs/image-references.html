@@ -1,0 +1,48 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Image References{% endblock %}
+{% block breadcrumb %}Using Image References{% endblock %}
+
+{% block content %}
+<h1>Using Image References</h1>
+<p class="subtitle">Show, don't just tell. Pass UI screenshots directly into the Swarm's vision pipeline.</p>
+
+<h2>How Vision Integration Works</h2>
+<p>Sometimes describing a complex dashboard layout in text is impossible. Gor://a Builder allows you to upload an image directly into the Dashboard prompt bar using the <i class="ph-bold ph-image"></i> icon.</p>
+<p>When you upload an image, the Gor://a engine compresses it and safely saves it to your Virtual File System as a Base64 string. When the Planner and Coder agents boot up, they utilize state-of-the-art vision models to "see" your image and translate the visual layout, color palette, and spacing directly into Tailwind CSS classes.</p>
+
+<h2>The Prompt + Image Combo</h2>
+<p>An image alone is usually not enough to build a fully functional app. You must combine the image with a structural text prompt to get the best results.</p>
+
+<pre><code>// Good Text Prompt to accompany an image:
+"Replicate the UI in the attached image using Tailwind CSS and React. 
+Make sure the sidebar is fully functional and mobile-responsive. 
+Wire the 'Submit' button seen in the image to a new Express backend route."</code></pre>
+
+<h2>Best Practices for Image Uploads</h2>
+<p>To avoid token waste and hallucinated code, follow these guidelines when uploading image references:</p>
+
+<ul>
+  <li><strong>Crop to the Component:</strong> Don't upload a 4K screenshot of your entire desktop browser if you just want the AI to build a specific pricing card. Crop the image to exactly what you want built.</li>
+  <li><strong>High Contrast is Better:</strong> Vision models struggle with low-contrast, blurry, or highly compressed images. Ensure your screenshot is crisp.</li>
+  <li><strong>Avoid Massive Text Blocks:</strong> If your image contains paragraphs of text, the AI will waste tokens trying to transcribe the text rather than focusing on the layout.</li>
+</ul>
+
+<div class="callout success">
+  <i class="ph-bold ph-lightbulb"></i>
+  <div class="callout-content">
+    <p><strong>Mid-Chat Image Overrides:</strong> Did you know you can upload images mid-session? Once your WebContainer is running, you can click the image icon in the Editor's chat bar to upload a new reference. The engine will safely overwrite the old image in your database, allowing you to visually guide the AI through iterations.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/perfect-prompt" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>The Perfect Prompt</strong>
+</a>
+<a href="/docs/figma-overview" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>The Figma Compiler</strong>
+</a>
+{% endblock %}

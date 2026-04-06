@@ -1,0 +1,44 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Figma Compiler Overview{% endblock %}
+{% block breadcrumb %}The Figma Compiler: Overview{% endblock %}
+
+{% block content %}
+<h1>The Figma Compiler: Overview</h1>
+<p class="subtitle">The ultimate indie dev weapon. Convert raw Figma designs into pixel-perfect React code in seconds.</p>
+
+<h2>The "Screenshot-to-Code" Illusion</h2>
+<p>Many platforms brag about "Screenshot-to-Code." It looks great in Twitter demos, but in reality, vision models hallucinate. They guess margin sizes, they hallucinate random hex colors, and they completely fail to understand responsive Auto-Layout constraints. The result is a brittle UI that breaks the moment you resize the window.</p>
+<p>We built the <strong>Gor://a Figma Compiler</strong> to solve this permanently. We don't just look at a picture of your design; we read the actual mathematics behind it.</p>
+
+<h2>How Our AST Engine Works</h2>
+<p>When you provide a Figma link, Gor://a does not just send it to a vision model. Instead, our backend performs a <strong>Smart Fidelity Compression</strong>:</p>
+
+<ol>
+  <li><strong>Node Extraction:</strong> The engine connects to the Figma API and downloads the raw JSON tree of your specific design frame.</li>
+  <li><strong>Smart Compression (The AST):</strong> Raw Figma JSON is massive (often millions of characters). Our Python backend strips out invisible layers, mathematical vectors, and bloated metadata. It extracts only the crucial Tailwind-compatible data: <code>layoutMode</code>, <code>itemSpacing</code>, <code>padding</code>, typography, and hex <code>fills</code>.</li>
+  <li><strong>The Zero-Shot Compilation:</strong> This highly compressed Abstract Syntax Tree (AST) is sent to our Gemini Flash compiler, which translates the strict mathematical rules directly into a single, massive React TSX component.</li>
+  <li><strong>Asset Injection:</strong> Simultaneously, the engine asks Figma to render the frame as a high-quality JPG, converts it to Base64, and saves it to your database as your project's visual snapshot.</li>
+</ol>
+
+<div class="callout success">
+  <i class="ph-bold ph-coins"></i>
+  <div class="callout-content">
+    <p><strong>Massive Token Savings:</strong> Because we compress the Figma data before sending it to the LLM, we save you tens of thousands of tokens per generation. You get a mathematically perfect UI, and your free token balance barely takes a hit.</p>
+  </div>
+</div>
+
+<h2>The Result</h2>
+<p>When the WebContainer boots up, your <code>App.tsx</code> is already fully populated with the exact colors, padding, and Flexbox layouts you defined in Figma. The AI Swarm is then notified that a design was imported, and it stands by, ready to help you wire up the backend logic and interactivity.</p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/image-references" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Using Image References</strong>
+</a>
+<a href="/docs/figma-import" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>How to Import from Figma</strong>
+</a>
+{% endblock %}

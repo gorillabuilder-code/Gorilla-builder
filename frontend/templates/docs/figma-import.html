@@ -1,0 +1,57 @@
+{% extends "docs/base.html" %}
+
+{% block title %}How to Import from Figma{% endblock %}
+{% block breadcrumb %}How to Import from Figma{% endblock %}
+
+{% block content %}
+<h1>How to Import from Figma</h1>
+<p class="subtitle">A step-by-step guide to linking your account and extracting your first design node.</p>
+
+<h2>Step 1: Link Your Figma Account</h2>
+<p>Before you can extract designs, Gor://a Builder needs permission to read your Figma files. We use secure OAuth to do this.</p>
+<ol>
+  <li>Navigate to <strong>Account & Settings</strong> from the dashboard sidebar.</li>
+  <li>Find the Figma integration block and click <strong>Link Account</strong>.</li>
+  <li>You will be redirected to Figma. Grant Gor://a the <code>file_content:read</code> permission.</li>
+  <li>You will be bounced back to the Dashboard. The Figma icon in the prompt bar will now be active.</li>
+</ol>
+
+<h2>Step 2: Get the Correct Figma URL</h2>
+<p>This is the most critical step. Gor://a's compiler needs to know <em>exactly</em> which component or screen to build. <strong>Do not paste the generic link to your entire Figma file.</strong></p>
+
+<ol>
+  <li>Open your project in Figma.</li>
+  <li>Click on the specific <strong>Frame</strong> or <strong>Component</strong> you want to build. (Ensure you have selected the top-level parent frame, not a single text layer inside it).</li>
+  <li>Right-click the frame, navigate to <strong>Copy/Paste as</strong>, and select <strong>Copy link</strong>.</li>
+  <li>The URL should look something like this: <code>https://www.figma.com/design/abc123XYZ/App?node-id=1-234&t=...</code></li>
+</ol>
+
+<div class="callout warning">
+  <i class="ph-bold ph-warning"></i>
+  <div class="callout-content">
+    <p><strong>The <code>node-id</code> is Mandatory:</strong> If your URL does not contain <code>?node-id=...</code>, the Gor://a backend will reject it. The AST compiler cannot compress an entire multi-page canvas; it requires a targeted node.</p>
+  </div>
+</div>
+
+<h2>Step 3: Trigger the Build</h2>
+<p>Go back to the Gor://a Dashboard. Click the Figma icon <i class="ph-fill ph-figma-logo"></i> in the prompt bar. The input field will turn green.</p>
+<p>Paste your copied Figma URL and hit Enter. Gor://a will intercept the URL, run the Smart Fidelity Compression, deduct the specific tokens used for the compilation, and inject the finished React code directly into your WebContainer environment before the Swarm even boots.</p>
+
+<h2>Troubleshooting Imports</h2>
+<ul>
+  <li><strong>Error: "Could not find that specific node":</strong> Ensure the frame you linked still exists and hasn't been deleted or moved to a different file.</li>
+  <li><strong>Missing Icons:</strong> If you use complex vector math (pen tool drawings) instead of standard icon fonts, Gor://a will replace them with a <code>&lt;lucide-icon&gt;</code> placeholder to keep the code clean. You can ask the AI to swap these out later.</li>
+  <li><strong>Empty Frames:</strong> If you link to a frame that has no background color, no borders, and no text, the compressor will purge it to save tokens, resulting in a blank output. Ensure your frame has actual UI elements.</li>
+</ul>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/figma-overview" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Figma Compiler Overview</strong>
+</a>
+<a href="/docs/ideas-chips" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Using "Ideas" Chips</strong>
+</a>
+{% endblock %}

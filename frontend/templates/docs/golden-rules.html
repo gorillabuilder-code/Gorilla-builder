@@ -1,0 +1,58 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Golden Rules{% endblock %}
+{% block breadcrumb %}Drafting Golden Rules{% endblock %}
+
+{% block content %}
+<h1>Drafting Your "Golden Rules"</h1>
+<p class="subtitle">The ultimate customization engine. Set strict, unbreakable boundaries for the AI Swarm.</p>
+
+<h2>Beyond the Presets</h2>
+<p>While Visuals, Frameworks, and Code Style cover the basics, every developer has highly specific quirks. Maybe you absolutely despise the <code>fetch()</code> API and demand the agent use <code>axios</code>. Maybe your brand guidelines dictate that every application you ever build must strictly be in Dark Mode. Maybe you want the AI to never, ever use browser <code>alert()</code> popups for error handling.</p>
+
+<p>You define these boundaries using <strong>Golden Rules</strong>.</p>
+
+<h2>The Interactive Setup</h2>
+<p>In Step 5 of the Agent Skills wizard, you don't just fill out a text box—you engage in an interactive chat with a specialized setup agent. </p>
+
+<ol>
+  <li><strong>Brainstorming:</strong> You chat naturally with the agent, explaining your preferences (e.g., <em>"I want you to always use dark backgrounds, never use alert boxes, and make sure all buttons have a rounded-full pill shape."</em>).</li>
+  <li><strong>Refinement:</strong> The agent will help you refine these into strict, executable rules.</li>
+  <li><strong>The JSON Extraction:</strong> Once you tell the agent "I'm done," the agent autonomously extracts your conversation, formats it into a highly optimized markdown list, and outputs a hidden JSON payload.</li>
+</ol>
+
+<pre><code>// Under the hood, the AI generates this payload to save to your Supabase profile:
+{
+  "final_rules": "- Always enforce Dark Mode styling globally.\n- Never use window.alert(); use Shadcn Toast components for errors instead.\n- Force all buttons to use 'rounded-full' utility classes."
+}</code></pre>
+
+<h2>How Golden Rules are Enforced</h2>
+<p>Once saved, your Golden Rules are embedded directly into the core memory of the Gor://a orchestration engine.</p>
+<p>When the <strong>Planner</strong> maps out your app, it reads your rules to ensure the architecture doesn't violate them. More importantly, when the <strong>Coder</strong> executes the plan, your Golden Rules are appended to the very bottom of its System Prompt as a <strong>"CRITICAL OVERRIDE."</strong></p>
+
+<div class="callout warning">
+  <i class="ph-bold ph-shield-warning"></i>
+  <div class="callout-content">
+    <p><strong>Use Sparingly:</strong> Golden Rules are absolute commands. If you write conflicting rules (e.g., "Always use Vanilla CSS" but "Always use Tailwind classes for buttons"), the AI will suffer from cognitive dissonance, potentially causing formatting errors. Keep your rules clear, concise, and structural.</p>
+  </div>
+</div>
+
+<h2>Examples of Great Golden Rules</h2>
+<ul>
+  <li><em>"Always wrap API calls in a try/catch block and log errors to console.error."</em></li>
+  <li><em>"Never generate dummy data or placeholders; leave arrays empty if no data is provided."</em></li>
+  <li><em>"Always build mobile-first responsive layouts using Tailwind 'md:' and 'lg:' prefixes."</em></li>
+  <li><em>"Never create additional routing files; keep all Express API endpoints inside server.js."</em></li>
+</ul>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/agent-personality" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Agent Personality</strong>
+</a>
+<a href="/docs/perfect-prompt" class="docs-nav-btn next">
+  <span>Next (Part 3)</span>
+  <strong>Masterclass: The Perfect Prompt</strong>
+</a>
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Using "Ideas" Chips{% endblock %}
+{% block breadcrumb %}Using "Ideas" Chips{% endblock %}
+
+{% block content %}
+<h1>Using "Ideas" Chips</h1>
+<p class="subtitle">Overcome the blank canvas syndrome with our pre-engineered architectural templates.</p>
+
+<h2>What are Ideas Chips?</h2>
+<p>Below the main prompt bar on your dashboard, you will notice several quick-start chips (e.g., E-commerce Store, Analytics Dashboard, AI Chat Bot). These are not just generic text suggestions; they are <strong>pre-engineered structural prompts</strong>.</p>
+
+<p>We spent hours analyzing the most efficient ways to talk to the Gor://a Swarm. These chips inject the exact phrasing required to force the AI to build a multi-page architecture, set up proper Express routing, and scaffold out complex UIs on the very first try.</p>
+
+<h2>How to Use Them</h2>
+<ol>
+  <li>Click on any of the Ideas Chips.</li>
+  <li>The pre-engineered prompt will populate in the main input bar.</li>
+  <li><strong>Customize it:</strong> Don't just hit enter! Append your specific niche, color scheme, or data requirements to the end of the prompt.</li>
+</ol>
+
+<pre><code>// Example: Clicking "Analytics Dashboard" populates the bar.
+// Then, you append your specific niche:
+
+"Build an Analytics Dashboard... specifically tailored for a 
+coffee shop owner. Track daily espresso sales, customer retention, 
+and display a chart of peak hours. Use a warm, coffee-themed 
+Tailwind color palette."</code></pre>
+
+<h2>Why They Save Tokens</h2>
+<p>The Swarm acts exactly as instructed. If you give it a weak prompt, it will build a weak, single-file app. When you later realize you need multiple pages and backend logic, you will have to spend thousands of tokens instructing the AI to refactor the entire architecture.</p>
+<p>By starting with an Ideas Chip, you guarantee the AI establishes a scalable, modular architecture from the very first payload, preventing costly mid-project refactors.</p>
+
+<div class="callout success">
+  <i class="ph-bold ph-rocket"></i>
+  <div class="callout-content">
+    <p><strong>The Pro-Move:</strong> Combine an Ideas Chip with a Figma URL. The AI will use the Figma file for the exact visual layout, but use the structural guidance from the Ideas prompt to wire up the necessary backend Express routes.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/figma-import" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Importing from Figma</strong>
+</a>
+<a href="/docs/editor-interface" class="docs-nav-btn next">
+  <span>Next (Part 4)</span>
+  <strong>The Editor Interface</strong>
+</a>
+{% endblock %}

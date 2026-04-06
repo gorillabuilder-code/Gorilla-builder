@@ -1,0 +1,63 @@
+{% extends "docs/base.html" %}
+
+{% block title %}The Perfect Prompt{% endblock %}
+{% block breadcrumb %}Masterclass: The Perfect Prompt{% endblock %}
+
+{% block content %}
+<h1>Masterclass: Writing the Perfect Prompt</h1>
+<p class="subtitle">Garbage in, garbage out. Learn how to speak to the Gor://a Swarm to generate production-ready, full-stack infrastructure.</p>
+
+<h2>The "VybeCoding" Trap</h2>
+<p>Most AI coding assistants have trained developers to be lazy. Users type <em>"make a cool chatbot app"</em> and expect a production-ready SaaS. On generic platforms, this results in a fragmented, single-file hallucination that breaks the moment you try to add a database.</p>
+
+<p>Gor://a Builder is a 25,000-line orchestration engine. It controls a live Node.js/Express backend and a React/Tailwind frontend. To unlock its full power, you need to stop prompting like a user, and start prompting like a <strong>Product Manager delegating to a Senior Full-Stack Engineer</strong>.</p>
+
+<h2>The Anatomy of a Perfect Prompt</h2>
+<p>A golden prompt for Gor://a Builder contains three core elements:</p>
+<ol>
+  <li><strong>The Frontend Vision:</strong> Layout, framework, and visual hierarchy.</li>
+  <li><strong>The Backend Infrastructure:</strong> API routes, data logic, and integrations.</li>
+  <li><strong>The Data Layer:</strong> Supabase persistence and schema requirements.</li>
+</ol>
+
+<div class="callout success">
+  <i class="ph-bold ph-check-circle"></i>
+  <div class="callout-content">
+    <p><strong>The Golden Example:</strong></p>
+    <p><em>"Build a SaaS dashboard for tracking SEO metrics. Create a React UI with a dark-mode sidebar and a main content area displaying three metric cards and a line chart placeholder. On the backend, create an Express.js route in <code>routes/seo.js</code> that returns mock JSON data for the chart. Wire the frontend to fetch from this API on load. Ensure the UI uses Tailwind glassmorphism."</em></p>
+  </div>
+</div>
+
+<h2>Directing the Backend (Express.js & API)</h2>
+<p>Gor://a natively runs a headless Node.js server. If you want backend logic, <strong>explicitly ask for it</strong>. The Swarm knows your entry point is <code>server.js</code>.</p>
+<ul>
+  <li><strong>Do:</strong> "Create an Express route at <code>/api/waitlist</code> that accepts a POST request with an email."</li>
+  <li><strong>Don't:</strong> "Make a waitlist form." (The AI might just make a frontend form that does nothing when clicked).</li>
+</ul>
+
+<h2>Triggering the Unified Gateway</h2>
+<p>Gor://a's massive technical moat is its Unified AI & Auth Gateway. You can trigger complex SaaS features simply by asking for them in plain English. The agent knows how to use your <code>gb_live_</code> API key.</p>
+<ul>
+  <li><strong>Authentication:</strong> <em>"Add a login page and use the Gor://a Auth gateway for Google Sign-in."</em></li>
+  <li><strong>AI Integration:</strong> <em>"Add a chat interface that sends the user's message to the /api/v1/chat/completions gateway and streams the response back."</em></li>
+  <li><strong>Image Generation:</strong> <em>"Add a button that calls the /api/v1/images/generations gateway to generate an image based on the input field."</em></li>
+</ul>
+
+<div class="callout warning">
+  <i class="ph-bold ph-warning-circle"></i>
+  <div class="callout-content">
+    <p><strong>Token Economy Tip:</strong> Be explicit but concise. If you write a 500-word essay for your prompt, the Planner agent has to process massive amounts of text, which consumes your monthly tokens faster. Keep it structured and bulleted.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/golden-rules" class="docs-nav-btn prev">
+  <span>Previous (Part 2)</span>
+  <strong>Drafting Golden Rules</strong>
+</a>
+<a href="/docs/image-references" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Using Image References</strong>
+</a>
+{% endblock %}
