@@ -1007,8 +1007,6 @@ class PlannerAgent(BaseAgent):
                     tasks = data.get("tasks", [])
                     log_agent("planner", f"Generated {len(tasks)} tasks", self.project_id)
                     
-                    for i, task in enumerate(tasks, 1):
-                        log_agent("planner", f"  Task {i}: {str(task)[:50]}...", self.project_id)
                     
                     if self.project_id:
                         _append_history(self.project_id, "assistant", assistant_message)
@@ -1781,10 +1779,7 @@ class DebuggerAgent(BaseAgent):
             messages.append({"role": h["role"], "content": h["content"]})
             
         # 4. Formulate the explicit error prompt (5000 char window so it can read the whole file)
-        messages.append({
-            "role": "user", 
-            "content": f"🚨 WE HIT AN ERROR! 🚨\n\nERROR LOG:\n{error_message}\n\nTARGET FILE: {relevant_file}\n\nCURRENT FILE CONTENT:\n})
-        
+        messages.append({"role": "user", "content": f"🚨 WE HIT AN ERROR! 🚨\n\nERROR LOG:\n{error_message}\n\nTARGET FILE: {relevant_file}\n\nCURRENT FILE CONTENT:\n{file_content}\n"})
         # Use call_llm with a lower temperature for strict, analytical bug fixing
         raw, tokens = await self.call_llm(messages, temperature=0.3)
         data = self.extract_json(raw)
@@ -2122,7 +2117,6 @@ class Agent:
                 # If stable for 3 seconds and no pending tasks, we're done
                 if stable_count >= 6 and not swarm.coder.pending_tasks:
                     all_collected_ops = current_ops
-                    log_agent("agent", f"✅ Stable: {len(all_collected_ops)} operations collected", project_name)
                     break
             else:
                 stable_count = 0

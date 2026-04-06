@@ -2140,37 +2140,37 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                                 emit_log(project_id, "debugger", f"Instance still booting... (Attempt {attempt+1}/45)")
                             await asyncio.sleep(4)
 
-                        if not db_is_active:
-                            raise Exception("Timed out waiting for database compute instance to become active.")
+                    if not db_is_active:
+                        raise Exception("Timed out waiting for database compute instance to become active.")
 
-                        # Phase B: Now that it's active, fetch the keys
-                        for attempt in range(15): # Bumped to 15 just in case
-                            keys_res = await client.get(f"https://api.supabase.com/v1/projects/{project_ref}/api-keys", headers=headers)
+                    # Phase B: Now that it's active, fetch the keys
+                    for attempt in range(15): # Bumped to 15 just in case
+                        keys_res = await client.get(f"https://api.supabase.com/v1/projects/{project_ref}/api-keys", headers=headers)
+                        
+                        if keys_res.status_code == 200:
+                            keys_list = keys_res.json()
                             
-                            if keys_res.status_code == 200:
-                                keys_list = keys_res.json()
+                            # 🔍 X-RAY LOGGING: What is Supabase actually handing us?                                
+                            if isinstance(keys_list, list) and len(keys_list) > 0:
+                                # 🛑 THE FIX: Look for 'anon' OR 'publishable'
+                                anon_obj = next((k for k in keys_list if k.get("name") in ["anon", "publishable"]), None)
                                 
-                                # 🔍 X-RAY LOGGING: What is Supabase actually handing us?                                
-                                if isinstance(keys_list, list) and len(keys_list) > 0:
-                                    # 🛑 THE FIX: Look for 'anon' OR 'publishable'
-                                    anon_obj = next((k for k in keys_list if k.get("name") in ["anon", "publishable"]), None)
-                                    
-                                    if anon_obj and anon_obj.get("api_key"):
-                                        supa_anon_key = anon_obj.get("api_key")
-                                        break
-                                    else:
-                                        emit_log(project_id, "debugger", "List returned, but no 'anon' or 'publishable' key found inside.")
+                                if anon_obj and anon_obj.get("api_key"):
+                                    supa_anon_key = anon_obj.get("api_key")
+                                    break
                                 else:
-                                    emit_log(project_id, "debugger", "Payload was not a list or was empty.")
+                                    emit_log(project_id, "debugger", "List returned, but no 'anon' or 'publishable' key found inside.")
                             else:
-                                # 🔍 X-RAY LOGGING: Why did it fail?
-                                emit_log(project_id, "debugger", f"Keys API Error ({keys_res.status_code}): {keys_res.text}")
-                                
-                            await asyncio.sleep(3)
+                                emit_log(project_id, "debugger", "Payload was not a list or was empty.")
+                        else:
+                            # 🔍 X-RAY LOGGING: Why did it fail?
+                            emit_log(project_id, "debugger", f"Keys API Error ({keys_res.status_code}): {keys_res.text}")
                             
-                        if supa_anon_key == "PROVISIONING_IN_PROGRESS":
-                            raise Exception("Database became active, but could not retrieve the anon/publishable key. Check debugger logs.")
-                    
+                        await asyncio.sleep(3)
+                        
+                    if supa_anon_key == "PROVISIONING_IN_PROGRESS":
+                        raise Exception("Database became active, but could not retrieve the anon/publishable key. Check debugger logs.")
+                
             except Exception as e:
                 emit_log(project_id, "system", f"Failed to provision database: {e}")
 
@@ -2315,8 +2315,17 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
 
         for i, task in enumerate(tasks, 1):
             if user_id:
-                try: enforce_token_limit_or_raise(user_id)
-                except Exception: return # Changed to generic Exception to avoid undefined HTTPException if not imported globally
+                from fastapi import HTTPException
+                try: 
+                    enforce_token_limit_or_raise(user_id)
+                except HTTPException as e:
+                    if e.status_code == 402:
+                        emit_log(project_id, "system", "❌ Token limit reached mid-build.")
+                        emit_status(project_id, "Out of Credits")
+                        return
+                except Exception as e:
+                    emit_log(project_id, "debugger", f"⚠️ Token check skipped due to network timeout.")
+                    # Do NOT return here! Just let it keep building if it's a network flutter.
 
             pct = 30 + (60 * (i / total))
             emit_progress(project_id, f"Building...", pct)
