@@ -1,0 +1,59 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Visual Preferences{% endblock %}
+{% block breadcrumb %}Visual Preferences{% endblock %}
+
+{% block content %}
+<h1>Visual Preferences</h1>
+<p class="subtitle">Dictate how your agent handles iconography and graphical elements in your UI.</p>
+
+<h2>The Impact of Iconography</h2>
+<p>Icons define the "feel" of a web application. A SaaS dashboard requires crisp, uniform SVG icons, while a fun, consumer-facing social app might benefit from the playful, native feel of text-based emojis. Gor://a Builder allows you to enforce this globally.</p>
+
+<h3>Option A: Clean SVGs (The Production Standard)</h3>
+<p>When you select <strong>Clean SVGs</strong>, the Coder agent is explicitly instructed to avoid text emojis entirely. Instead, it will leverage professional SVG icon libraries.</p>
+<p>Because Gor://a's Golden Boilerplate comes pre-configured with modern tooling, the agent will naturally utilize <code>lucide-react</code> or <code>@phosphor-icons/web</code> to generate beautiful, scalable vector graphics.</p>
+
+<pre><code>// Example Output: Clean SVGs
+import { Settings, User, LogOut } from 'lucide-react';
+
+export default function Sidebar() {
+  return (
+    &lt;nav className="flex flex-col gap-4"&gt;
+      &lt;a href="/profile"&gt;&lt;User size={18} /&gt; Profile&lt;/a&gt;
+      &lt;a href="/settings"&gt;&lt;Settings size={18} /&gt; Settings&lt;/a&gt;
+    &lt;/nav&gt;
+  );
+}</code></pre>
+
+<h3>Option B: Emojis (The Indie Hacker Vibe)</h3>
+<p>Sometimes you just want to ship fast and keep the bundle size small. When you select <strong>Emojis</strong>, the agent is instructed to use native unicode emojis for all visual representations. This is perfect for rapid prototyping, landing pages, and "vybe" coding.</p>
+
+<pre><code>// Example Output: Emojis
+export default function Sidebar() {
+  return (
+    &lt;nav className="flex flex-col gap-4"&gt;
+      &lt;a href="/profile"&gt;👤 Profile&lt;/a&gt;
+      &lt;a href="/settings"&gt;⚙️ Settings&lt;/a&gt;
+    &lt;/nav&gt;
+  );
+}</code></pre>
+
+<div class="callout warning">
+  <i class="ph-bold ph-lightbulb"></i>
+  <div class="callout-content">
+    <p><strong>Design Tip:</strong> If you are importing designs via the <strong>Figma Compiler</strong>, the AI will naturally attempt to preserve the icons used in your Figma file, regardless of this setting. However, this setting will still apply when you prompt the agent to create entirely new components from scratch.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/skills-overview" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>What are Agent Skills?</strong>
+</a>
+<a href="/docs/ui-frameworks" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>UI Frameworks</strong>
+</a>
+{% endblock %}

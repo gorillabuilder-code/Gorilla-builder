@@ -1,0 +1,49 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Agent Skills Overview{% endblock %}
+{% block breadcrumb %}What are Agent Skills?{% endblock %}
+
+{% block content %}
+<h1>What are Agent Skills?</h1>
+<p class="subtitle">Stop wrestling with generic AI outputs. Train your Swarm to write code exactly the way you do.</p>
+
+<h2>The Problem with "VybeCoding" Defaults</h2>
+<p>If you've used standard AI coding assistants, you know the frustration of the "default AI voice." You ask for a button, and it gives you a bloated, inline-styled monstrosity. You ask for a clean layout, and it hallucinates six different CSS files. You are forced to waste your time—and your API tokens—typing <em>"make it look modern, use Tailwind, don't use emojis, add comments"</em> into every single prompt.</p>
+
+<p>This is the VybeCoding trap: standard AI tools have amnesia. They don't know who you are, and they don't know your stack.</p>
+
+<h2>Enter Agent Skills</h2>
+<p>Gor://a Builder solves this with <strong>Agent Skills</strong>. Agent Skills are a global configuration engine that acts as the permanent memory and style guide for your AI Swarm.</p>
+
+<p>When you configure your Agent Skills in the Dashboard, Gor://a compiles your preferences into a strict set of architectural directives. These directives are seamlessly injected into the <code>SYSTEM_PROMPT</code> of the <strong>Planner</strong> and <strong>Coder</strong> agents before every single generation.</p>
+
+<div class="callout success">
+  <i class="ph-bold ph-brain"></i>
+  <div class="callout-content">
+    <p><strong>The Token Advantage:</strong> By defining your stack and style globally, you save hundreds of tokens on every prompt. You no longer need to write paragraphs explaining your styling preferences. You just type <em>"Build a pricing page"</em> and the Swarm instantly knows to use Tailwind, Lucide icons, and concise TypeScript.</p>
+  </div>
+</div>
+
+<h2>What Can You Customize?</h2>
+<p>The Agent Skills wizard allows you to define five core pillars of your development environment:</p>
+<ol>
+  <li><strong>Visual Preferences:</strong> Control how the AI handles iconography (Professional SVGs vs. Emojis).</li>
+  <li><strong>UI Frameworks:</strong> Lock the agent into Tailwind CSS utility classes or Vanilla CSS stylesheets.</li>
+  <li><strong>Code Style:</strong> Choose between heavily-commented beginner code, or ultra-concise expert patterns.</li>
+  <li><strong>Agent Personality:</strong> Dictate how the AI speaks to you in the Editor chat UI.</li>
+  <li><strong>Golden Rules:</strong> Write strict, unbreakable custom rules (e.g., "Never use alert()", "Always build in Dark Mode").</li>
+</ol>
+
+<p>By taking 60 seconds to configure your Agent Skills, you transform Gor://a from a generic code generator into a highly personalized, Senior Full-Stack co-founder.</p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/account-settings" class="docs-nav-btn prev">
+  <span>Previous (Part 1)</span>
+  <strong>Account & Settings</strong>
+</a>
+<a href="/docs/visual-prefs" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Visual Preferences</strong>
+</a>
+{% endblock %}

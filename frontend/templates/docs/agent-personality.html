@@ -1,0 +1,49 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Agent Personality{% endblock %}
+{% block breadcrumb %}Agent Personality{% endblock %}
+
+{% block content %}
+<h1>Agent Personality</h1>
+<p class="subtitle">Customize the tone and vibe of the AI's chat interface in the Editor.</p>
+
+<h2>It's Your Workspace, Your Vibe</h2>
+<p>When you are in the Gor://a Editor, the Agent Activity feed and the chat window are your primary interfaces for interacting with the Swarm. The <strong>Agent Personality</strong> setting dictates how the Planner, Reasoner, and Coder agents format their conversational updates to you.</p>
+
+<div class="callout warning">
+  <i class="ph-bold ph-info"></i>
+  <div class="callout-content">
+    <p><strong>Code Quality Remains Unchanged:</strong> This setting <em>only</em> affects the conversational text (the <code>assistant_message</code> JSON field). It does not affect the actual quality, syntax, or functionality of the generated React and Node.js code.</p>
+  </div>
+</div>
+
+<h3>Option A: Professional</h3>
+<p>For a strictly business, distraction-free environment. The agents will strip out enthusiasm, emojis, and filler words, giving you clinical, direct updates on system state and file operations.</p>
+
+<ul>
+  <li><strong>Typical Planner Response:</strong> "I have analyzed the request. Generating the necessary Express routes and React components for the authentication module."</li>
+  <li><strong>Typical Coder Response:</strong> "Implementation complete. Updating server.js and userProfile.tsx."</li>
+</ul>
+
+<h3>Option B: Casual & Friendly</h3>
+<p>For the classic Indie Hacker experience. The agents will act as enthusiastic co-founders, using emojis, conversational language, and celebrating successful builds.</p>
+
+<ul>
+  <li><strong>Typical Planner Response:</strong> "Awesome idea! 🚀 I've put together a plan to build out the auth module. Let's get to work!"</li>
+  <li><strong>Typical Coder Response:</strong> "All done! 🎉 I've wired up the backend routes and the UI looks super sleek. Check out the preview!"</li>
+</ul>
+
+<h2>Why Personality Matters</h2>
+<p>Beyond just preference, the Agent Personality affects the <strong>Agent Thought Timeline</strong> in the editor. A more concise, professional personality will generate shorter, scannable logs, allowing you to debug complex architectural decisions faster. A casual personality makes the platform feel more approachable and engaging during long, late-night coding sessions.</p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/code-style" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Code Style</strong>
+</a>
+<a href="/docs/golden-rules" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Drafting Golden Rules</strong>
+</a>
+{% endblock %}

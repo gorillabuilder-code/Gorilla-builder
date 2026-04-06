@@ -1,0 +1,71 @@
+{% extends "docs/base.html" %}
+
+{% block title %}UI Frameworks{% endblock %}
+{% block breadcrumb %}UI Frameworks{% endblock %}
+
+{% block content %}
+<h1>UI Frameworks</h1>
+<p class="subtitle">Lock the Coder Agent into your preferred CSS architecture.</p>
+
+<h2>Why Global CSS Enforcement Matters</h2>
+<p>One of the most common ways AI coding assistants break applications is by mixing CSS paradigms. In one prompt, the AI might use Tailwind classes; in the next, it hallucinates a massive <code>styles.css</code> file; in the third, it resorts to inline <code>style=&#123;&#123;&#125;&#125;</code> tags. This results in an unmaintainable codebase.</p>
+<p>Gor://a Builder solves this by strictly enforcing your chosen UI Framework at the system-prompt level.</p>
+
+<h3>Option A: Tailwind CSS (Recommended)</h3>
+<p>When you select <strong>Tailwind CSS</strong>, the Coder Agent is locked into using utility classes directly in your React JSX/TSX files. It will explicitly avoid creating external CSS files unless absolutely necessary for complex keyframe animations.</p>
+
+<p>Gor://a’s Golden Boilerplate is heavily optimized for Tailwind, meaning the WebContainer environment already has <code>tailwind.config.js</code> and PostCSS configured and running the moment your project boots.</p>
+
+<pre><code>// Example Output: Tailwind CSS
+export default function Card({ title, content }) {
+  return (
+    &lt;div className="p-6 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl hover:shadow-2xl transition-all"&gt;
+      &lt;h3 className="text-xl font-bold text-white mb-2"&gt;{title}&lt;/h3&gt;
+      &lt;p className="text-slate-400 text-sm leading-relaxed"&gt;{content}&lt;/p&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+<h3>Option B: Vanilla CSS</h3>
+<p>For CSS purists, or for developers building highly specific, custom-designed landing pages, you can force the agent to use <strong>Vanilla CSS</strong>. The Coder agent will structure its operations to modify <code>src/index.css</code> (or generate scoped CSS modules) and use standard semantic class names in your components.</p>
+
+<pre><code>// Example Output: Vanilla CSS
+/* In src/index.css */
+.premium-card {
+  padding: 24px;
+  background-color: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 16px;
+}
+.premium-card-title {
+  font-size: 20px;
+  color: #ffffff;
+}
+
+// In your React Component
+export default function Card({ title, content }) {
+  return (
+    &lt;div className="premium-card"&gt;
+      &lt;h3 className="premium-card-title"&gt;{title}&lt;/h3&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+<div class="callout success">
+  <i class="ph-bold ph-magic-wand"></i>
+  <div class="callout-content">
+    <p><strong>The Shadcn/UI Synergy:</strong> If you select Tailwind CSS, the Gor://a agent is also given permission to utilize the pre-installed <strong>Shadcn/UI</strong> component library located in <code>src/components/ui/</code>. This allows the AI to instantly drop in accessible, highly-polished dropdowns, dialogs, and form elements without writing them from scratch.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/visual-prefs" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Visual Preferences</strong>
+</a>
+<a href="/docs/code-style" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Code Style</strong>
+</a>
+{% endblock %}
