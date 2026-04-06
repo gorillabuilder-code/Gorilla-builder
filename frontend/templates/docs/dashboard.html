@@ -1,37 +1,54 @@
 {% extends "docs/base.html" %}
-{% block title %}The Dashboard{% endblock %}
+
+{% block title %}Dashboard{% endblock %}
+{% block breadcrumb %}Navigating the Dashboard{% endblock %}
 
 {% block content %}
-  <h1>The Dashboard</h1>
-  <p>Your Dashboard is command central. Here you can manage your projects, check your credit usage, and upgrade your plan.</p>
+<h1>Navigating the Dashboard</h1>
+<p>The Dashboard is the indie developer's central command center. It is designed to give you instant access to your active workspaces, current token limits, and AI configuration settings, ensuring you never hit unexpected roadblocks.</p>
 
-  <h2>1. The Builder Bar</h2>
-  <p>At the center of the screen is the <strong>Builder Bar</strong>. This is where every project starts. Enter a prompt here to spawn a new environment.</p>
-  <p><em>Tip: You can click the "Suggestion Chips" below the bar to auto-fill common ideas.</em></p>
+<h2>The Anatomy of the Dashboard</h2>
+<p>The interface is split into three core zones:</p>
+<ol>
+  <li><strong>The Sidebar:</strong> Contains your global navigation (Projects, Agent Skills, Settings, Billing, and Docs). Your user profile and current plan status are anchored securely at the bottom.</li>
+  <li><strong>The Command Bar:</strong> The large input field where you define new app ideas, upload image references, or toggle the Supabase provisioning switch.</li>
+  <li><strong>The Projects Grid:</strong> A visual library of all your generated applications.</li>
+</ol>
 
-  <h2>2. Project Cards</h2>
-  <p>Your recent projects appear as cards in the grid below. Each card shows:</p>
-  <ul>
-    <li>Project Name</li>
-    <li>Brief Description (generated from your prompt)</li>
-    <li>Last Edited Date</li>
-  </ul>
-  <p>Click <strong>Open</strong> to enter the standard editor.</p>
+<h2>Managing Projects & Visual Snapshots</h2>
+<p>Every time you generate an app, it appears as a card in your Projects Grid. To help you manage multiple ideas, Gor://a takes a dynamic <strong>Visual Snapshot</strong> of your application's UI during the build process. You can instantly identify your projects visually rather than relying on generic titles.</p>
 
-  <h2>3. Credit Widget</h2>
-  <p>In the top right, you will see your <strong>Token Balance</strong>. Every time the AI writes code or fixes a bug, it consumes tokens. </p>
-  <ul>
-    <li><strong>Free Plan:</strong> Limited tokens per month.</li>
-    <li><strong>Premium Plan:</strong> Higher limits and access to X-Mode.</li>
-  </ul>
+<ul>
+  <li><strong>Opening a Project:</strong> Click anywhere on the card to launch the WebContainer IDE, rehydrate your Node.js environment, and resume your session.</li>
+  <li><strong>Deleting a Project:</strong> Hover over the snapshot image to reveal the red <i class="ph-bold ph-trash"></i> icon. </li>
+</ul>
 
-  <div class="note">
-    Run out of tokens? You can <a href="/pricing">top up</a> at any time or wait for the monthly reset.
+<div class="callout warning">
+  <i class="ph-bold ph-warning-circle"></i>
+  <div class="callout-content">
+    <p><strong>Warning on Deletion:</strong> Deleting a project permanently wipes the virtual file system and chat history from the Gor://a databases. However, if a remote Supabase Postgres database was provisioned for the project, it is left active in your personal Supabase account to ensure your data is never accidentally destroyed.</p>
   </div>
+</div>
 
-  <h2>4. X-Mode (Premium Only)</h2>
-  <p>If you are a Pro user, you will see a glowing yellow <strong>⚡ X-MODE</strong> button on your project cards. This launches the advanced React/Vite environment instantly, and USEs TOP-CLASS coding LLMs like KIMI-K2.5.</p>
+<h2>The Token Economy: 500k Free Tokens</h2>
+<p>At the top of the dashboard, you will see your <strong>Live Credits</strong>. We know how frustrating it is to be hit with a paywall after three messages. That's why every Gor://a user gets a massive <strong>500,000 free tokens</strong> to start.</p>
+<p>Every time the AI generates code, parses a Figma file, reads an image, or transcodes audio, tokens are deducted from this balance. Keeping an eye on this ensures your workflow isn't interrupted.</p>
 
-  <br>
-  <a href="/docs/prompting" style="background:var(--accent); color:#fff; padding:10px 20px; border-radius:6px;">Next: Prompting Guide &rarr;</a>
+<h2>Gamification: Spin & Haggle</h2>
+<p>We believe development should be fun, and economics should be in the developer's favor:</p>
+<ul>
+  <li><strong>Daily Spin the Wheel:</strong> Every 24 hours, a modal will appear allowing you to wager your existing tokens. You have a chance to multiply your wager by 1.5x or 2.0x, allowing you to sustain your free tier usage indefinitely if you're lucky!</li>
+  <li><strong>The Monke Negotiator:</strong> Looking for a discount on the Premium tier? Click the <em>"Haggle with Monke"</em> badge in the sidebar to negotiate your subscription price with an aggressive AI business gorilla.</li>
+</ul>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/quickstart" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Quickstart</strong>
+</a>
+<a href="/docs/tiers" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Free vs. Premium (Pro)</strong>
+</a>
 {% endblock %}

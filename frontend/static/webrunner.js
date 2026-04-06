@@ -10,11 +10,9 @@ export class WebRunner {
         this.url = null;
         this.shell = null;
         
-        // 🛑 THE BOUNCER: Prevents the AI Clone War race condition
         this.isFixing = false; 
         this.fixUnlockTimer = null;
         
-        // 🛑 NEW FLAGS: For dependency management
         this.hasInstalled = false;
         this.isInstalling = false; 
     }
@@ -77,26 +75,22 @@ export class WebRunner {
         let timeout = null;
         let allClearTimer = null; 
 
-        // 🛑 TRUE DEBOUNCED STABILITY CHECK - NO AI INVOLVED
         const startAllClear = () => {
             if (this.isInstalling) return;
 
             if (allClearTimer) clearTimeout(allClearTimer);
             
-            // Reduced from 15s to 4s. If Vite doesn't crash in 4s, it's stable.
+            // 🛑 RELAXED: 8 full seconds of breathing room for Vite to compile
             allClearTimer = setTimeout(() => {
                 if (this.isFixing) {
-                    startAllClear(); // AI is still fixing, check again later
+                    startAllClear(); 
                     return;
                 }
 
                 console.info("✅ [ALL CLEAR] App is stable. Unlocking preview.");
-                
-                // Dispatch a local browser event so your React/Vanilla UI knows to drop the loading screen.
-                // NO fetch() calls to the backend here!
                 window.dispatchEvent(new CustomEvent('app_stable'));
                 
-            }, 4000); 
+            }, 8000); 
         };
 
         const flush = () => {
@@ -108,25 +102,30 @@ export class WebRunner {
                 return;
             }
 
-            const truncatedBuffer = buffer.trim().slice(-8000);
+            const truncatedBuffer = buffer.trim().slice(-6000);
             const prompt = `SYSTEM ALERT: ❌ ${contextName} Errors Detected:\n<logs>\n${truncatedBuffer}\n</logs>\nPlease analyze these logs, identify the root cause, and fix the codebase to resolve them.`;
             
             logger("coder", prompt); 
             this._notifyCoder(projectId, prompt); 
-            buffer = ""; // Clear buffer immediately after dispatching
+            buffer = ""; 
         };
 
         return {
             push: (data) => {
-                // 🛑 THE MUTE BUTTON: Ignore dev server logs while pnpm installs
                 if (this.isInstalling) return;
 
-                buffer += data + "\n";
+                // THE FRENZY VACUUM: Still active to protect your token limits
+                if (this.isFixing) {
+                    buffer = data + "\n"; 
+                } else {
+                    buffer += data + "\n";
+                }
                 
                 if (timeout) clearTimeout(timeout);
-                timeout = setTimeout(flush, 2500); // Wait 2.5s to batch related errors
                 
-                // Restart the stability clock every time a new error is pushed
+                // 🛑 RELAXED: Wait 1.5s to group stuttering errors together
+                timeout = setTimeout(flush, 1500); 
+                
                 startAllClear();
             },
             flushImmediate: () => {
@@ -164,7 +163,6 @@ export class WebRunner {
             console.info("❌ Failed to reach AI Auto-Fixer:", err);
         } finally {
             if (this.fixUnlockTimer) clearTimeout(this.fixUnlockTimer);
-            // Safety unlock after 45s in case the AI dies or network drops
             this.fixUnlockTimer = setTimeout(() => { 
                 this.isFixing = false; 
                 console.info("🔓 AI Fix Lock safety released.");
@@ -175,7 +173,6 @@ export class WebRunner {
     async install(logger, projectId) {
         if (!this.instance) throw new Error("Container not booted");
         
-        // 🛑 MUTE DEV SERVER ERRORS WHILE INSTALLING
         this.isInstalling = true;
 
         try {
@@ -226,7 +223,6 @@ export class WebRunner {
                         logger("system", "Notifying AI Auto-Fixer for dependency conflict...");
                         const autoPrompt = `SYSTEM ALERT: package installation failed. Logs:\n<logs>\n${errorLogs.slice(-8000)}\n</logs>\nPlease review package.json for invalid packages or version conflicts and rewrite it.`;
                         
-                        // Temporarily drop mute to allow the Auto-Fix notification to fire
                         this.isInstalling = false;
                         await this._notifyCoder(projectId, autoPrompt);
                         this.isInstalling = true;
@@ -248,7 +244,6 @@ export class WebRunner {
                 }
             }
         } finally {
-            // 🛑 INSTALL COMPLETE. UNMUTE THE SERVER TRACKER
             this.isInstalling = false;
         }
     }
@@ -292,7 +287,7 @@ export class WebRunner {
             }));
 
             this.shell.exit.then(async (code) => {
-                if (code !== 0 && !this.isInstalling) { // Don't care if it exits while we are installing
+                if (code !== 0 && !this.isInstalling) { 
                     serverErrorTracker.push(`[FATAL] Dev server crashed with code ${code}. Please fix the syntax or configuration errors.`);
                     serverErrorTracker.flushImmediate();
                     logger("system", "⚠️ Server crashed. Rebooting in 3s...");
@@ -314,7 +309,7 @@ export class WebRunner {
             this.url = url;
             onReady(url);
             
-            // Start the 4s stability clock once Vite reports ready
+            // Start the 8s stability clock once Vite reports ready
             serverErrorTracker.startAllClear();
         });
     }

@@ -1,34 +1,46 @@
 {% extends "docs/base.html" %}
+
 {% block title %}Introduction{% endblock %}
+{% block breadcrumb %}Introduction to Gor://a Builder{% endblock %}
 
 {% block content %}
-  <h1>Welcome to Gorilla Builder</h1>
-  <p>Gorilla Builder is an AI-powered development environment designed to take you from a simple text prompt to a fully deployed web application in seconds. We combine the power of Large Language Models (LLMs) with a live, sandboxed development environment.</p>
+<h1>Introduction to Gor://a Builder</h1>
+<p class="subtitle">The zero-to-production distributed orchestration engine that kills backend boilerplate and runs entirely in your browser.</p>
 
-  <div class="note">
-    <strong>Note:</strong> You do not need to know how to code to use Gorilla, but knowing basic HTML/CSS/JS can help you refine your apps.
+<h2>The VybeCoding Trap (And How We Fix It)</h2>
+<p>The current "VybeCoding" ecosystem is a heavily decorated trap. AI coding tools promise you the world, but the reality is much darker. You start with a great idea, download a native app, and quickly end up with misaligned frontend spaghetti code. When you try to add a simple login button, the AI instructs you to go fetch 7 different secrets from 3 different cloud platforms.</p>
+<p>You try web-based alternatives, only to be slapped with strict rate limits and $30 to $40 monthly paywalls just to get a functional backend. Most of these platforms are thin API wrappers that strand you when it comes to actual infrastructure. They suck the money out of indie developers before the app even launches.</p>
+
+<div class="callout success">
+  <i class="ph-bold ph-rocket-launch"></i>
+  <div class="callout-content">
+    <p><strong>The Gor://a Solution:</strong> We built a 25,000-line multi-agent orchestration engine specifically for indie devs. Gor://a doesn't just generate code snippets; it natively injects live OAuth, AI capabilities, and PostgreSQL databases directly into a full-stack React and Node.js app—with <strong>zero API keys required from you</strong>.</p>
   </div>
+</div>
 
-  <h2>How it Works</h2>
-  <p>The process is simple:</p>
-  <ol style="line-height: 2; color: #ccc;">
-    <li><strong>Prompt:</strong> You describe your idea (e.g., "A personal finance tracker with charts").</li>
-    <li><strong>Plan:</strong> Our AI Planner breaks your idea down into actionable steps.</li>
-    <li><strong>Code:</strong> The AI Coder writes the files (HTML, CSS, JS, React, etc.).</li>
-    <li><strong>Preview:</strong> The server boots up instantly, letting you interact with your app.</li>
-  </ol>
+<h2>The Technology Stack: The Holy Grail</h2>
+<p>Gor://a doesn't build toy apps. We bypass the fragile, static site generators and hand you the Holy Grail of web development: a fully functional, production-ready stack.</p>
 
-  <h2>Quick Start</h2>
-  <p>To create your first project:</p>
-  <ol style="line-height: 2; color: #ccc;">
-    <li>Go to your <a href="/dashboard">Dashboard</a>.</li>
-    <li>Type your idea into the main input box.</li>
-    <li>Click the <strong>Arrow</strong> button.</li>
-    <li>Watch as the AI builds your project in real-time.</li>
-  </ol>
+<ul>
+  <li><strong>Frontend (UI):</strong> React 18, TypeScript, and Vite for lightning-fast compilation.</li>
+  <li><strong>Styling & Animations:</strong> Tailwind CSS, Shadcn/UI, and Framer Motion for pixel-perfect, premium designs.</li>
+  <li><strong>Backend (API):</strong> A headless Node.js and Express (ES Modules) environment running live directly in your browser using WebContainers.</li>
+  <li><strong>Database & Auth:</strong> Native Supabase integrations for instant PostgreSQL schema generation and Resend for seamless email capabilities.</li>
+</ul>
 
-  <h2>Next Steps</h2>
-  <p>Learn how to navigate your workspace in the next section.</p>
-  <br>
-  <a href="/docs/dashboard" style="background:var(--accent); color:#fff; padding:10px 20px; border-radius:6px;">Next: The Dashboard &rarr;</a>
+<h2>The Technical Moat: Unified AI & Auth Gateway</h2>
+<p>What makes Gor://a truly different is our <strong>Unified Gateway</strong>. We have abstracted OAuth, LLM routing, and image generation into a single, provider-agnostic edge layer. This means when you ask the AI to "add Google Sign-in" or "add an AI Chatbot," the engine automatically wires your generated Node.js backend to our gateway.</p>
+<p>You don't need to set up Firebase, you don't need to pay for an OpenAI developer account, and you don't need to manage environment variables. The gateway handles real-time dependency resolution and file-system operations with zero server-side overhead for you.</p>
+
+<h2>Your Dreams, Realized "That Afternoon"</h2>
+<p>Gor://a Builder is designed to let you go from a simple text prompt (or a Figma design) to a live Vercel deployment instantly. Backed by a sustainable free tier that refuses to price developers out of building, Gor://a is the ultimate tool to make your SaaS dreams come true in a single afternoon.</p>
+
+{% endblock %}
+
+{% block footer_nav %}
+<div style="width: 48%;"></div>
+<a href="/docs/quickstart" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Quickstart: Your First App</strong>
+</a>
 {% endblock %}

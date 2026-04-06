@@ -1,0 +1,56 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Tiers{% endblock %}
+{% block breadcrumb %}Free vs. Premium (Pro){% endblock %}
+
+{% block content %}
+<h1>Free vs. Premium & Enterprise</h1>
+<p>Most AI coding platforms act as thin wrappers, luring you in before demanding $30 or $40 a month just to spin up a backend. Gor://a Builder's unit economics are fundamentally different. Our Unified AI & Auth Gateway slashes integration overhead, allowing us to pass those savings directly to you.</p>
+
+<h2>The Free Tier (For the Indie Dev)</h2>
+<p>Every new user starts on the Free Tier. We utilize an ad-subsidized model so that the platform remains profitable for us, and completely free for you to build your SaaS.</p>
+<ul>
+  <li><strong>3 Project Limit:</strong> Maintain up to 3 active full-stack workspaces simultaneously. (Delete an old project to make room for a new one).</li>
+  <li><strong>500,000 Free Tokens:</strong> A generous starting quota, enough to generate dozens of complex components, API routes, and database schemas.</li>
+  <li><strong>Standard Models:</strong> Access to incredibly fast, highly-capable models optimized for rapid UI iteration and Express.js backend generation.</li>
+  <li><strong>Unified Gateway Access:</strong> Free access to inject OAuth, LLMs, and image generation into your apps without providing your own API keys.</li>
+</ul>
+
+<h2>The Premium (Pro) Tier: $13.99/mo</h2>
+<p>For serious developers, founders, and designers who want to strip away the ads and maximize their throughput. At a fraction of the cost of competitors, you get the entire world.</p>
+<ul>
+  <li><strong>Unlimited Projects:</strong> Build, experiment, and store as many applications as your heart desires.</li>
+  <li><strong>5,000,000 Monthly Tokens:</strong> Massive context windows and virtually unlimited coding capacity.</li>
+  <li><strong>Xmode Access:</strong> Unlocks the absolute best coding LLMs known to mankind (such as Claude 3.5 Sonnet or DeepSeek V3) for handling massive refactors, complex state management, and deep architectural reasoning.</li>
+  <li><strong>Ad-Free Experience:</strong> Removes all banner ads from the dashboard and editor for a clean, distraction-free environment.</li>
+  <li><strong>ZIP Exports & Deployments:</strong> Unlocks the ability to download your raw React/Node.js source code locally, or deploy your app via GitHub to Vercel with custom domains.</li>
+</ul>
+
+<div class="callout warning">
+  <i class="ph-bold ph-hand-coins"></i>
+  <div class="callout-content">
+    <p><strong>Haggle with Monke:</strong> Want the Pro plan but short on cash? Look for the <em>"Haggle with Monke"</em> button in the dashboard. If you can out-negotiate our chain-smoking AI business gorilla, you can get your first month for as low as $0.67. Good luck.</p>
+  </div>
+</div>
+
+<h2>The Enterprise Tier</h2>
+<p>For agencies, dev shops, and larger teams that require scale, security, and complete isolation.</p>
+<ul>
+  <li><strong>Custom VPCs:</strong> WebContainers and backends hosted within your own Virtual Private Cloud.</li>
+  <li><strong>SSO & SAML:</strong> Advanced security and team member provisioning.</li>
+  <li><strong>Dedicated Model Hosting:</strong> Avoid rate limits with dedicated throughput for your Swarm agents.</li>
+  <li><strong>Custom SLAs:</strong> Guaranteed uptime, dedicated engineering support, and on-premise deployment options.</li>
+</ul>
+<p><em>To upgrade to Enterprise, please contact our sales team directly through the Billing portal.</em></p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/dashboard" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Dashboard</strong>
+</a>
+<a href="/docs/account-settings" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Account & Settings</strong>
+</a>
+{% endblock %}
