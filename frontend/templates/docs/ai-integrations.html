@@ -1,0 +1,75 @@
+{% extends "docs/base.html" %}
+
+{% block title %}LLM Chat Integration{% endblock %}
+{% block breadcrumb %}LLM Chat Integration{% endblock %}
+
+{% block content %}
+<h1>LLM Chat Integration</h1>
+<p class="subtitle">Inject world-class AI models directly into your applications without managing OpenAI or Anthropic billing accounts.</p>
+
+<h2>The API Key Dilemma</h2>
+<p>Building an AI wrapper or SaaS requires API keys. Normally, you have to create an OpenAI account, load a credit card, manage rate limits, and secure your keys on your backend to prevent abuse. For an indie developer trying to validate a weekend project, this is a massive barrier to entry.</p>
+
+<p>Gor://a Builder bypasses this by allowing your generated applications to piggyback off your <strong>Gor://a API Tokens</strong> via the Unified AI Gateway.</p>
+
+<h2>How the Gateway Works</h2>
+<p>Every Gor://a workspace is injected with a <code>process.env.GORILLA_API_KEY</code>. This key is securely held in your Node.js backend (it is never exposed to the React frontend). When you prompt the Swarm to build an AI feature, it routes the traffic through our proxy.</p>
+
+<ol>
+  <li>Your React frontend sends the user's input to your Node.js backend.</li>
+  <li>Your Express route forwards the request to <code>https://app.gorillabuilder.dev/v1/chat/completions</code> using your <code>gb_live_</code> key.</li>
+  <li>Our gateway authenticates you, securely proxies the request to OpenRouter (using high-performance models like LLaMA 3.2 or DeepSeek), and streams the response back to your app.</li>
+</ol>
+
+<h2>How the Swarm Writes It</h2>
+<p>The Coder Agent is strictly instructed to use standard OpenAI-compatible JSON payloads, ensuring maximum compatibility. It writes highly optimized Express controllers like this:</p>
+
+<pre><code>// In your Express backend (routes/ai.js)
+import express from 'express';
+const router = express.Router();
+
+router.post('/chat', async (req, res) => {
+  try {
+    const response = await fetch('https://app.gorillabuilder.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.GORILLA_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messages: req.body.messages,
+        // The Gateway handles model routing and load balancing automatically!
+      })
+    });
+    
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to connect to AI Gateway" });
+  }
+});
+
+export default router;</code></pre>
+
+<div class="callout warning">
+  <i class="ph-bold ph-coins"></i>
+  <div class="callout-content">
+    <p><strong>Token Economics:</strong> When your generated app uses the LLM integration, it burns tokens from your main Gor://a account balance. The Gateway charges a highly optimized rate (roughly 0.3 to 0.5 credits per 1 actual API token) depending on the model used. Because you start with 500,000 free tokens, you have more than enough runway to build and test your SaaS before upgrading to Premium.</p>
+  </div>
+</div>
+
+<h2>Prompting for AI Features</h2>
+<p>To build an AI app, simply tell the Swarm what the AI should do. The orchestration engine handles the boilerplate.</p>
+<p><em>Example Prompt: "Build a 'Roast My Landing Page' app. The user types their URL or pitch, and the Express backend calls the Gor://a chat completions gateway to generate a funny, sarcastic roast. Display the result on the frontend with a typing animation."</em></p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/auth-gateway" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Gor://a Auth Gateway</strong>
+</a>
+<a href="/docs/image-gen" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Image Generation</strong>
+</a>
+{% endblock %}

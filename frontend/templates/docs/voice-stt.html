@@ -1,0 +1,46 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Speech-to-Text{% endblock %}
+{% block breadcrumb %}Speech-to-Text (Whisper){% endblock %}
+
+{% block content %}
+<h1>Speech-to-Text (Whisper)</h1>
+<p class="subtitle">Build voice-enabled applications using state-of-the-art audio transcription.</p>
+
+<h2>Voice as an Interface</h2>
+<p>Typing is slow. If you are building note-taking apps, AI therapists, or language learning tools, voice input is a mandatory feature. Gor://a Builder natively integrates the <strong>Whisper-v3-turbo</strong> model via Fireworks AI into the Unified Gateway.</p>
+
+<h2>The STT Pipeline</h2>
+<p>Handling audio requires a slightly more complex full-stack architecture, but the Swarm knows exactly how to build it:</p>
+<ol>
+  <li><strong>Frontend Capture:</strong> The React frontend uses the native browser <code>MediaRecorder</code> API to capture microphone input and compile it into an audio Blob.</li>
+  <li><strong>Multipart Form Post:</strong> The Blob is sent to your Express backend via <code>FormData</code>.</li>
+  <li><strong>Gateway Forwarding:</strong> Your backend forwards the file to <code>/api/v1/audio/transcriptions</code> using your <code>GORILLA_API_KEY</code>.</li>
+  <li><strong>Transcription:</strong> The Gateway transcodes the audio and returns the highly accurate text string.</li>
+</ol>
+
+<div class="callout success">
+  <i class="ph-bold ph-speaker-high"></i>
+  <div class="callout-content">
+    <p><strong>What about Text-to-Speech (TTS)?</strong><br>
+    To protect your token balance, the Gor://a Coder Agent is strictly instructed <strong>never</strong> to use expensive cloud APIs for Text-to-Speech. Instead, it utilizes the browser's native <code>window.speechSynthesis</code> Web Speech API. This provides instant, high-quality voice playback on the frontend for absolutely <strong>zero tokens</strong>.</p>
+  </div>
+</div>
+
+<h2>Token Cost & Heuristics</h2>
+<p>Audio transcription is billed based on duration. Because audio formats vary wildly in compression, the Gor://a Gateway uses a heuristic file-size calculation (assuming ~1MB per minute of standard m4a/mp3 audio). You are billed exactly <strong>100 tokens per estimated minute</strong> of transcribed audio.</p>
+
+<h2>How to Prompt for Voice Features</h2>
+<p><em>Example Prompt: "Build an AI Voice Journal. The user clicks a microphone icon to start speaking. When they stop, send the audio to the Gor://a audio transcription gateway. Take the transcribed text, pass it to the chat completions gateway to summarize it into 3 bullet points, and then use the browser's native speech synthesis to read the summary back to them out loud."</em></p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/image-gen" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Image Generation</strong>
+</a>
+<a href="/docs/bg-removal" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Background Removal (RemBG)</strong>
+</a>
+{% endblock %}

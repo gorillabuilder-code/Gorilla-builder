@@ -1,0 +1,58 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Image Generation{% endblock %}
+{% block breadcrumb %}Image Generation (Fireworks AI){% endblock %}
+
+{% block content %}
+<h1>Image Generation (Fireworks AI)</h1>
+<p class="subtitle">Allow your users to generate stunning visual assets inside your app instantly.</p>
+
+<h2>Integrating Vision</h2>
+<p>Whether you are building an AI avatar generator, a marketing asset creator, or a dynamic blog thumbnail tool, generating images programmatically is a highly sought-after SaaS feature. Like text generation, Gor://a handles this through the Unified Gateway.</p>
+
+<p>Behind the scenes, we utilize <strong>Fireworks AI</strong> (specifically the <code>playground-v2-5-1024px-aesthetic</code> model) to generate incredibly high-fidelity, production-ready images in seconds.</p>
+
+<h2>The Gateway Endpoint</h2>
+<p>When you request image generation capabilities, the Coder Agent routes requests to <code>/api/v1/images/generations</code>. Just like the LLM chat, your Node.js backend uses your <code>GORILLA_API_KEY</code> to authenticate the request.</p>
+
+<pre><code>// Example Backend Implementation (routes/images.js)
+router.post('/generate', async (req, res) => {
+  const { prompt } = req.body;
+  
+  const response = await fetch('https://app.gorillabuilder.dev/v1/images/generations', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.GORILLA_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ prompt: prompt })
+  });
+
+  const data = await response.json();
+  // Returns standard base64 or URL data to be rendered by React
+  res.json({ imageUrl: data.base64 }); 
+});</code></pre>
+
+<div class="callout warning">
+  <i class="ph-bold ph-coins"></i>
+  <div class="callout-content">
+    <p><strong>Fixed Token Cost:</strong> Image generation is computationally heavy. To keep economics predictable, every successful image generated through the Gor://a Gateway costs a flat rate of <strong>250 tokens</strong> deducted from your account balance.</p>
+  </div>
+</div>
+
+<h2>How to Prompt for It</h2>
+<p>To get the best results, instruct the AI on exactly how the frontend should handle the loading state, as image generation can take 3-5 seconds.</p>
+
+<p><em>Example Prompt: "Create a 'Cyberpunk Avatar Generator'. The user types a description of themselves. The Express backend should send this to the Gor://a image generation gateway. On the React frontend, show a cool glowing loading spinner while waiting, and then display the generated image in a beautifully styled Polaroid frame."</em></p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/ai-integrations" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>LLM Chat Integration</strong>
+</a>
+<a href="/docs/voice-stt" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Speech-to-Text (Whisper)</strong>
+</a>
+{% endblock %}

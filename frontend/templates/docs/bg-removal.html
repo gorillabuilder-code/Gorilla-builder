@@ -1,0 +1,67 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Background Removal{% endblock %}
+{% block breadcrumb %}Background Removal (RemBG){% endblock %}
+
+{% block content %}
+<h1>Background Removal (RemBG)</h1>
+<p class="subtitle">Surgical, AI-powered background removal for E-commerce, profile pictures, and design tools.</p>
+
+<h2>The "Utility" API</h2>
+<p>Not every AI integration needs to be a massive LLM. Sometimes, you just need a sharp, reliable utility. Background removal is a staple feature in modern SaaS, particularly for E-commerce product listings, real estate apps, or avatar creators.</p>
+
+<p>Instead of forcing you to sign up for remove.bg or complicated Python microservices, Gor://a Builder runs a high-performance <strong>RemBG</strong> cluster directly on our edge infrastructure.</p>
+
+<h2>The Gateway Endpoint</h2>
+<p>Your generated Node.js backend can process background removal by forwarding an image file to <code>/api/v1/images/remove-background</code>.</p>
+
+<pre><code>// Example Backend Implementation (routes/tools.js)
+import express from 'express';
+import multer from 'multer';
+import fetch from 'node-fetch';
+import FormData from 'form-data';
+
+const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage() });
+
+router.post('/remove-bg', upload.single('image'), async (req, res) => {
+  const form = new FormData();
+  form.append('file', req.file.buffer, req.file.originalname);
+
+  const response = await fetch('https://app.gorillabuilder.dev/v1/images/remove-background', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.GORILLA_API_KEY}`
+    },
+    body: form
+  });
+
+  // The Gateway returns the raw PNG image buffer with a transparent background!
+  const imageBuffer = await response.buffer();
+  res.set('Content-Type', 'image/png');
+  res.send(imageBuffer);
+});
+
+export default router;</code></pre>
+
+<div class="callout success">
+  <i class="ph-bold ph-gift"></i>
+  <div class="callout-content">
+    <p><strong>100% Free - Zero Tokens:</strong> You read that right. Because our RemBG cluster operates with highly optimized, fixed-cost infrastructure, <strong>we do not charge any API tokens for background removal requests.</strong> It is completely free for you and the users of your generated applications.</p>
+  </div>
+</div>
+
+<h2>How to Prompt for It</h2>
+<p><em>Example Prompt: "Build a tool for eBay sellers. Include an upload zone where they can drag and drop a product photo. Send the photo to the backend, run it through the Gor://a remove-background gateway, and return the transparent PNG. Display the result on a customizable, colorful Tailwind gradient background."</em></p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/voice-stt" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Speech-to-Text (Whisper)</strong>
+</a>
+<a href="/docs/deploy-prep" class="docs-nav-btn next">
+  <span>Next (Part 7)</span>
+  <strong>Preparing for Deployment</strong>
+</a>
+{% endblock %}
