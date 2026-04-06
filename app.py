@@ -616,19 +616,47 @@ async def favicon():
 
 @app.get("/docs/{page}", response_class=HTMLResponse)
 async def docs_page(request: Request, page: str):
+    
+    # The complete 42-page Gor://a Builder Master Architecture
     valid_pages = [
-        "intro", "dashboard", "billing", 
-        "prompting", "editor", "agent-workflow", "files",
-        "x-mode", "deployment", "troubleshooting",
-        "about", "contact"
+        # Part 1: Getting Started
+        "intro", "quickstart", "dashboard", "tiers", "account-settings",
+        
+        # Part 2: Agent Skills
+        "skills-overview", "visual-prefs", "ui-frameworks", "code-style", "agent-personality", "golden-rules",
+        
+        # Part 3: Designing & Prompting
+        "perfect-prompt", "image-references", "figma-overview", "figma-import", "ideas-chips",
+        
+        # Part 4: In-Browser IDE
+        "editor-interface", "webcontainers", "auto-healing", "manual-editing", "file-tree", "export-zip",
+        
+        # Part 5: Full-Stack & Databases
+        "backend-overview", "supabase-link", "db-provisioning", "sql-migrations", "db-healing",
+        
+        # Part 6: Built-In Integrations
+        "auth-gateway", "ai-integrations", "image-gen", "voice-stt", "bg-removal",
+        
+        # Part 7: Deployment Pipeline
+        "deploy-prep", "github-link", "vercel-opt", "github-push", "vercel-deploy",
+        
+        # Part 8: Economy & Tokens
+        "api-tokens", "error-402", "spin-wheel", "monke-negotiator", "enterprise-tier"
     ]
     
     if page not in valid_pages:
         return RedirectResponse("/docs/intro")
         
+    # Safely grab the user so the docs can render the golden "PRO" theme if applicable
+    user = get_current_user_safe(request)
+        
     return templates.TemplateResponse(
         f"docs/{page}.html", 
-        {"request": request, "page": page}
+        {
+            "request": request, 
+            "page": page,
+            "user": user  # Injects user state into base.html
+        }
     )
 
 @app.get("/docs", response_class=HTMLResponse)

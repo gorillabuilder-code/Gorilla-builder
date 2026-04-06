@@ -26,7 +26,7 @@ export const login = (provider) => {
   const returnUrl = encodeURIComponent(window.location.origin);
   
   // Redirects to the secure Gor://a Hosted Auth Gateway
-  window.location.href = `https://gorillabuilder.dev/api/v1/app-auth/login?auth_id=${authId}&return_url=${returnUrl}`;
+  window.location.href = `https://app.gorillabuilder.dev/api/v1/app-auth/login?auth_id=${authId}&return_url=${returnUrl}`;
 };
 
 // Listen for the user payload returning from the Gateway

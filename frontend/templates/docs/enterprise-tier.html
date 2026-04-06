@@ -1,0 +1,45 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Enterprise Tier{% endblock %}
+{% block breadcrumb %}Enterprise Tier{% endblock %}
+
+{% block content %}
+<h1>The Enterprise Tier</h1>
+<p class="subtitle">For agencies, dev shops, and massive scale operations that require total control, isolation, and guaranteed throughput.</p>
+
+<h2>Scaling Beyond the Indie Dev</h2>
+<p>While the Free and Premium tiers are perfectly tuned for indie hackers and solo founders, Gor://a Builder's underlying orchestration engine is built to handle enterprise-grade complexity. If your agency is generating hundreds of applications, or your organization requires strict data compliance, the Enterprise Tier removes all guardrails.</p>
+
+<h2>Enterprise Features</h2>
+<p>The Enterprise Tier replaces standard consumer limits with custom infrastructure allocations:</p>
+
+<ul>
+  <li><strong>Custom VPC Hosting:</strong> Run the WebContainers and the Gor://a backend orchestration engine within your own Virtual Private Cloud. Your code and prompts never touch our public architecture.</li>
+  <li><strong>Dedicated Model Instances:</strong> Avoid global rate limits. We spin up dedicated throughput instances for the LLMs powering the Swarm (Planner, Coder, Debugger) to guarantee lightning-fast response times during peak hours.</li>
+  <li><strong>SSO & SAML:</strong> Advanced security and team member provisioning. Connect your Okta or Azure AD to manage developer access.</li>
+  <li><strong>Custom Component Injection:</strong> Train the Swarm on your company's proprietary component library. Instead of defaulting to Shadcn/UI, the Coder agent will natively import and build with your internal design system.</li>
+  <li><strong>Custom SLAs:</strong> Guaranteed uptime, dedicated technical account managers, and priority auto-healing support.</li>
+</ul>
+
+<div class="callout success">
+  <i class="ph-bold ph-buildings"></i>
+  <div class="callout-content">
+    <p><strong>On-Premise Deployment:</strong> For organizations with strict compliance requirements (HIPAA, SOC2, etc.), the entire Gor://a Builder multi-agent framework can be containerized and shipped for On-Premise deployment.</p>
+  </div>
+</div>
+
+<h2>Contacting Sales</h2>
+<p>Because Enterprise architecture is highly customized to your specific cloud infrastructure and token usage needs, pricing is heavily tailored.</p>
+<p>To discuss upgrading your organization to the Enterprise Tier, please reach out to our engineering team directly via the <strong>Contact Sales</strong> button on the Billing page, or email us at <code>gorillabuilder.dev@gmail.com</code>.</p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/monke-negotiator" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>The Monke Negotiator</strong>
+</a>
+<a href="/dashboard" class="docs-nav-btn next">
+  <span>Finish</span>
+  <strong>Return to Dashboard</strong>
+</a>
+{% endblock %}

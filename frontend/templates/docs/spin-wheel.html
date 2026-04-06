@@ -1,0 +1,46 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Daily Spin the Wheel{% endblock %}
+{% block breadcrumb %}Daily Spin the Wheel{% endblock %}
+
+{% block content %}
+<h1>Daily Spin the Wheel</h1>
+<p class="subtitle">A little rebellion against the SaaS status quo. Wager your tokens to multiply your runway.</p>
+
+<h2>Gamifying the Free Tier</h2>
+<p>We built Gor://a Builder for the indie hackers, the tinkerers, and the builders working late into the night. We know what it's like to be 5,000 tokens short of finishing a massive feature, with no budget to upgrade to a Pro tier.</p>
+
+<p>Instead of locking you out entirely, we introduced a completely unique economic mechanic: <strong>The Daily Spin</strong>.</p>
+
+<h2>How It Works</h2>
+<p>Once every 24 hours, a modal will unlock on your Dashboard. You can choose to wager a portion of your existing <strong>Live Credits</strong> (up to 500,000 tokens).</p>
+
+<p>When you spin the wheel, a server-side cryptographic roll determines your fate:</p>
+<ul>
+  <li><strong>50% Chance - The Bust (0x):</strong> You lose the tokens you wagered. The house takes them.</li>
+  <li><strong>30% Chance - The Boost (1.5x):</strong> You win back your wager plus a 50% profit.</li>
+  <li><strong>20% Chance - The Jackpot (2.0x):</strong> You double your wagered tokens instantly.</li>
+</ul>
+
+<div class="callout success">
+  <i class="ph-bold ph-star"></i>
+  <div class="callout-content">
+    <p><strong>Sustainable Prototyping:</strong> If you are lucky, you can theoretically sustain your Free Tier usage indefinitely by continually winning the Daily Spin. It's our way of giving persistent developers a fighting chance to finish their MVP without reaching for their wallet.</p>
+  </div>
+</div>
+
+<h2>The Mechanics</h2>
+<p>To ensure fairness, the math is processed entirely on the backend in <code>app.py</code>. The frontend UI utilizes a beautiful <code>conic-gradient</code> CSS animation to spin the wheel visually, but the actual token deduction or addition is handled by a secure database transaction the moment you click "Spin".</p>
+<p>You cannot spin more than once a day. The system checks your <code>last_spin_date</code> in the PostgreSQL database against UTC time. Use it wisely.</p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/error-402" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>The 402 Error</strong>
+</a>
+<a href="/docs/monke-negotiator" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>The Monke Negotiator</strong>
+</a>
+{% endblock %}

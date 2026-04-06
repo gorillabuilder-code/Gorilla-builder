@@ -1,0 +1,48 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Understanding API Tokens{% endblock %}
+{% block breadcrumb %}Understanding API Tokens{% endblock %}
+
+{% block content %}
+<h1>Understanding API Tokens</h1>
+<p class="subtitle">The currency of the Gor://a ecosystem. How we fuel the Swarm without bankrupting you.</p>
+
+<h2>The VybeCoding Paywall Trap</h2>
+<p>The standard AI development platform uses a predatory pricing model. They offer a "free tier" that lasts exactly long enough to build a basic HTML page. The moment you ask for a backend or a complex component, you hit a hard paywall demanding $30 to $40 a month. They treat infrastructure like a luxury.</p>
+
+<p>Gor://a Builder treats infrastructure as a right. Because we run your compute locally via WebContainers and monetize the free tier through non-intrusive ads, we pass the server savings directly to you in the form of <strong>Tokens</strong>.</p>
+
+<h2>Your Starting Balance: 500,000 Credits</h2>
+<p>Every new user on the Free Tier starts with a massive <strong>500,000 Free Tokens</strong> every month. This is enough to plan, build, and deploy several full-stack applications. If you upgrade to Premium, your limit expands to a staggering <strong>5,000,000 Tokens</strong>.</p>
+
+<h2>How Tokens are Calculated</h2>
+<p>Tokens are burned whenever the Gor://a Swarm performs cognitive or computational labor. Our <strong>Unified AI Gateway</strong> tracks this usage invisibly:</p>
+
+<ul>
+  <li><strong>Code Generation (The Swarm):</strong> When the Planner, Reasoner, or Coder agents process your prompt and write React/Node.js code, tokens are consumed based on the context length. <em>Tip: Use the "Expert" Code Style in Agent Skills to generate more concise code and save tokens.</em></li>
+  <li><strong>In-App LLM Chat:</strong> If your generated app uses the <code>/api/v1/chat/completions</code> endpoint, we charge a highly optimized fraction (usually 0.3 to 0.5 credits per raw API token) to route it through our high-performance models.</li>
+  <li><strong>Image Generation (Fireworks AI):</strong> Generating an image via the Gateway costs a fixed, flat rate of <strong>250 tokens</strong>.</li>
+  <li><strong>Speech-to-Text (Whisper):</strong> Audio transcription costs exactly <strong>100 tokens per estimated minute</strong> of audio.</li>
+</ul>
+
+<div class="callout success">
+  <i class="ph-bold ph-gift"></i>
+  <div class="callout-content">
+    <p><strong>What is 100% Free?</strong> Background removal via RemBG costs <strong>0 tokens</strong>. Text-to-Speech (TTS) using the browser's native synthesis costs <strong>0 tokens</strong>. Running the WebContainer and hosting your local server costs <strong>0 tokens</strong>.</p>
+  </div>
+</div>
+
+<h2>Context Length Management</h2>
+<p>To prevent the AI from accidentally blowing through your entire token balance by reading a massive, 10,000-line file, the Gor://a backend uses an intelligent <strong>Context Manager</strong>. It automatically shortens conversational history, purges irrelevant logs, and utilizes a "Frenzy Vacuum" to deduplicate error reports before sending them to the LLM.</p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/vercel-deploy" class="docs-nav-btn prev">
+  <span>Previous (Part 7)</span>
+  <strong>Deploying to Vercel</strong>
+</a>
+<a href="/docs/error-402" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>The 402 Error</strong>
+</a>
+{% endblock %}

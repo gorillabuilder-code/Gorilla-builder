@@ -1,0 +1,49 @@
+{% extends "docs/base.html" %}
+
+{% block title %}The 402 Error{% endblock %}
+{% block breadcrumb %}The 402 Error (Out of Credits){% endblock %}
+
+{% block content %}
+<h1>The 402 Error (Out of Credits)</h1>
+<p class="subtitle">What happens when the tank runs dry, and how Gor://a fails gracefully.</p>
+
+<h2>The Death of the Silent Crash</h2>
+<p>There is nothing worse than an AI generating 90% of a critical file, running out of credits, and silently crashing your entire application. Most platforms leave you with a corrupted codebase and a useless generic error message.</p>
+
+<p>Gor://a Builder intercepts token limits <em>before</em> they destroy your code.</p>
+
+<h2>How We Handle the Limit</h2>
+<p>During the Agent Execution Loop, the Gor://a backend runs a strict <code>enforce_token_limit_or_raise()</code> check before every single file operation. If your balance dips below the required threshold, the engine catches the <strong>HTTP 402: Payment Required</strong> exception.</p>
+
+<ol>
+  <li><strong>The Swarm is Paused:</strong> The orchestration engine gracefully halts the Coder agent, preventing it from writing incomplete, corrupted code to the Virtual File System.</li>
+  <li><strong>The WebContainer Survives:</strong> Because the file system wasn't corrupted, your live application in the preview window remains stable and usable.</li>
+  <li><strong>The UI Alert:</strong> Instead of a cryptic console error, the Agent Activity feed injects a beautifully styled warning card: <em>"Usage Limit Reached."</em></li>
+</ol>
+
+<div class="callout warning">
+  <i class="ph-bold ph-warning-circle"></i>
+  <div class="callout-content">
+    <p><strong>Gateway Propagation:</strong> The 402 Error doesn't just protect the IDE; it protects your generated apps. If users of your live SaaS app try to spam the AI chat feature and burn through your Gor://a token limit, the Unified Gateway will return a clean 402 error to your Node.js backend, allowing your app to display a "System Busy" message rather than crashing.</p>
+  </div>
+</div>
+
+<h2>How to Recover</h2>
+<p>If you hit the 402 Error, you have three options to get the Swarm moving again:</p>
+<ul>
+  <li><strong>Wait for the Reset:</strong> Your tokens automatically replenish to 500,000 at the start of your next billing cycle.</li>
+  <li><strong>Gamble for More:</strong> Head to the Dashboard and try your luck on the Daily Spin the Wheel.</li>
+  <li><strong>Upgrade to Pro:</strong> Unlock 5,000,000 tokens by upgrading to the Premium tier (and don't forget to negotiate with Monke for a discount).</li>
+</ul>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/api-tokens" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Understanding API Tokens</strong>
+</a>
+<a href="/docs/spin-wheel" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Daily Spin the Wheel</strong>
+</a>
+{% endblock %}

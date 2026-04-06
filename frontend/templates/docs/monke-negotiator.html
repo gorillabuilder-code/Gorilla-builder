@@ -1,0 +1,45 @@
+{% extends "docs/base.html" %}
+
+{% block title %}The Monke Negotiator{% endblock %}
+{% block breadcrumb %}The Monke Negotiator{% endblock %}
+
+{% block content %}
+<h1>The Monke Negotiator</h1>
+<p class="subtitle">Don't want to pay $13.99/mo for the Pro Tier? Fine. Try to haggle with our chain-smoking AI business gorilla.</p>
+
+<h2>The Anti-Corporate Upgrade Path</h2>
+<p>Every other developer platform has a rigid, boring pricing page. You click a button, pay $40, and that's it. At Gor://a Builder, we respect the hustle. We know indie devs are bootstrapping. If you want the 5,000,000 tokens, unlimited hosting, and Xmode access, but you can't afford the $13.99/month asking price, we offer you an alternative.</p>
+
+<p>You can click the <strong>"Haggle with Monke"</strong> badge in the sidebar to enter a live, AI-driven negotiation for your first month's subscription.</p>
+
+<h2>Who is Monke?</h2>
+<p>Monke is a deeply resentful, overworked business gorilla. He hates his job, he complains about server costs, and he holds massive grudges. He is powered by a high-context LLM equipped with a hidden JSON state-tracker that monitors his "Patience."</p>
+
+<h2>The Rules of the Deal</h2>
+<ol>
+  <li><strong>The Absolute Floor is $0.67:</strong> Due to Stripe processing fees and bare-metal server costs, the absolute lowest price the system will accept is $0.67. </li>
+  <li><strong>Do Not Ask for Free:</strong> If you ask for the Pro plan for $0 or "free", Monke gets extremely hostile. He will drop his patience meter massively.</li>
+  <li><strong>The Patience Meter:</strong> Monke starts with 100 Patience. If you lowball him repeatedly or insult him, his patience drops. If it hits 0, the deal is cancelled, the chat window locks, and you are banished back to the standard $13.99 pricing page.</li>
+  <li><strong>The Grind:</strong> Monke is instructed never to accept your first 5 offers. You must actively argue, justify your price, and wear him down.</li>
+</ol>
+
+<div class="callout warning">
+  <i class="ph-bold ph-handshake"></i>
+  <div class="callout-content">
+    <p><strong>The JSON Trigger:</strong> The negotiation isn't just a chatbot gimmick. When Monke finally agrees to a price, the AI outputs a hidden JSON payload (<code>{"is_deal_closed": true, "agreed_price": 0.67}</code>). The Gor://a backend intercepts this, securely updates your user record in the Supabase database, and generates a dynamic Stripe checkout link for your custom price.</p>
+  </div>
+</div>
+
+<p>If you secure the $0.67 deal, congratulations. You just unlocked the most powerful AI coding engine on the market for less than the cost of a candy bar.</p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/spin-wheel" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Daily Spin the Wheel</strong>
+</a>
+<a href="/docs/enterprise-tier" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Enterprise Tier</strong>
+</a>
+{% endblock %}
