@@ -1,0 +1,46 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Vercel Optimization{% endblock %}
+{% block breadcrumb %}Vercel Optimization Phase{% endblock %}
+
+{% block content %}
+<h1>Vercel Optimization Phase</h1>
+<p class="subtitle">The critical step where the AI refactors your Express backend into Vercel Serverless Functions.</p>
+
+<h2>The Architecture Conflict</h2>
+<p>While building your app, Gor://a runs a persistent Node.js Express server on port 3000 inside the WebContainer. However, Vercel does not support persistent, long-running Node servers out of the box. Vercel utilizes <strong>Serverless Functions</strong>.</p>
+<p>If you were to deploy your raw codebase to Vercel, the frontend would work, but every single API call (and your Supabase queries) would instantly return a 404 error.</p>
+
+<h2>Step 2: How Gor://a Fixes This Autonomously</h2>
+<p>When you click <strong>Start Optimization</strong> in Step 2 of the wizard, a massive, hidden AI workflow is triggered:</p>
+
+<ol>
+  <li><strong>Vercel.json Injection:</strong> The Gor://a backend instantly generates a <code>vercel.json</code> file and injects it into your project. This file maps all <code>/api/*</code> requests directly to your <code>server.js</code> file, acting as a serverless bridge.</li>
+  <li><strong>The Refactor Prompt:</strong> The backend sends a hidden, high-priority system prompt to the AI Swarm: <em>"We are deploying this full-stack application to Vercel Serverless. Overwrite <code>server.js</code> completely. Do NOT call <code>app.listen()</code>. Vercel requires you to EXPORT the express app instead."</em></li>
+  <li><strong>Execution:</strong> The Coder agent rewrites the bottom of your <code>server.js</code> file, swapping out the local listening port for an ES module export (<code>export default app;</code>).</li>
+</ol>
+
+<pre><code>// What the AI removes:
+// app.listen(3000, () => console.log('Server running on port 3000'));
+
+// What the AI writes for Vercel:
+export default app;</code></pre>
+
+<div class="callout warning">
+  <i class="ph-bold ph-hourglass-high"></i>
+  <div class="callout-content">
+    <p><strong>Do Not Interrupt:</strong> This optimization phase requires the AI to read your <code>server.js</code> and rewrite it. It typically takes about 15 to 30 seconds. Let the loader finish.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/github-link" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Linking GitHub</strong>
+</a>
+<a href="/docs/github-push" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Pushing to GitHub</strong>
+</a>
+{% endblock %}

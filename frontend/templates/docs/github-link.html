@@ -1,0 +1,43 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Linking GitHub{% endblock %}
+{% block breadcrumb %}Linking GitHub{% endblock %}
+
+{% block content %}
+<h1>Linking Your GitHub Account</h1>
+<p class="subtitle">Granting Gor://a secure access to create and manage your private repositories.</p>
+
+<h2>Why GitHub?</h2>
+<p>Vercel, Netlify, and other modern hosting platforms rely heavily on Git integration. By pushing your code to GitHub first, you unlock Continuous Integration / Continuous Deployment (CI/CD). This means that after your initial launch, any future changes you push from Gor://a will automatically trigger Vercel to rebuild and update your live site.</p>
+
+<h2>Step 1 of the Deployment Wizard</h2>
+<p>If you have not already linked your GitHub account via the Settings page, Step 1 of the Deployment Wizard will prompt you to do so.</p>
+
+<ol>
+  <li>Click <strong>Connect Account</strong>.</li>
+  <li>You will be securely redirected to GitHub.</li>
+  <li>Gor://a will request the <code>user:email</code> and <code>repo</code> scopes.</li>
+  <li>Upon authorization, you will be redirected back to the Deployment Wizard, and Step 1 will be marked as "Completed."</li>
+</ol>
+
+<div class="callout success">
+  <i class="ph-bold ph-lock-key"></i>
+  <div class="callout-content">
+    <p><strong>Security Note:</strong> Gor://a Builder strictly uses this OAuth token to create <em>new, private</em> repositories for your generated apps and to push code to them. We do not read, clone, or modify any of your pre-existing manual repositories.</p>
+  </div>
+</div>
+
+<h2>What if my primary email is hidden?</h2>
+<p>Many developers hide their primary email on GitHub for privacy. Gor://a's backend is specifically engineered to handle this. If your email is fully hidden, our backend will autonomously construct a proxy email (e.g., <code>username@noreply.github.com</code>) so that your authentication flow succeeds without breaking your privacy settings.</p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/deploy-prep" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Preparing for Deployment</strong>
+</a>
+<a href="/docs/vercel-opt" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Vercel Optimization Phase</strong>
+</a>
+{% endblock %}

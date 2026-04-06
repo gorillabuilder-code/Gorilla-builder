@@ -1,0 +1,42 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Pushing to GitHub{% endblock %}
+{% block breadcrumb %}Pushing to GitHub{% endblock %}
+
+{% block content %}
+<h1>Pushing to GitHub</h1>
+<p class="subtitle">Translating the Virtual File System into a Git Tree and shipping it to your account.</p>
+
+<h2>Step 3: The Git Translation Engine</h2>
+<p>Once your code is optimized for Vercel, it is time to move it from Gor://a's Supabase database into your GitHub account. Because we do not run heavy local Git clients in the browser, we accomplish this via the <strong>GitHub REST API</strong>.</p>
+
+<p>When you click <strong>Create & Push</strong>, the Gor://a backend executes the following sequence:</p>
+
+<ol>
+  <li><strong>Repository Creation:</strong> The engine sanitizes your project name (e.g., "My SaaS App" becomes <code>my-saas-app</code>) and calls the GitHub API to create a brand new, <strong>Private</strong> repository.</li>
+  <li><strong>Tree Assembly:</strong> The engine fetches all your files from the Virtual File System, strips out any internal Gor://a metadata, and constructs a massive JSON payload representing a "Git Tree".</li>
+  <li><strong>The Commit:</strong> The payload is fired at the GitHub API, creating blobs for every file, assembling the tree, and executing a commit titled <em>"Git Commit via Gor://a Builder."</em></li>
+  <li><strong>Branch Updates:</strong> The main branch pointer is fast-forwarded to this new commit.</li>
+</ol>
+
+<div class="callout success">
+  <i class="ph-bold ph-git-commit"></i>
+  <div class="callout-content">
+    <p><strong>Subsequent Updates:</strong> If you go back to the Editor, ask the AI to add a new feature, and return to the Deployment Wizard, the button will now say "Update Repo". Gor://a will skip repository creation and simply push a new commit to your existing main branch, triggering Vercel to rebuild your live site automatically.</p>
+  </div>
+</div>
+
+<h2>What is excluded from the push?</h2>
+<p>Gor://a explicitly filters out internal metadata folders (like <code>.gorilla/</code>) containing your raw prompt images and Figma JSON ASTs. These are kept private on our servers and are not pushed to your GitHub repository to keep your codebase clean.</p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/vercel-opt" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Vercel Optimization</strong>
+</a>
+<a href="/docs/vercel-deploy" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Deploying to Vercel</strong>
+</a>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Deploying to Vercel{% endblock %}
+{% block breadcrumb %}Deploying to Vercel{% endblock %}
+
+{% block content %}
+<h1>Deploying to Vercel</h1>
+<p class="subtitle">The final step. Launching your application to the edge with zero-config security.</p>
+
+<h2>Step 4: Ready for Liftoff</h2>
+<p>If you have made it to Step 4, your application's source code is safely encrypted in a private GitHub repository. You are now exactly one click away from a live, production URL.</p>
+
+<h2>Zero-Config Security</h2>
+<p>The hardest part of deploying an app is managing environment variables. If you deploy your code but forget to copy your Supabase keys into Vercel, your app will crash.</p>
+<p>Gor://a Builder solves this with <strong>Zero-Config Security</strong>. When generating the deployment link, Gor://a automatically fetches your <code>GORILLA_API_KEY</code>, your <code>VITE_SUPABASE_URL</code>, and your <code>VITE_SUPABASE_ANON_KEY</code> from the backend. It injects these keys directly into the URL parameter payload.</p>
+
+<h2>The One-Click Deploy</h2>
+<p>When you click <strong>Deploy to Vercel</strong>, you are taken to the official Vercel Import dashboard.</p>
+<ol>
+  <li>Vercel will ask you to authorize access to the private GitHub repository Gor://a just created for you.</li>
+  <li>Because of the payload Gor://a attached to the URL, Vercel will <em>automatically</em> populate your Environment Variables. You do not need to paste anything.</li>
+  <li>Click <strong>Deploy</strong>.</li>
+</ol>
+
+<p>Vercel will install your dependencies, run the Vite build script, and deploy your Serverless Node.js functions. Within 60 seconds, you will be handed a live, SSL-secured <code>.vercel.app</code> domain.</p>
+
+<div class="callout success">
+  <i class="ph-bold ph-rocket-launch"></i>
+  <div class="callout-content">
+    <p><strong>Custom Domains:</strong> Once deployed, you can log into your Vercel dashboard to attach a custom domain (e.g., <code>myawesomeapp.com</code>) to your project for free.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/github-push" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Pushing to GitHub</strong>
+</a>
+<a href="/docs/api-tokens" class="docs-nav-btn next">
+  <span>Next (Part 8)</span>
+  <strong>Understanding API Tokens</strong>
+</a>
+{% endblock %}

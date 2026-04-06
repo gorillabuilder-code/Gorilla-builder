@@ -1,0 +1,41 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Preparing for Deployment{% endblock %}
+{% block breadcrumb %}Preparing for Deployment{% endblock %}
+
+{% block content %}
+<h1>Preparing for Deployment</h1>
+<p class="subtitle">Taking your application out of the sandbox and into the real world.</p>
+
+<h2>The "It works on my machine" Problem</h2>
+<p>Traditional AI coding assistants are notorious for generating code that works perfectly in their proprietary sandbox, but immediately breaks when you try to host it on a real server. Missing environment variables, incorrect routing, and broken build scripts are the bane of indie developers.</p>
+
+<p>Gor://a Builder solves this by employing a strict <strong>4-Step Deployment Pipeline</strong>. We do not just hand you the code; we autonomously restructure it for edge hosting, encrypt it into a GitHub repository, and inject the necessary deployment URLs.</p>
+
+<h2>The 4-Step Pipeline Overview</h2>
+<p>When you click "Deploy App" from the Editor, you enter the Deployment Wizard. This wizard handles:</p>
+<ol>
+  <li><strong>Linking GitHub:</strong> Establishing a secure OAuth connection to your GitHub account to create a private repository.</li>
+  <li><strong>Vercel Optimization:</strong> Pausing the WebContainer to allow the Swarm to restructure your Node.js Express server into Vercel Serverless Functions.</li>
+  <li><strong>Pushing the Code:</strong> Converting your Virtual File System into a Git Tree and committing it to GitHub.</li>
+  <li><strong>The Vercel Handoff:</strong> Formatting a one-click deployment URL that injects your Supabase and Gor://a API keys directly into Vercel's environment settings.</li>
+</ol>
+
+<div class="callout warning">
+  <i class="ph-bold ph-shield-check"></i>
+  <div class="callout-content">
+    <p><strong>Premium Tier Required:</strong> Because automated GitHub deployment utilizes advanced AI refactoring and extensive backend bandwidth, this feature is restricted to users on the Premium (Pro) and Enterprise tiers.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/bg-removal" class="docs-nav-btn prev">
+  <span>Previous (Part 6)</span>
+  <strong>Background Removal</strong>
+</a>
+<a href="/docs/github-link" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Linking GitHub</strong>
+</a>
+{% endblock %}
