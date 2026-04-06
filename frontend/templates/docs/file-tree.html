@@ -1,0 +1,58 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Understanding the File Tree{% endblock %}
+{% block breadcrumb %}Understanding the File Tree{% endblock %}
+
+{% block content %}
+<h1>Understanding the File Tree</h1>
+<p class="subtitle">Demystifying the "Golden Boilerplate" and how your Full-Stack app is structured.</p>
+
+<h2>No Black Boxes</h2>
+<p>Most "VybeCoding" platforms hide your code in a proprietary black box. Gor://a Builder gives you a standard, ejectable, industry-standard file structure known as the <strong>Golden Boilerplate</strong>.</p>
+<p>When you create a project, this structure is instantly provisioned in your Explorer.</p>
+
+<h2>The Golden Structure</h2>
+
+<pre><code>/
+├── src/                  # The Frontend Realm (React + Vite)
+│   ├── components/       # Reusable UI parts
+│   │   └── ui/           # Pre-installed Shadcn components
+│   ├── pages/            # Page-level components (e.g., Index.tsx)
+│   ├── lib/              # Utility functions (utils.ts)
+│   ├── App.tsx           # React Router and main layout
+│   ├── main.tsx          # React DOM entry point
+│   └── index.css         # Tailwind directives
+├── routes/               # The Backend Realm (Express.js)
+│   └── api.js            # Custom REST API endpoints
+├── migrations/           # Database Realm (SQL)
+│   └── 001_init.sql      # Supabase schema definitions
+├── server.js             # The Node.js Backend Entry Point
+├── package.json          # Dependencies & Scripts
+├── tailwind.config.js    # Tailwind theme rules
+└── vite.config.ts        # Bundler settings</code></pre>
+
+<h2>Where the Magic Happens</h2>
+<ul>
+  <li><strong><code>server.js</code>:</strong> This is your Node.js backend. It serves your Express API routes and handles the Vercel serverless translation.</li>
+  <li><strong><code>routes/</code>:</strong> The AI will dynamically create files here (e.g., <code>auth.js</code>, <code>stripe.js</code>) and mount them into <code>server.js</code> to keep your backend modular.</li>
+  <li><strong><code>src/components/ui/</code>:</strong> Gor://a comes pre-loaded with Shadcn. The AI knows how to import these accessible components instantly without running slow NPX scripts.</li>
+</ul>
+
+<div class="callout success">
+  <i class="ph-bold ph-funnel"></i>
+  <div class="callout-content">
+    <p><strong>The Shark Filter:</strong> Notice anything missing? You won't see <code>node_modules</code>, <code>package-lock.json</code>, or <code>.git</code> folders in the Explorer. We deliberately filter these out of the UI and the AI's context window. They are massive, irrelevant files that would clutter your screen and burn through your token limits in seconds.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/manual-editing" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>Manual Code Editing</strong>
+</a>
+<a href="/docs/export-zip" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Exporting to ZIP</strong>
+</a>
+{% endblock %}

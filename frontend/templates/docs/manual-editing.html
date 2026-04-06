@@ -1,0 +1,49 @@
+{% extends "docs/base.html" %}
+
+{% block title %}Manual Code Editing{% endblock %}
+{% block breadcrumb %}Manual Code Editing{% endblock %}
+
+{% block content %}
+<h1>Manual Code Editing</h1>
+<p class="subtitle">Sometimes you don't need an AI to change a hex code. Take full control with the built-in IDE.</p>
+
+<h2>You Are Always in Control</h2>
+<p>Gor://a Builder is an AI-first orchestration engine, but we are developers too. We know that spending 500 tokens and waiting 20 seconds for an AI to change <code>p-4</code> to <code>p-6</code> is a miserable experience.</p>
+<p>That is why every Gor://a workspace includes a fully functional, syntax-highlighted <strong>CodeMirror 6</strong> editor.</p>
+
+<h2>How to Edit Manually</h2>
+<ol>
+  <li>In the Editor interface, look at the <strong>Explorer</strong> (File Tree) on the left.</li>
+  <li>Click on any file (e.g., <code>src/pages/Index.tsx</code>).</li>
+  <li>Click the <strong>Code</strong> tab at the top of the main stage.</li>
+  <li>Type your changes directly into the editor.</li>
+</ol>
+
+<h2>Deterministic Syncing</h2>
+<p>We built the editor to be completely frictionless. There is no "Save" button.</p>
+<ul>
+  <li><strong>Auto-Save:</strong> When you stop typing for 800 milliseconds, the editor automatically fires a payload to the backend, safely upserting your changes into the Supabase Virtual File System.</li>
+  <li><strong>Live Hot-Reload:</strong> Simultaneously, the changes are written directly into the WebContainer's memory (<code>webRunner.writeFile()</code>). Vite detects the file change and instantly hot-reloads your preview iframe.</li>
+</ul>
+
+<div class="callout warning">
+  <i class="ph-bold ph-lock-key"></i>
+  <div class="callout-content">
+    <p><strong>The Safety Lock:</strong> If the AI Swarm is currently executing a plan (indicated by the spinning agent icon), manual file saving is temporarily queued. Once the AI finishes its commit, your manual pending changes are applied chronologically to prevent file-state corruption.</p>
+  </div>
+</div>
+
+<h2>Handling Images</h2>
+<p>If you click on an image asset or a <code>.b64</code> file in the Explorer, the CodeMirror editor will automatically hide itself and render a visual image preview instead. No more staring at endless walls of Base64 gibberish.</p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/auto-healing" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>The Auto-Healing Loop</strong>
+</a>
+<a href="/docs/file-tree" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Understanding the File Tree</strong>
+</a>
+{% endblock %}

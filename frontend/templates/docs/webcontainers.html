@@ -1,0 +1,49 @@
+{% extends "docs/base.html" %}
+
+{% block title %}How WebContainers Work{% endblock %}
+{% block breadcrumb %}How WebContainers Work{% endblock %}
+
+{% block content %}
+<h1>How WebContainers Work</h1>
+<p class="subtitle">Running a live, headless Node.js backend directly inside your browser tab.</p>
+
+<h2>The Legacy Cloud Trap</h2>
+<p>Most AI coding platforms use one of two broken models to run your code:</p>
+<ol>
+  <li><strong>Static Only:</strong> They only generate HTML/CSS/React and mock the data, leaving you stranded when you actually need a database or user authentication.</li>
+  <li><strong>Cloud Compute:</strong> They spin up expensive, sluggish AWS/GCP Docker containers for every user, which introduces massive latency and forces them to charge you $40/month just to cover server costs.</li>
+</ol>
+
+<h2>The Gor://a Solution: WebContainers</h2>
+<p>Gor://a Builder bypasses the cloud entirely. We utilize WebContainer technology to boot a micro-operating system <em>directly inside your browser's memory</em>. This means you have a native Node.js runtime executing locally on your machine, orchestrated by our remote Python agents.</p>
+
+<h3>The Boot Sequence</h3>
+<p>When the Coder agent finishes its blueprint, the <code>webrunner.js</code> orchestrator takes over:</p>
+<ol>
+  <li><strong>Mounting:</strong> It pulls your codebase from the Supabase Virtual File System (VFS) and mounts it into the browser's memory.</li>
+  <li><strong>Dependency Resolution (<code>pnpm install</code>):</strong> It scans the <code>package.json</code> the AI generated and downloads dependencies at lightning speed directly from the NPM registry.</li>
+  <li><strong>The Dev Server (<code>npm run dev</code>):</strong> It boots up Vite and Express simultaneously.</li>
+  <li><strong>Live Preview:</strong> It binds to a local, credentialless URL and displays the live app in the Editor's iframe.</li>
+</ol>
+
+<div class="callout warning">
+  <i class="ph-bold ph-shield-check"></i>
+  <div class="callout-content">
+    <p><strong>Cross-Origin Security:</strong> To run a full operating system in a browser tab, Gor://a uses strict <code>Cross-Origin-Embedder-Policy: credentialless</code> headers. This ensures that your local environment is highly secure and perfectly isolated from the rest of the web.</p>
+  </div>
+</div>
+
+<h2>Why This is a Game Changer for Indies</h2>
+<p>Because the compute happens on <em>your</em> device, Gor://a doesn't pay for idle servers. This architectural breakthrough is exactly how we can afford to give you 500,000 free tokens and full-stack capabilities without pricing you out of the market. Zero latency, zero cloud costs, infinite possibilities.</p>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/editor-interface" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>The Editor Interface</strong>
+</a>
+<a href="/docs/auto-healing" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>The Auto-Healing Loop</strong>
+</a>
+{% endblock %}

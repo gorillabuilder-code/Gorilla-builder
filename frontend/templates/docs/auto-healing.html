@@ -1,0 +1,50 @@
+{% extends "docs/base.html" %}
+
+{% block title %}The Auto-Healing Loop{% endblock %}
+{% block breadcrumb %}The Auto-Healing Loop{% endblock %}
+
+{% block content %}
+<h1>The Auto-Healing Loop</h1>
+<p class="subtitle">The death of the manual debug cycle. How Gor://a catches, analyzes, and fixes runtime errors autonomously.</p>
+
+<h2>The Problem with LLM Code</h2>
+<p>LLMs are brilliant, but they make mistakes. They miss an import, misspell a variable, or botch a React hook. On standard platforms, a single syntax error results in a white screen of death, forcing you to open the console, copy the error, paste it back to the AI, and beg for a fix.</p>
+<p>Gor://a Builder completely automates this workflow with the <strong>Auto-Healing Loop</strong>.</p>
+
+<h2>1. The Interceptor & The Frenzy Vacuum</h2>
+<p>Inside the WebContainer, Gor://a injects a custom <code>console.error</code> and <code>window.onerror</code> interceptor. If Vite or Node.js throws an exception, it is instantly caught.</p>
+
+<p>However, build tools like Vite often throw dozens of cascading errors at once (e.g., "Failed to resolve import X," followed by 10 component crash logs). To prevent blowing out your token limits, we engineered the <strong>Frenzy Vacuum</strong>:</p>
+<ul>
+  <li>The orchestrator waits for a 1.5-second window of absolute silence (The Fluid Debounce).</li>
+  <li>If 50 errors fire rapidly, they are batched into a single, deduplicated payload.</li>
+  <li>If the AI is already working on a fix, the buffer overwrites itself, preventing the AI from getting confused by intermediate "hot-reload" errors.</li>
+</ul>
+
+<h2>2. The Debugger Agent</h2>
+<p>Once the error cascade settles, the logs are silently fired to our backend <code>/api/.../log</code> endpoint, awakening the <strong>Debugger Agent</strong>.</p>
+<p>The Debugger is a specialized, low-temperature LLM instructed to do one thing: fix code, no small talk.</p>
+<ul>
+  <li><strong>Target Path Extraction:</strong> It uses regex to scan the stack trace and identify the exact file that crashed (e.g., <code>src/components/Header.tsx</code>).</li>
+  <li><strong>Deep Context:</strong> It pulls the last 5,000 characters of that specific file, alongside the recent chat history, so it knows <em>what</em> feature it was trying to build when it failed.</li>
+  <li><strong>Surgical Patching:</strong> It generates a strict JSON payload with an <code>overwrite_file</code> action, patching the bug without hallucinating new features.</li>
+</ul>
+
+<div class="callout success">
+  <i class="ph-bold ph-first-aid"></i>
+  <div class="callout-content">
+    <p><strong>The ALL_CLEAR Signal:</strong> Once the fix is applied, the WebContainer monitors the app. If the app runs for 8 consecutive seconds without a single error, the system fires the "ALL_CLEAR" event, dropping the loading overlay and presenting your stable, working application.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/webcontainers" class="docs-nav-btn prev">
+  <span>Previous</span>
+  <strong>How WebContainers Work</strong>
+</a>
+<a href="/docs/manual-editing" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>Manual Code Editing</strong>
+</a>
+{% endblock %}

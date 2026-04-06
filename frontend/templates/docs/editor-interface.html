@@ -1,0 +1,58 @@
+{% extends "docs/base.html" %}
+
+{% block title %}The Editor Interface{% endblock %}
+{% block breadcrumb %}The Editor Interface{% endblock %}
+
+{% block content %}
+<h1>The Editor Interface</h1>
+<p class="subtitle">Your unified command center. We killed the terminal, the code editor, and the browser tabs, and merged them into one seamless workspace.</p>
+
+<h2>Beyond the Chat Wrapper</h2>
+<p>The "VybeCoding" trap usually forces you into a split-screen nightmare: a chat window on the left, and a fragmented, un-runnable code snippet on the right. Gor://a Builder replaces this with a true, professional-grade In-Browser IDE tailored for AI-first development.</p>
+
+<h2>The Four Zones of the IDE</h2>
+
+<h3>1. The Swarm Console (Left Sidebar)</h3>
+<p>This is where you communicate with your agents. Unlike standard AI tools, this isn't just a chat box—it's a live timeline of multi-agent orchestration.</p>
+<ul>
+  <li><strong>The Thought Timeline:</strong> Watch the Planner, Reasoner, and Coder communicate via MCP (Machine Communication Protocol). You can see exactly which files are being analyzed and updated in real-time.</li>
+  <li><strong>The Progress HUD:</strong> Live indicators showing the current phase (Planner, Coder, Files) and the WebContainer boot status.</li>
+  <li><strong>The Input Matrix:</strong> Submit text prompts, upload UI reference images mid-chat, or hit the "Xmode" button for deep architectural refactoring.</li>
+</ul>
+
+<h3>2. The Explorer (File Tree)</h3>
+<p>A live view of your Virtual File System (VFS). As the AI writes your React components and Express routes, they instantly appear here. You can click any file to open it in the manual editor, or toggle folders open and closed.</p>
+
+<h3>3. The Stage (Code vs. Preview)</h3>
+<p>The center of the screen is your primary workspace. Using the top tabs, you can instantly toggle between:</p>
+<ul>
+  <li><strong>Preview Mode:</strong> A live, interactive iframe of your running React + Node.js application.</li>
+  <li><strong>Code Mode:</strong> A robust CodeMirror 6 instance with full syntax highlighting for inspecting or manually tweaking the AI's output.</li>
+</ul>
+
+<h3>4. The Topbar (Global Actions)</h3>
+<p>The persistent header gives you one-click access to critical functions:</p>
+<ul>
+  <li><strong>Token HUD:</strong> Live updates on your token burn rate.</li>
+  <li><strong>Deployment Pipelines:</strong> Quick-launch buttons to push your code to GitHub or deploy directly to Vercel.</li>
+  <li><strong>ZIP Export:</strong> Download your entire codebase locally. No vendor lock-in, ever.</li>
+</ul>
+
+<div class="callout success">
+  <i class="ph-bold ph-magic-wand"></i>
+  <div class="callout-content">
+    <p><strong>Frictionless Iteration:</strong> Because the IDE is wired directly to the WebContainer, asking the AI to "change the button to red" updates the file in the VFS, which hot-reloads the preview iframe in milliseconds. You never have to touch a save button.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block footer_nav %}
+<a href="/docs/ideas-chips" class="docs-nav-btn prev">
+  <span>Previous (Part 3)</span>
+  <strong>Using Ideas Chips</strong>
+</a>
+<a href="/docs/webcontainers" class="docs-nav-btn next">
+  <span>Next</span>
+  <strong>How WebContainers Work</strong>
+</a>
+{% endblock %}
