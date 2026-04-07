@@ -728,13 +728,12 @@ class BaseAgent:
         }
     
     # ============================================================================
-    # LLM CALLS WITH AUTOMATIC CONTEXT SHORTENING
+    # LLM CALLS WITH AUTOMATIC CONTEXT SHORTENING & 0.3/1.2 BILLING
     # ============================================================================
     
     async def call_llm(self, messages: List[Dict], temperature: float = 0.6) -> Tuple[str, int]:
         """
         Call LLM with automatic context length management.
-        
         Automatically shortens context if it exceeds MiniMax M2.5's safe threshold.
         """
         # Check and shorten context before sending
@@ -769,14 +768,19 @@ class BaseAgent:
             data = resp.json()
             
         content = data["choices"][0]["message"]["content"]
-        tokens = data.get("usage", {}).get("total_tokens", 0)
+        
+        # 💰 Accurate Weighted Token Billing (0.3 In / 1.2 Out)
+        usage = data.get("usage", {})
+        p_tokens = usage.get("prompt_tokens", 0)
+        c_tokens = usage.get("completion_tokens", 0)
+        weighted_tokens = int((p_tokens * 0.3) + (c_tokens * 1.2))
         
         # Track tokens
-        self.total_tokens_used += tokens
+        self.total_tokens_used += weighted_tokens
         
-        log_agent("llm", f"← {tokens} tokens (total: {self.total_tokens_used}) | {content[:120]}...", self.project_id)
+        log_agent("llm", f"← {weighted_tokens} weighted tokens (total: {self.total_tokens_used}) | {content[:120]}...", self.project_id)
         
-        return content, tokens
+        return content, weighted_tokens
 
     async def call_vision_llm(self, messages: List[Dict], temperature: float = 0.6) -> Tuple[str, int]:
         """
@@ -811,14 +815,19 @@ class BaseAgent:
             data = resp.json()
             
         content = data["choices"][0]["message"]["content"]
-        tokens = data.get("usage", {}).get("total_tokens", 0)
+        
+        # 💰 Accurate Weighted Token Billing (0.3 In / 1.2 Out)
+        usage = data.get("usage", {})
+        p_tokens = usage.get("prompt_tokens", 0)
+        c_tokens = usage.get("completion_tokens", 0)
+        weighted_tokens = int((p_tokens * 0.3) + (c_tokens * 1.2))
         
         # Track tokens
-        self.total_tokens_used += tokens
+        self.total_tokens_used += weighted_tokens
         
-        log_agent("llm", f"← {tokens} tokens (total: {self.total_tokens_used}) | {content[:120]}...", self.project_id)
+        log_agent("llm", f"← {weighted_tokens} weighted tokens (total: {self.total_tokens_used}) | {content[:120]}...", self.project_id)
         
-        return content, tokens
+        return content, weighted_tokens
     
     def extract_json(self, text: str) -> Optional[Dict]:
         return _extract_json(text)
@@ -912,7 +921,7 @@ class PlannerAgent(BaseAgent):
     "   - Simple Apps: Maximum 4-5 Macro/clubbed Tasks. (if there are no questions only!)\n"
     "   - Complex Apps: UNLIMITED Macro/clubbed Tasks. (if there are no questions only!)\n"
     "   - Debugging/Simple addition Tasks: 1 task only. DO NOT ASK QUESTIONS FOR DEBUGGING.\n"
-    "   - NEVER bundle more than 3-4 files into a single task. Break large frontend or backend builds into multiple, smaller steps to prevent output truncation. AND ALWAYS TRY TO USE MULTI PAGE ARCHITECTURES.\n"
+    "   - NEVER bundle more than 4 files or less than 2 files into a single task. Break large frontend or backend builds into multiple, smaller steps to prevent output truncation. AND ALWAYS TRY TO USE MULTI PAGE ARCHITECTURES. For example to build a chatbot specify to build a chatcontainer.tsx, message.tsx and chatinput.tsx instea of just a chatinterface.tsx.\n"
     "   - Update `server.js` and `App.tsx` **LAST** to wire up components/routes.\n\n"
     " **CRITICAL:** NEVER EVER USE DRIZZLE ORM IN ANY WAY IF YOU WANT TO MAKE A DB USE JSON STORAGE OR TELL THE USER TO MAKE A NEW PROJECT WITH SUPABASE FROM THE DASHBOARD."
     + skills_addon
@@ -954,7 +963,8 @@ class PlannerAgent(BaseAgent):
         for h in chat_history:
             messages.append({"role": h["role"], "content": h["content"]})
         
-        messages.append({"role": "user", "content": f"""CONTEXT: {context_str} CURRENT FILES: {json.dumps(clean_files[:20])} USER REQUEST: {user_request} {'This appears to be a DEBUG request.' if is_debug else 'Analyze this request and either create a plan OR ask clarifying questions.'} Output JSON with either type="plan" or type="questions"."""})
+        # 🛑 FIX: Send the FULL project architecture map (names only) so the Planner isn't blind
+        messages.append({"role": "user", "content": f"""CONTEXT: {context_str} CURRENT PROJECT ARCHITECTURE: {json.dumps(clean_files)} \nUSER REQUEST: {user_request} \n{'This appears to be a DEBUG request.' if is_debug else 'Analyze this request and either create a plan OR ask clarifying questions.'} Output JSON with either type="plan" or type="questions"."""})
 
         max_retries = 2
 
@@ -1253,14 +1263,22 @@ class CoderAgent(BaseAgent):
             "operations": normalized_ops
         }
 
+    # 🛑 FIX: Use MCP map + explicitly tell the Coder to read_file instead of dumping whole codebases
     def _build_context_snippets(self) -> str:
-        snippets = []
-        priority_files = ["src/App.tsx", "src/main.tsx", "src/pages/Index.tsx", "src/index.css", "package.json"]
+        # Give the Coder the entire structural map (costs very few tokens)
+        tree_structure = "\n".join([f"- {path}" for path in self.file_tree.keys() if not path.endswith(".b64")])
+        snippets = [f"PROJECT ARCHITECTURE MAP:\n{tree_structure}\n"]
         
-        for p in priority_files:
-            if p in self.file_tree:
-                c = self.file_tree[p]
-                snippets.append(f"--- {p} ---\n{c[:5000]}\n")
+        # Only inject the absolute core file to save tokens. 
+        if "package.json" in self.file_tree:
+            snippets.append(f"--- package.json ---\n{self.file_tree['package.json'][:2000]}\n")
+            
+        snippets.append(
+            "\n⚠️ CRITICAL MCP INSTRUCTION ⚠️\n"
+            "You have access to the 'read_file' action. Look at the PROJECT ARCHITECTURE MAP above.\n"
+            "If you need to edit a file, YOU MUST use `{\"action\": \"read_file\", \"path\": \"filename\"}` to read it FIRST.\n"
+            "Do NOT guess or hallucinate existing code."
+        )
         
         return "\n".join(snippets)
     
@@ -1869,6 +1887,16 @@ class AgentSwarm:
         else:
             # Phase 1: Planning
             plan_result = await self.planner.plan(user_request, file_tree, agent_skills)
+            
+            # 🛑 THE FIX: Catch the silent death if the Planner crashes
+            if plan_result.intent == Intent.ERROR:
+                return {
+                    "status": "complete",
+                    "assistant_message": plan_result.payload.get("assistant_message", "🚨 I encountered an error analyzing your request. Please try rephrasing it."),
+                    "operations": [],
+                    "total_tokens": self.get_total_tokens()
+                }
+
             assistant_message = plan_result.payload.get("assistant_message", "Building...")
             
             # Check if clarification needed
@@ -2005,7 +2033,6 @@ class Agent:
         
         if project_id:
             _append_history(project_id, "user", user_request)
-            log_agent("planner", f"Planning: {user_request[:100]}...", project_id)
 
         file_tree = {f: "" for f in project_context.get("files", [])}
         

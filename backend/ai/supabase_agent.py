@@ -914,7 +914,7 @@ class PlannerAgent(BaseAgent):
     "   - Complex Apps: UNLIMITED Macro/clubbed Tasks. + DB TASK (if there are no questions only!)\n"
     "   - Debugging/Simple addition Tasks: 1 task only. DO NOT ASK QUESTIONS FOR DEBUGGING.\n"
     "   - Update `server.js` and `App.tsx` **LAST** to wire up components/routes.\n"
-    "   - NEVER bundle more than 3-4 files into a single task. Break large frontend or backend builds into multiple, smaller steps to prevent output truncation. AND ALWAYS TRY TO USE MULTI PAGE ARCHITECTURES.\n"
+    "   - NEVER bundle more than 4 or less than 2 files into a single task. Break large frontend or backend builds into multiple, smaller steps to prevent output truncation. AND ALWAYS TRY TO USE MULTI PAGE ARCHITECTURES.\n"
     " **CRITICAL:** NEVER EVER USE DRIZZLE ORM  OR JSON STORGAE OR ANY OTHER LOCAL DB IN ANY WAY, USE SUPABASE"
     "\n\n========================================================================\n"
     "🔥 SUPABASE FULL-STACK & INTEGRATION ARCHITECTURE UNLOCKED 🔥\n"
@@ -2025,7 +2025,6 @@ class Agent:
         
         if project_id:
             _append_history(project_id, "user", user_request)
-            log_agent("planner", f"Planning: {user_request[:100]}...", project_id)
 
         file_tree = {f: "" for f in project_context.get("files", [])}
         

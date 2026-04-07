@@ -682,7 +682,19 @@ import DOMPurify from 'https://esm.sh/dompurify@3.0.6';
 
 window.isAppStable = false; // Add global stability flag
 
-// 🛑 OVERRIDE FETCH TO INTERCEPT ALL_CLEAR AND MUTE ERRORS 🛑
+// ✅ ADDED: Listen for the clean, native browser event from webrunner.js
+window.addEventListener('app_stable', () => {
+    console.info("🟢 [SYSTEM] Native app_stable event received! Unlocking UI.");
+    window.isAppStable = true;
+    setInputState(false);
+    const codeOverlay = document.getElementById('code-loading-overlay');
+    if(codeOverlay) {
+        codeOverlay.style.display = 'none';
+    }
+    switchTab('preview'); // Automatically switch to preview
+});
+
+// 🛑 OVERRIDE FETCH ONLY TO MUTE ERRORS ONCE STABLE 🛑
 const originalFetch = window.fetch;
 window.fetch = async function(...args) {
     const url = args[0];
@@ -690,17 +702,9 @@ window.fetch = async function(...args) {
 
     if (url && typeof url === 'string' && url.includes('/log') && options && options.method === 'POST') {
         if (options.body && options.body instanceof FormData) {
-            const msg = options.body.get('message') || '';
             const lvl = options.body.get('level') || '';
 
-            if (msg.includes('ALL_CLEAR')) {
-                console.info("🟢 [SYSTEM] All clear received! Unlocking UI.");
-                window.isAppStable = true;
-                setInputState(false);
-                const codeOverlay = document.getElementById('code-loading-overlay');
-                if(codeOverlay) codeOverlay.style.display = 'none';
-                switchTab('preview'); // Automatically switch to preview
-            }
+            // (The old ALL_CLEAR text hack was deleted from here)
 
             if (window.isAppStable && lvl === 'ERROR') {
                 console.info("🛡️ [SHIELD] Suppressed error from AI because app is stable.");
@@ -874,11 +878,11 @@ function addThought(text, role = "system") {
     } else if (lowerText.includes('update') || lowerText.includes('build') || lowerText.includes('edit')) {
         iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`;
         iconClass = 'anim-spin';
-    } else if (lowerText.includes('error') || lowerText.includes('out of credits') || lowerText.includes('failed')) {
+    } else if (lowerText.includes('error') || lowerText.includes('token limit reached') || lowerText.includes('failed')) {
         iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
         iconClass = 'anim-shake';
     } else if (lowerText.includes('read') || lowerText.includes('gathering') || lowerText.includes('analyzed')) {
-        iconSvg = `<svg width=14px" height="14px" xmlns="http://www.w3.org/2000/svg"><path fill="#494c4e" d="M17 7h-.35a3.485 3.485 0 0 0-5.81-.77 7.475 7.475 0 0 0-3.68 0A3.485 3.485 0 0 0 1.35 7H1a1 1 0 0 0 0 2h.04A3.5 3.5 0 0 0 8 8.5a2.828 2.828 0 0 0-.03-.41 5.94 5.94 0 0 1 2.06 0 2.828 2.828 0 0 0-.03.41 3.5 3.5 0 0 0 6.96.5H17a1 1 0 0 0 0-2zM4.5 10A1.5 1.5 0 1 1 6 8.5 1.5 1.5 0 0 1 4.5 10zm9 0A1.5 1.5 0 1 1 15 8.5a1.5 1.5 0 0 1-1.5 1.5z"/></svg>`;
+        iconSvg = `<svg fill="#a1a1aa" width="18px" height="18px" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><g id="read"><g><path  d="M12,18.883a10.8,10.8,0,0,1-9.675-5.728,2.6,2.6,0,0,1,0-2.31A10.8,10.8,0,0,1,12,5.117a10.8,10.8,0,0,1,9.675,5.728h0a2.6,2.6,0,0,1,0,2.31A10.8,10.8,0,0,1,12,18.883ZM12,6.117a9.787,9.787,0,0,0-8.78,5.176,1.586,1.586,0,0,0,0,1.415A9.788,9.788,0,0,0,12,17.883a9.787,9.787,0,0,0,8.78-5.176,1.584,1.584,0,0,0,0-1.414h0A9.787,9.787,0,0,0,12,6.117Z"/><path  d="M12,16.049A4.049,4.049,0,1,1,16.049,12,4.054,4.054,0,0,1,12,16.049Zm0-7.1A3.049,3.049,0,1,0,15.049,12,3.052,3.052,0,0,0,12,8.951Z"/><circle  cx="12" cy="12" r="2.028"/></g></g></svg>`;
         iconClass = 'anim-pulse';
     } else if (lowerText.includes('done') || lowerText.includes('complete')) {
         iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;

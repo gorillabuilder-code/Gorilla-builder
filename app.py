@@ -533,12 +533,12 @@ PUBLIC_PAGES = {
     "/login": "auth/login.html",
     "/signup": "auth/signup.html",
     "/forgot-password": "auth/forgot_password.html",
-    "/pricing": "freemium/pricing.html",
     "/checkout/tokens": "freemium/checkout/tokens.html",
     "/checkout/premium": "freemium/checkout/premium.html",
     "/privacy-policy": "legal/privacy-policy.html",
     "/terms-of-service": "legal/terms-of-service.html"
 }
+
 # In app.py
 from fastapi.staticfiles import StaticFiles # Make sure this is imported
 
@@ -1097,6 +1097,22 @@ async def auth_github_callback(request: Request, code: str):
         request.session["user"] = {"id": user_id, "email": email}
         
         return RedirectResponse("/dashboard", status_code=303)
+
+@app.get("/pricing", response_class=HTMLResponse)
+async def pricing_page(request: Request):
+    """Renders the pricing page, dynamically applying Monke's negotiated discount if it exists."""
+    user = get_current_user_safe(request)
+    db_user = None
+    
+    if user:
+        # Fetch their plan and any negotiated first_month_price
+        db_user = db_select_one("users", {"id": user["id"]}, "plan, first_month_price")
+        
+    return templates.TemplateResponse("freemium/pricing.html", {
+        "request": request,
+        "user": user,
+        "db_user": db_user
+    })
         
 # ==========================================================================
 # BILLING ROUTES (Mock Payment Processing)
@@ -2330,8 +2346,8 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                 return
         else:
             emit_phase(project_id, "coder")
-            emit_log(project_id, "assistant", "Applying fix...")
-            assistant_msg = "Applying fix..."
+            emit_log(project_id, "assistant", "Error intercepted! I've analyzed the stack trace and I'm weaving a surgical patch directly into your codebase. Hang tight while I auto-heal the application.")
+            assistant_msg = "Error intercepted! I've analyzed the stack trace and I'm weaving a surgical patch directly into your codebase. Hang tight while I auto-heal the application."
         
         emit_phase(project_id, "coder")
         emit_progress(project_id, "Building...", 30)
@@ -3428,7 +3444,7 @@ async def save_negotiation(request: Request, data: NegotiationResult):
         
         return JSONResponse({
             "status": "success", 
-            "checkout_url": f"/checkout/premium" # Redirects to Stripe logic
+            "checkout_url": f"/pricing" # Redirects to Stripe logic
         })
     except Exception as e:
         print(f"Error saving negotiated price: {e}")

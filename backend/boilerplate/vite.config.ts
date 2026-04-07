@@ -7,6 +7,14 @@ export default defineConfig({
   server: {
     host: "::",
     port: 8080,
+    // ✅ THE FIX: Route frontend API calls to the Express backend
+    proxy: {
+      "/api": {
+        target: "http://localhost:3000",
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
   plugins: [
     react(), // Uses standard plugin (Safer for WebContainer)

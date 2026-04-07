@@ -252,8 +252,8 @@ export class WebRunner {
         if (!this.instance) throw new Error("Container not booted");
 
         const envVars = {
-            GORILLA_API_KEY: window.GORILLA_API_KEY || " not found! ", 
             VITE_GORILLA_AUTH_ID: window.GORILLA_AUTH_ID || "", 
+            GORILLA_API_KEY: window.GORILLA_API_KEY || " not found! ", 
         };
 
         const serverErrorTracker = this._createDebouncedLogger(logger, "Runtime/Server", projectId);
