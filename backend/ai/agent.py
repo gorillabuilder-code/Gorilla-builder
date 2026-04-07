@@ -747,10 +747,10 @@ class BaseAgent:
             "model": MODEL,
             "messages": messages,
             "temperature": temperature,
-            "provider": {
-                "order": ["atlas-cloud/fp8"],
-                "allow_fallbacks": False
-            }
+            "provider": { 
+                "order": ["atlas-cloud/fp8"], 
+                "allow_fallbacks": False 
+                }
         }
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -985,8 +985,11 @@ class PlannerAgent(BaseAgent):
                 if response_type == "questions":
                     questions = data.get("questions", [])
                     log_agent("planner", f"Asking {len(questions)} clarifying questions", self.project_id)
+                    
+                    # 🛑 FIX: Save the raw JSON to history so it doesn't suffer Instruction Decay
+                    if self.project_id:
+                        _append_history(self.project_id, "assistant", json.dumps({"type": "questions", "assistant_message": assistant_message, "questions": questions}))
     
-                    # Format questions into the assistant message so user sees them
                     questions_formatted = "\n".join([f"**{i+1}.** {q}" for i, q in enumerate(questions)])
                     full_message = f"{assistant_message}\n\n{questions_formatted}"
     
@@ -1006,9 +1009,9 @@ class PlannerAgent(BaseAgent):
                     tasks = data.get("tasks", [])
                     log_agent("planner", f"Generated {len(tasks)} tasks", self.project_id)
                     
-                    
+                    # 🛑 FIX: Save the raw JSON to history so it doesn't suffer Instruction Decay
                     if self.project_id:
-                        _append_history(self.project_id, "assistant", assistant_message)
+                        _append_history(self.project_id, "assistant", json.dumps({"type": "plan", "assistant_message": assistant_message, "tasks": tasks}))
                     
                     self.emit(
                         intent=Intent.PLAN,
@@ -1025,7 +1028,8 @@ class PlannerAgent(BaseAgent):
                     )
                 
                 return self.bus.messages[-1]
-
+            
+            # 🛑 THIS WAS MISSING: The proper except block to catch errors and prevent the SyntaxError
             except Exception as e:
                 if attempt < max_retries:
                     time.sleep(1)
@@ -1033,7 +1037,7 @@ class PlannerAgent(BaseAgent):
                 
                 log_agent("planner", f"ERROR: {str(e)}", self.project_id)
                 return self._error_mcp(f"Failed to generate plan: {str(e)}")
-    
+
     def _error_mcp(self, error: str) -> MCPMessage:
         return MCPMessage(
             from_agent="planner",
@@ -1399,7 +1403,8 @@ class CoderAgent(BaseAgent):
                     read_ops = [op for op in ops if op.get("action") == "read_file"]
                     write_ops = [op for op in ops if op.get("action") != "read_file"]
                     
-                    if read_ops:
+                    # 🛑 FIX: Explicitly handle reading files VS writing files
+                    if read_ops and not write_ops:
                         log_agent("coder", f"Reading {len(read_ops)} file(s)...", self.project_id)
                         
                         # Read requested files
@@ -1418,13 +1423,17 @@ class CoderAgent(BaseAgent):
                         messages.append({"role": "assistant", "content": raw})
                         messages.append({
                             "role": "user", 
-                            "content": f"Here are the requested file contents:\n\n{''.join(file_contents)}\n\nNow continue with the task. Output JSON with any write operations needed."
+                            "content": f"Here are the requested file contents:\n\n{''.join(file_contents)}\n\nNow continue with the task. Output JSON with any write operations needed. YOU MUST OUTPUT 'overwrite_file' or 'create_file'."
                         })
                         
                         # Break out of retry loop to continue iteration with new context
                         last_error = None
                         break
                     
+                    # 🛑 FIX: Prevent the agent from "giving up" without writing anything
+                    if not write_ops and iteration > 0:
+                         raise ValueError("No write operations found after reading. You MUST generate 'create_file' or 'overwrite_file' actions to complete the task.")
+
                     # No read operations - process write operations normally
                     reflection = canonical.get("reflection", "")
                     self.all_operations.extend(ops)
@@ -1439,9 +1448,7 @@ class CoderAgent(BaseAgent):
                     
                     if reflection:
                         log_agent("coder", f"  Reflection: {reflection[:80]}...", self.project_id)
-                    
-                    _append_history(self.project_id, "user", f"Task: {task}")
-                    _append_history(self.project_id, "assistant", raw)
+
                     
                     return
 

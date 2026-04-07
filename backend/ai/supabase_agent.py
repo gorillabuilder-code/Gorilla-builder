@@ -771,14 +771,19 @@ class BaseAgent:
             data = resp.json()
             
         content = data["choices"][0]["message"]["content"]
-        tokens = data.get("usage", {}).get("total_tokens", 0)
+        
+        # 💰 Accurate Weighted Token Billing (0.3 In / 1.2 Out)
+        usage = data.get("usage", {})
+        p_tokens = usage.get("prompt_tokens", 0)
+        c_tokens = usage.get("completion_tokens", 0)
+        weighted_tokens = int((p_tokens * 0.3) + (c_tokens * 1.2))
         
         # Track tokens
-        self.total_tokens_used += tokens
+        self.total_tokens_used += weighted_tokens
         
-        log_agent("llm", f"← {tokens} tokens (total: {self.total_tokens_used}) | {content[:120]}...", self.project_id)
+        log_agent("llm", f"← {weighted_tokens} weighted tokens (total: {self.total_tokens_used}) | {content[:120]}...", self.project_id)
         
-        return content, tokens
+        return content, weighted_tokens
 
     async def call_vision_llm(self, messages: List[Dict], temperature: float = 0.6) -> Tuple[str, int]:
         """
@@ -813,14 +818,19 @@ class BaseAgent:
             data = resp.json()
             
         content = data["choices"][0]["message"]["content"]
-        tokens = data.get("usage", {}).get("total_tokens", 0)
+        
+        # 💰 Accurate Weighted Token Billing (0.3 In / 1.2 Out)
+        usage = data.get("usage", {})
+        p_tokens = usage.get("prompt_tokens", 0)
+        c_tokens = usage.get("completion_tokens", 0)
+        weighted_tokens = int((p_tokens * 0.3) + (c_tokens * 1.2))
         
         # Track tokens
-        self.total_tokens_used += tokens
+        self.total_tokens_used += weighted_tokens
         
-        log_agent("llm", f"← {tokens} tokens (total: {self.total_tokens_used}) | {content[:120]}...", self.project_id)
+        log_agent("llm", f"← {weighted_tokens} weighted tokens (total: {self.total_tokens_used}) | {content[:120]}...", self.project_id)
         
-        return content, tokens
+        return content, weighted_tokens
     
     def extract_json(self, text: str) -> Optional[Dict]:
         return _extract_json(text)
@@ -965,7 +975,8 @@ class PlannerAgent(BaseAgent):
         for h in chat_history:
             messages.append({"role": h["role"], "content": h["content"]})
         
-        messages.append({"role": "user", "content": f"""CONTEXT: {context_str} CURRENT FILES: {json.dumps(clean_files[:20])} USER REQUEST: {user_request} {'This appears to be a DEBUG request.' if is_debug else 'Analyze this request and either create a plan OR ask clarifying questions.'} Output JSON with either type="plan" or type="questions"."""})
+        # 🛑 FIX: Send the FULL project architecture map (names only) so the Planner isn't blind
+        messages.append({"role": "user", "content": f"""CONTEXT: {context_str} CURRENT PROJECT ARCHITECTURE: {json.dumps(clean_files)} \nUSER REQUEST: {user_request} \n{'This appears to be a DEBUG request.' if is_debug else 'Analyze this request and either create a plan OR ask clarifying questions.'} Output JSON with either type="plan" or type="questions"."""})
 
         max_retries = 2
 
@@ -981,13 +992,16 @@ class PlannerAgent(BaseAgent):
                     raise ValueError("Could not extract JSON from response")
                 
                 response_type = data.get("type", "plan")
-                assistant_message = data.get("assistant_message", "Plan created.")
+                assistant_message = data.get("assistant_message", "Sure I would really like to help you with that! But I need a bit more information right now to give you the app you deserve.")
                 
                 if response_type == "questions":
                     questions = data.get("questions", [])
                     log_agent("planner", f"Asking {len(questions)} clarifying questions", self.project_id)
+                    
+                    # 🛑 FIX: Save the raw JSON to history so it doesn't suffer Instruction Decay
+                    if self.project_id:
+                        _append_history(self.project_id, "assistant", json.dumps({"type": "questions", "assistant_message": assistant_message, "questions": questions}))
     
-                    # Format questions into the assistant message so user sees them
                     questions_formatted = "\n".join([f"**{i+1}.** {q}" for i, q in enumerate(questions)])
                     full_message = f"{assistant_message}\n\n{questions_formatted}"
     
@@ -1007,9 +1021,9 @@ class PlannerAgent(BaseAgent):
                     tasks = data.get("tasks", [])
                     log_agent("planner", f"Generated {len(tasks)} tasks", self.project_id)
                     
-                    
+                    # 🛑 FIX: Save the raw JSON to history so it doesn't suffer Instruction Decay
                     if self.project_id:
-                        _append_history(self.project_id, "assistant", assistant_message)
+                        _append_history(self.project_id, "assistant", json.dumps({"type": "plan", "assistant_message": assistant_message, "tasks": tasks}))
                     
                     self.emit(
                         intent=Intent.PLAN,
@@ -1026,7 +1040,8 @@ class PlannerAgent(BaseAgent):
                     )
                 
                 return self.bus.messages[-1]
-
+            
+            # 🛑 THIS WAS MISSING: The proper except block to catch errors and prevent the SyntaxError
             except Exception as e:
                 if attempt < max_retries:
                     time.sleep(1)
@@ -1034,7 +1049,7 @@ class PlannerAgent(BaseAgent):
                 
                 log_agent("planner", f"ERROR: {str(e)}", self.project_id)
                 return self._error_mcp(f"Failed to generate plan: {str(e)}")
-    
+                
     def _error_mcp(self, error: str) -> MCPMessage:
         return MCPMessage(
             from_agent="planner",
@@ -1273,14 +1288,22 @@ class CoderAgent(BaseAgent):
             "operations": normalized_ops
         }
 
+    # 🛑 FIX: Use MCP map + explicitly tell the Coder to read_file instead of dumping whole codebases
     def _build_context_snippets(self) -> str:
-        snippets = []
-        priority_files = ["src/App.tsx", "src/main.tsx", "src/pages/Index.tsx", "src/index.css", "package.json"]
+        # Give the Coder the entire structural map (costs very few tokens)
+        tree_structure = "\n".join([f"- {path}" for path in self.file_tree.keys() if not path.endswith(".b64")])
+        snippets = [f"PROJECT ARCHITECTURE MAP:\n{tree_structure}\n"]
         
-        for p in priority_files:
-            if p in self.file_tree:
-                c = self.file_tree[p]
-                snippets.append(f"--- {p} ---\n{c[:5000]}\n")
+        # Only inject the absolute core file to save tokens. 
+        if "package.json" in self.file_tree:
+            snippets.append(f"--- package.json ---\n{self.file_tree['package.json'][:2000]}\n")
+            
+        snippets.append(
+            "\n⚠️ CRITICAL MCP INSTRUCTION ⚠️\n"
+            "You have access to the 'read_file' action. Look at the PROJECT ARCHITECTURE MAP above.\n"
+            "If you need to edit a file, YOU MUST use `{\"action\": \"read_file\", \"path\": \"filename\"}` to read it FIRST.\n"
+            "Do NOT guess or hallucinate existing code."
+        )
         
         return "\n".join(snippets)
     
@@ -1401,7 +1424,8 @@ class CoderAgent(BaseAgent):
                     read_ops = [op for op in ops if op.get("action") == "read_file"]
                     write_ops = [op for op in ops if op.get("action") != "read_file"]
                     
-                    if read_ops:
+                    # 🛑 FIX: Explicitly handle reading files VS writing files
+                    if read_ops and not write_ops:
                         log_agent("coder", f"Reading {len(read_ops)} file(s)...", self.project_id)
                         
                         # Read requested files
@@ -1420,13 +1444,17 @@ class CoderAgent(BaseAgent):
                         messages.append({"role": "assistant", "content": raw})
                         messages.append({
                             "role": "user", 
-                            "content": f"Here are the requested file contents:\n\n{''.join(file_contents)}\n\nNow continue with the task. Output JSON with any write operations needed."
+                            "content": f"Here are the requested file contents:\n\n{''.join(file_contents)}\n\nNow continue with the task. Output JSON with any write operations needed. YOU MUST OUTPUT 'overwrite_file' or 'create_file'."
                         })
                         
                         # Break out of retry loop to continue iteration with new context
                         last_error = None
                         break
                     
+                    # 🛑 FIX: Prevent the agent from "giving up" without writing anything
+                    if not write_ops and iteration > 0:
+                         raise ValueError("No write operations found after reading. You MUST generate 'create_file' or 'overwrite_file' actions to complete the task.")
+
                     # No read operations - process write operations normally
                     reflection = canonical.get("reflection", "")
                     self.all_operations.extend(ops)
@@ -1440,10 +1468,8 @@ class CoderAgent(BaseAgent):
                         log_agent("coder", f"  ✓ {op.get('action')}: {op.get('path')}", self.project_id)
                     
                     if reflection:
-                        log_agent("coder", f" Reflection: {reflection[:80]}...", self.project_id)
-                    
-                    _append_history(self.project_id, "user", f"Task: {task}")
-                    _append_history(self.project_id, "assistant", raw)
+                        log_agent("coder", f"  Reflection: {reflection[:80]}...", self.project_id)
+                
                     
                     return
 
@@ -1780,6 +1806,7 @@ class DebuggerAgent(BaseAgent):
             
         # 4. Formulate the explicit error prompt (5000 char window so it can read the whole file)
         messages.append({"role": "user", "content": f"🚨 WE HIT AN ERROR! 🚨\n\nERROR LOG:\n{error_message}\n\nTARGET FILE: {relevant_file}\n\nCURRENT FILE CONTENT:\n{file_content}\n"})
+        
         # Use call_llm with a lower temperature for strict, analytical bug fixing
         raw, tokens = await self.call_llm(messages, temperature=0.3)
         data = self.extract_json(raw)
@@ -1889,6 +1916,16 @@ class SupabaseAgentSwarm:
         else:
             # Phase 1: Planning
             plan_result = await self.planner.plan(user_request, file_tree, agent_skills)
+            
+            # 🛑 THE FIX: Catch the silent death if the Planner crashes
+            if plan_result.intent == Intent.ERROR:
+                return {
+                    "status": "complete",
+                    "assistant_message": plan_result.payload.get("assistant_message", "🚨 I encountered an error analyzing your request. Please try rephrasing it."),
+                    "operations": [],
+                    "total_tokens": self.get_total_tokens()
+                }
+
             assistant_message = plan_result.payload.get("assistant_message", "Building...")
             
             # Check if clarification needed
@@ -1955,7 +1992,7 @@ class SupabaseAgentSwarm:
                 seen_paths[path] = op
         all_ops = list(seen_paths.values())
         
-        log_agent("swarm", f"Complete: {len(all_ops)} unique file operations", self.project_id)
+        log_agent("swarm", f" Complete: {len(all_ops)} unique file operations", self.project_id)
         for op in all_ops:
             log_agent("swarm", f"  📄 {op.get('action')}: {op.get('path')}", self.project_id)
         

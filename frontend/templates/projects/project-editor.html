@@ -691,7 +691,19 @@ window.addEventListener('app_stable', () => {
     if(codeOverlay) {
         codeOverlay.style.display = 'none';
     }
-    switchTab('preview'); // Automatically switch to preview
+    // Only auto-switch if they are already on the preview tab, or force it if you prefer
+    switchTab('preview'); 
+});
+
+// 🛑 NEW: Listen for the unstable lock event
+window.addEventListener('app_unstable', () => {
+    console.info("🟡 [SYSTEM] Native app_unstable event received! Locking UI.");
+    window.isAppStable = false;
+    setInputState(true);
+    const codeOverlay = document.getElementById('code-loading-overlay');
+    if(codeOverlay) {
+        codeOverlay.style.display = 'flex';
+    }
 });
 
 // 🛑 OVERRIDE FETCH ONLY TO MUTE ERRORS ONCE STABLE 🛑
@@ -1269,12 +1281,12 @@ async function bootWebContainer() {
 }
 
 // 🛑 SEAMLESS TAB SWITCHER
-function switchTab(tab){
-  if (tab === "preview" && !window.isAppStable) {
-      return; // Block switching before ALL_CLEAR
-  }
+// 🛑 SEAMLESS TAB SWITCHER (LOCKED UNTIL STABLE)
+function switchTab(tab) {
+  // 🛑 The Fix: Block tab switching completely if the app is working/unstable
+  if (!window.isAppStable) return;
 
-  if(tab === "preview"){
+  if (tab === "preview") {
     $("tabPreview").classList.add("active");
     $("tabCode").classList.remove("active");
     $("editor").style.display = "none";
@@ -1293,6 +1305,7 @@ function switchTab(tab){
     $("tabPreview").classList.remove("active");
     $("preview").style.display = "none";
     $("previewModeWrap").style.display = "none";
+    
     if (currentFile && (currentFile.endsWith('.b64') || currentFile.endsWith('.png') || currentFile.endsWith('.jpg'))) {
         $("editor").style.display = "none";
         $("imageViewer").style.display = "flex";
@@ -1473,6 +1486,11 @@ async function triggerAgent(promptText) {
         } else {
             formData.append("is_db_request", "true");
         }
+    }
+    
+    // 🛑 NEW: Tell the WebRunner to lock down and reset its timers
+    if (webRunner && typeof webRunner.markUnstable === 'function') {
+        webRunner.markUnstable();
     }
     
     window.isAppStable = false;

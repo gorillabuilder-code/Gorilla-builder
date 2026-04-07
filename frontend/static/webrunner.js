@@ -15,6 +15,9 @@ export class WebRunner {
         
         this.hasInstalled = false;
         this.isInstalling = false; 
+        
+        // 🛑 THE FIX: Explicit stability state
+        this.isStable = false;
     }
 
     async boot() {
@@ -22,6 +25,14 @@ export class WebRunner {
         console.log("Booting WebContainer...");
         this.instance = await WebContainer.boot({ coep: 'credentialless' });
         return this.instance;
+    }
+    
+    // 🛑 THE FIX: Method to instantly lock the UI during new prompts
+    markUnstable() {
+        this.isStable = false;
+        console.log("🔒 App marked unstable. UI should be covered.");
+        // We dispatch an event so your editor.html knows to put the loading screen back up
+        window.dispatchEvent(new CustomEvent('app_unstable'));
     }
 
     _convertFilesToTree(files) {
@@ -37,7 +48,11 @@ export class WebRunner {
                     let content = f.content || "";
                     
                     if (part === "index.html") {
+                        // 🛑 THE FIX: Added 'load' event to deterministically know when Vite finishes
                         const interceptor = `\n<script>
+                            window.addEventListener('load', () => {
+                                window.parent.postMessage({ type: 'iframe_loaded' }, '*');
+                            });
                             window.addEventListener('error', (e) => {
                                 window.parent.postMessage({ type: 'iframe_error', message: 'Uncaught Error: ' + (e.message || (e.error ? e.error.message : 'Unknown')) }, '*');
                             });
@@ -75,22 +90,23 @@ export class WebRunner {
         let timeout = null;
         let allClearTimer = null; 
 
-        const startAllClear = () => {
+        // 🛑 THE FIX: Accept a custom delay so we can dynamically adjust based on boot state
+        const startAllClear = (customDelay = 12000) => {
             if (this.isInstalling) return;
 
             if (allClearTimer) clearTimeout(allClearTimer);
             
-            // 🛑 RELAXED: 8 full seconds of breathing room for Vite to compile
             allClearTimer = setTimeout(() => {
                 if (this.isFixing) {
-                    startAllClear(); 
+                    startAllClear(customDelay); 
                     return;
                 }
 
+                this.isStable = true;
                 console.info("✅ [ALL CLEAR] App is stable. Unlocking preview.");
                 window.dispatchEvent(new CustomEvent('app_stable'));
                 
-            }, 8000); 
+            }, customDelay); 
         };
 
         const flush = () => {
@@ -123,10 +139,10 @@ export class WebRunner {
                 
                 if (timeout) clearTimeout(timeout);
                 
-                // 🛑 RELAXED: Wait 1.5s to group stuttering errors together
+                // Wait 1.5s to group stuttering errors together
                 timeout = setTimeout(flush, 1500); 
                 
-                startAllClear();
+                startAllClear(); // Will use the default 12s delay for error recovery
             },
             flushImmediate: () => {
                 if (this.isInstalling) return;
@@ -141,6 +157,8 @@ export class WebRunner {
         if (this.isFixing) return;
 
         this.isFixing = true;
+        this.markUnstable(); // Ensure UI locks while fixing
+        
         const pid = projectId || window.PROJECT_ID || (window.location.pathname.match(/\/projects\/([^\/]+)/) || [])[1];
         
         if (!pid) {
@@ -174,6 +192,7 @@ export class WebRunner {
         if (!this.instance) throw new Error("Container not booted");
         
         this.isInstalling = true;
+        this.markUnstable();
 
         try {
             let success = false;
@@ -259,6 +278,12 @@ export class WebRunner {
         const serverErrorTracker = this._createDebouncedLogger(logger, "Runtime/Server", projectId);
 
         window.addEventListener("message", (e) => {
+            // 🛑 THE FIX: Intercept the iframe load event and explicitly fast-track the unlock
+            if (e.data && e.data.type === 'iframe_loaded') {
+                console.info("🌐 [IFRAME] React App fully mounted. Fast-tracking All Clear.");
+                serverErrorTracker.startAllClear(1500); // App is actively loaded, unlock in 1.5s if no immediate errors!
+            }
+
             if (e.data && e.data.type === 'iframe_error') {
                 if (e.data.message !== "Console Error: {}") {
                     console.info("🔴 [BROWSER ERROR CAUGHT]", e.data.message);
@@ -309,8 +334,9 @@ export class WebRunner {
             this.url = url;
             onReady(url);
             
-            // Start the 8s stability clock once Vite reports ready
-            serverErrorTracker.startAllClear();
+            // 🛑 THE FIX: Give Vite up to 25 seconds for the initial cold compile. 
+            // (It will be bypassed and unlocked early when 'iframe_loaded' fires!)
+            serverErrorTracker.startAllClear(25000);
         });
     }
 
