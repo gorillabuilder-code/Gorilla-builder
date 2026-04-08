@@ -27,7 +27,7 @@ import httpx
 
 # --- Configuration for OpenRouter ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("MODEL", "kwaipilot/kat-coder-pro-v2")
+MODEL = os.getenv("MODEL", "qwen/qwen3-coder-next")
 VISION_MODEL = os.getenv("MODEL", "xiaomi/mimo-v2-omni")
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions").strip()
 SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev").strip()
@@ -751,7 +751,7 @@ class BaseAgent:
             "messages": messages,
             "temperature": temperature,
             "provider": {
-                "order": ["atlas-cloud/fp8"],
+                "order": ["ionstream/fp8"],
                 "allow_fallbacks": False
             }
         }
