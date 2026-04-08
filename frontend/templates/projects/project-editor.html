@@ -1369,6 +1369,11 @@ function startStream(){
       if (m.text.includes("Done") || m.text.includes("Ready") || m.text.includes("Error") || m.text.includes("Waiting for User")) {
           currentThoughtBlock = null; 
           
+          // 🛑 THE FIX: Explicitly tell WebRunner the AI is no longer busy fixing!
+          if (webRunner && typeof webRunner.releaseFixLock === 'function') {
+              webRunner.releaseFixLock();
+          }
+          
           if (!isWebContainerBooted && m.text.includes("Done")) {
               bootWebContainer();
           } else if (isWebContainerBooted) {
@@ -1389,7 +1394,7 @@ function startStream(){
           }
       }
     }
-    
+
     if(m.type === "phase") setPhase(m.value);
     if(m.type === "progress") setProgress(m.text, m.pct);
     

@@ -16,8 +16,11 @@ export class WebRunner {
         this.hasInstalled = false;
         this.isInstalling = false; 
         
-        // 🛑 THE FIX: Explicit stability state
+        // Explicit stability state
         this.isStable = false;
+        
+        // Store a reference to the active clear timer so we can trigger it manually
+        this._activeClearTimer = null;
     }
 
     async boot() {
@@ -27,12 +30,29 @@ export class WebRunner {
         return this.instance;
     }
     
-    // 🛑 THE FIX: Method to instantly lock the UI during new prompts
+    // Method to instantly lock the UI during new prompts
     markUnstable() {
         this.isStable = false;
         console.log("🔒 App marked unstable. UI should be covered.");
         // We dispatch an event so your editor.html knows to put the loading screen back up
         window.dispatchEvent(new CustomEvent('app_unstable'));
+    }
+
+    // 🛑 THE CRITICAL FIX: Method to explicitly release the AI fixing lock from the backend
+    releaseFixLock() {
+        if (this.isFixing) {
+            this.isFixing = false;
+            if (this.fixUnlockTimer) {
+                clearTimeout(this.fixUnlockTimer);
+                this.fixUnlockTimer = null;
+            }
+            console.log("🔓 Backend signaled completion. AI Fix Lock released early.");
+            
+            // Immediately start looking for stability again (wait 3 seconds to see if a new error pops up)
+            if (this._activeClearTimer) {
+                this._activeClearTimer(3000); 
+            }
+        }
     }
 
     _convertFilesToTree(files) {
@@ -48,7 +68,7 @@ export class WebRunner {
                     let content = f.content || "";
                     
                     if (part === "index.html") {
-                        // 🛑 THE FIX: Added 'load' event to deterministically know when Vite finishes
+                        // Added 'load' event to deterministically know when Vite finishes
                         const interceptor = `\n<script>
                             window.addEventListener('load', () => {
                                 window.parent.postMessage({ type: 'iframe_loaded' }, '*');
@@ -90,7 +110,7 @@ export class WebRunner {
         let timeout = null;
         let allClearTimer = null; 
 
-        // 🛑 THE FIX: Accept a custom delay so we can dynamically adjust based on boot state
+        // Accept a custom delay so we can dynamically adjust based on boot state
         const startAllClear = (customDelay = 12000) => {
             if (this.isInstalling) return;
 
@@ -108,6 +128,9 @@ export class WebRunner {
                 
             }, customDelay); 
         };
+
+        // Store a global reference so releaseFixLock can trigger it
+        this._activeClearTimer = startAllClear;
 
         const flush = () => {
             if (buffer.trim() === "") return;
@@ -183,7 +206,7 @@ export class WebRunner {
             if (this.fixUnlockTimer) clearTimeout(this.fixUnlockTimer);
             this.fixUnlockTimer = setTimeout(() => { 
                 this.isFixing = false; 
-                console.info("🔓 AI Fix Lock safety released.");
+                console.info("🔓 AI Fix Lock safety released via timeout.");
             }, 45000); 
         }
     }
@@ -278,7 +301,7 @@ export class WebRunner {
         const serverErrorTracker = this._createDebouncedLogger(logger, "Runtime/Server", projectId);
 
         window.addEventListener("message", (e) => {
-            // 🛑 THE FIX: Intercept the iframe load event and explicitly fast-track the unlock
+            // Intercept the iframe load event and explicitly fast-track the unlock
             if (e.data && e.data.type === 'iframe_loaded') {
                 console.info("🌐 [IFRAME] React App fully mounted. Fast-tracking All Clear.");
                 serverErrorTracker.startAllClear(1500); // App is actively loaded, unlock in 1.5s if no immediate errors!
@@ -334,7 +357,7 @@ export class WebRunner {
             this.url = url;
             onReady(url);
             
-            // 🛑 THE FIX: Give Vite up to 25 seconds for the initial cold compile. 
+            // Give Vite up to 25 seconds for the initial cold compile. 
             // (It will be bypassed and unlocked early when 'iframe_loaded' fires!)
             serverErrorTracker.startAllClear(25000);
         });

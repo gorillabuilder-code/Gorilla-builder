@@ -773,7 +773,7 @@ class BaseAgent:
         usage = data.get("usage", {})
         p_tokens = usage.get("prompt_tokens", 0)
         c_tokens = usage.get("completion_tokens", 0)
-        weighted_tokens = int((p_tokens * 0.3) + (c_tokens * 1.2))
+        weighted_tokens = int((p_tokens * 0.3) + (c_tokens * 0.9))
         
         # Track tokens
         self.total_tokens_used += weighted_tokens
@@ -918,7 +918,7 @@ class PlannerAgent(BaseAgent):
     "   - If you are told to use the attached image somewhere, by the user, then use .gorilla/prompt_image.b64, and instruct to coder to use it\n"
     "   - Do not try to ask the user more than 1 question to elaborate on their request, if you do, they should be obvious and add functionality to their app if they agree DO NOT BOTHER THEM MORE THAN ONCE. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY QUESTIONS IF THEY DONT FEEL LIKE IT OR ANY DEBUGGING QUESTIONS.\n"
     "   - CONSOLIDATE TASKS: You MUST bundle related operations together. Combine them into Macro Steps (e.g., 'Step 1: Database & Backend setup', 'Step 2: Core UI Components', 'Step 3: Frontend Wiring').\n"
-    "   - Simple Apps: Maximum 4-5 Macro/clubbed Tasks. (if there are no questions only!)\n"
+    "   - Simple Apps: Maximum 3+ Macro/clubbed Tasks. (if there are no questions only!)\n"
     "   - Complex Apps: UNLIMITED Macro/clubbed Tasks. (if there are no questions only!)\n"
     "   - Debugging/Simple addition Tasks: 1 task only. DO NOT ASK QUESTIONS FOR DEBUGGING.\n"
     "   - NEVER bundle more than 4 files or less than 2 files into a single task. Break large frontend or backend builds into multiple, smaller steps to prevent output truncation. AND ALWAYS TRY TO USE MULTI PAGE ARCHITECTURES. For example to build a chatbot specify to build a chatcontainer.tsx, message.tsx and chatinput.tsx instea of just a chatinterface.tsx.\n"
@@ -1377,10 +1377,25 @@ class CoderAgent(BaseAgent):
         chat_history = _get_history(self.project_id)[-8:]
         
         messages = [{"role": "system", "content": self.SYSTEM_PROMPT}]
-        for h in chat_history:
-            messages.append({"role": h["role"], "content": h["content"]})
         
-        messages.append({"role": "user", "content": f"""CONTEXT: {context}, TASK: {task}, Implement this task. After coding, reflect on whether it's correct. Output JSON with message, reflection, and operations."""})
+        for h in chat_history:
+            role = h["role"]
+            content = h["content"]
+            
+            # Sanitize the history to prevent Planner format hallucinations
+            if role == "assistant":
+                try:
+                    import json
+                    parsed = json.loads(content)
+                    if isinstance(parsed, dict) and "assistant_message" in parsed:
+                        content = parsed["assistant_message"]
+                except Exception:
+                    pass 
+                    
+            messages.append({"role": role, "content": content})
+        
+        # Reinforce the strict JSON requirement in the final user prompt
+        messages.append({"role": "user", "content": f"""CONTEXT: {context}\n\nTASK:\n{task}\n\nImplement this task. You MUST output valid JSON containing the "operations" array with "create_file", "overwrite_file", or "read_file" actions."""})
 
         max_iterations = 20  # Prevent infinite read loops
         
@@ -1399,11 +1414,15 @@ class CoderAgent(BaseAgent):
                     canonical = self._normalize_and_validate_ops(parsed)
                     ops = canonical.get("operations", [])
                     
+                    # 🛑 THE MISSING GUARDRAIL: Force a retry if it forgets the operations array!
+                    if not ops and iteration == 0:
+                        raise ValueError("No operations found in output. You MUST generate at least one 'read_file', 'create_file', or 'overwrite_file' action in the 'operations' array.")
+                    
                     # Check if AI wants to read files first
                     read_ops = [op for op in ops if op.get("action") == "read_file"]
                     write_ops = [op for op in ops if op.get("action") != "read_file"]
                     
-                    # 🛑 FIX: Explicitly handle reading files VS writing files
+                    # Explicitly handle reading files VS writing files
                     if read_ops and not write_ops:
                         log_agent("coder", f"Reading {len(read_ops)} file(s)...", self.project_id)
                         
@@ -1430,7 +1449,7 @@ class CoderAgent(BaseAgent):
                         last_error = None
                         break
                     
-                    # 🛑 FIX: Prevent the agent from "giving up" without writing anything
+                    # Prevent the agent from "giving up" without writing anything
                     if not write_ops and iteration > 0:
                          raise ValueError("No write operations found after reading. You MUST generate 'create_file' or 'overwrite_file' actions to complete the task.")
 
@@ -1449,7 +1468,6 @@ class CoderAgent(BaseAgent):
                     if reflection:
                         log_agent("coder", f"  Reflection: {reflection[:80]}...", self.project_id)
 
-                    
                     return
 
                 except Exception as e:
