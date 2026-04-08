@@ -1290,19 +1290,24 @@ class CoderAgent(BaseAgent):
 
     # 🛑 FIX: Use MCP map + explicitly tell the Coder to read_file instead of dumping whole codebases
     def _build_context_snippets(self) -> str:
-        # Give the Coder the entire structural map (costs very few tokens)
-        tree_structure = "\n".join([f"- {path}" for path in self.file_tree.keys() if not path.endswith(".b64")])
+        # 1. Build the "Bird's-Eye View" Map (File paths only)
+        # We filter out .b64 images so we don't clutter the map
+        clean_paths = [path for path in self.file_tree.keys() if not path.endswith(".b64")]
+        clean_paths.sort() # Sort alphabetically for a clean, structured view
+        tree_structure = "\n".join([f"- {path}" for path in clean_paths])
+        
         snippets = [f"PROJECT ARCHITECTURE MAP:\n{tree_structure}\n"]
         
-        # Only inject the absolute core file to save tokens. 
+        # 2. Inject ONLY the most critical "Source of Truth" file
         if "package.json" in self.file_tree:
             snippets.append(f"--- package.json ---\n{self.file_tree['package.json'][:2000]}\n")
             
+        # 3. The Titanium Guardrail
         snippets.append(
             "\n⚠️ CRITICAL MCP INSTRUCTION ⚠️\n"
-            "You have access to the 'read_file' action. Look at the PROJECT ARCHITECTURE MAP above.\n"
-            "If you need to edit a file, YOU MUST use `{\"action\": \"read_file\", \"path\": \"filename\"}` to read it FIRST.\n"
-            "Do NOT guess or hallucinate existing code."
+            "You ONLY see the PROJECT ARCHITECTURE MAP above. You do NOT see the actual file contents.\n"
+            "If you need to edit an existing file, YOU MUST use `{\"action\": \"read_file\", \"path\": \"filename\"}` to read it FIRST.\n"
+            "Do NOT guess or hallucinate existing code. Read it first, then overwrite."
         )
         
         return "\n".join(snippets)

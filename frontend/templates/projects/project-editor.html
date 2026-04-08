@@ -582,10 +582,7 @@
         <a class="pill" href="/dashboard" target="_blank">Dashboard</a>
         {% if user.plan != 'premium' %}
           <a class="pill" style="background-color:var(--accent); color:#fff; border-color:var(--accent);" href="/pricing" target="_blank">UPGRADE</a>
-        {% endif %}
-        {% if user.plan != 'free' %}
-          <a class="pill" href="/projects/{{ project_id }}/xmode" style="border-color: #d946ef; color: #d946ef;">Xmode</a>
-        {% endif %}
+        {% endif %}e
 
         <div style="width: 1px; height: 20px; background: var(--border); margin: 0 4px;"></div>
 
