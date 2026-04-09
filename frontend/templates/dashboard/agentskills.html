@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <title>Agent Skills · Gor://a Builder</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Funnel+Display:wght@300..800&display=swap" rel="stylesheet">
@@ -12,101 +11,387 @@
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
   <style>
-    :root { --bg: #050505; --sidebar-bg: rgba(10, 10, 12, 0.6); --panel: rgba(20, 20, 25, 0.4); --border: rgba(255, 255, 255, 0.08); --border-hover: rgba(255, 255, 255, 0.15); --accent: #3b6cff; --accent-glow: rgba(59, 108, 255, 0.25); --text: #ffffff; --text-muted: #8a8a93; --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E"); --ease-out: cubic-bezier(0.16, 1, 0.3, 1); }
-    body.premium { --accent: #ffd700; --accent-glow: rgba(255, 215, 0, 0.2); }
-    * { box-sizing: border-box; font-family: 'Funnel Display', system-ui, sans-serif; outline: none; }
-    body { margin: 0; background: var(--bg); color: var(--text); height: 100vh; display: flex; overflow: hidden; }
+    :root {
+      --bg: #050505;
+      --sidebar-bg: rgba(8, 8, 10, 0.85);
+      --panel: rgba(20, 20, 25, 0.4);
+      --border: rgba(255, 255, 255, 0.06);
+      --border-hover: rgba(255, 255, 255, 0.14);
+      --accent: #3b6cff;
+      --accent-glow: rgba(59, 108, 255, 0.25);
+      --text: #ffffff;
+      --text-muted: #7a7a85;
+      --radius: 10px;
+      --radius-sm: 6px;
+      --radius-lg: 12px;
+      --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E");
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    }
 
+    body.premium {
+      --accent: #ffd700;
+      --accent-glow: rgba(255, 215, 0, 0.2);
+    }
+
+    * { box-sizing: border-box; font-family: 'Funnel Display', system-ui, sans-serif; outline: none; }
+
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      height: 100vh; display: flex; overflow: hidden;
+    }
+
+    /* --- EFFECTS --- */
     .noise-overlay { position: fixed; inset: 0; background-image: var(--noise); pointer-events: none; z-index: 0; }
-    .glow-spot { position: fixed; width: 600px; height: 600px; background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%); opacity: 0.4; pointer-events: none; z-index: 0; top: -200px; left: 20%; filter: blur(80px); }
-    
-    aside { width: 260px; background: var(--sidebar-bg); backdrop-filter: blur(20px); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 24px 16px; z-index: 10; position: relative; }
-    .logo { font-size: 22px; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 12px; margin-bottom: 40px; padding-left: 12px; letter-spacing: -0.5px; }
+    .glow-spot {
+      position: fixed; width: 700px; height: 700px;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+      opacity: 0.3; pointer-events: none; z-index: 0;
+      top: -250px; left: 18%; filter: blur(100px);
+    }
+    .glow-spot-2 {
+      position: fixed; width: 400px; height: 400px;
+      background: radial-gradient(circle, rgba(139, 92, 246, 0.08) 0%, transparent 70%);
+      opacity: 0.5; pointer-events: none; z-index: 0;
+      bottom: -100px; right: 10%; filter: blur(80px);
+    }
+    .grid-overlay {
+      position: fixed; top: 0; left: 260px; right: 0; bottom: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.012) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.012) 1px, transparent 1px);
+      background-size: 60px 60px;
+      pointer-events: none; z-index: 0;
+      mask-image: radial-gradient(ellipse 70% 50% at 50% 30%, black, transparent);
+    }
+
+    /* --- SIDEBAR --- */
+    aside {
+      width: 260px; background: var(--sidebar-bg); backdrop-filter: blur(30px);
+      border-right: 1px solid var(--border); display: flex; flex-direction: column;
+      padding: 24px 14px; z-index: 10; position: relative;
+    }
+    aside::after {
+      content: ''; position: absolute; top: 0; right: 0; width: 1px; height: 100%;
+      background: linear-gradient(to bottom, var(--accent-glow), transparent 40%, transparent 60%, rgba(139,92,246,0.1));
+      pointer-events: none;
+    }
+
+    .logo {
+      font-size: 22px; font-weight: 600; color: #fff;
+      display: flex; align-items: center; gap: 12px; margin-bottom: 40px;
+      padding-left: 12px; letter-spacing: -0.5px;
+    }
     .logo svg { color: var(--accent); width: 24px; height: 24px; }
-    .premium-badge { font-size: 10px; background: var(--accent); color: #000; padding: 2px 6px; border-radius: 4px; font-weight: 800; display: none; transform: translateY(-1px); }
+    .premium-badge {
+      font-size: 10px; background: var(--accent); color: #000;
+      padding: 2px 6px; border-radius: var(--radius-sm); font-weight: 800;
+      display: none; transform: translateY(-1px);
+    }
     body.premium .premium-badge { display: inline-block; }
-    nav { display: flex; flex-direction: column; gap: 4px; flex: 1; }
-    nav a { color: var(--text-muted); text-decoration: none; padding: 10px 12px; border-radius: 10px; font-size: 14px; transition: all 0.2s var(--ease-out); display: flex; align-items: center; gap: 12px; }
-    nav a:hover { background: rgba(255,255,255,0.05); color: #fff; }
-    nav a.active { background: rgba(255,255,255,0.08); color: #fff; font-weight: 500; }
+
+    nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+    nav a {
+      color: var(--text-muted); text-decoration: none; padding: 10px 12px;
+      border-radius: var(--radius); font-size: 14px; transition: all 0.2s var(--ease-out);
+      display: flex; align-items: center; gap: 12px; position: relative;
+      border: 1px solid transparent;
+    }
+    nav a:hover {
+      background: rgba(255,255,255,0.04); color: #fff;
+      border-color: rgba(255,255,255,0.04);
+    }
+    nav a.active {
+      background: rgba(255,255,255,0.06); color: #fff; font-weight: 500;
+      border-color: rgba(255,255,255,0.06);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3), 0 1px 0 rgba(255,255,255,0.04) inset;
+    }
+    nav a.active::before {
+      content: ''; position: absolute; left: 0; top: 20%; height: 60%; width: 3px;
+      background: var(--accent); border-radius: 0 2px 2px 0;
+      box-shadow: 0 0 12px var(--accent-glow);
+    }
     nav a i { font-size: 18px; opacity: 0.7; }
     nav a:hover i, nav a.active i { opacity: 1; color: var(--accent); }
-    
+
     .profile-container { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border); }
-    .user-profile { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 12px; cursor: pointer; transition: background 0.2s; }
-    .avatar { width: 36px; height: 36px; background: linear-gradient(135deg, #2a2a30, #151518); border: 1px solid var(--border); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; color: #fff; position: relative; }
+    .user-profile {
+      display: flex; align-items: center; gap: 12px; padding: 10px;
+      border-radius: var(--radius); cursor: pointer; transition: background 0.2s;
+    }
+    .user-profile:hover { background: rgba(255,255,255,0.05); }
+    .avatar {
+      width: 36px; height: 36px;
+      background: linear-gradient(145deg, #1e1e24, #0c0c0f);
+      border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 600; color: #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4), 0 1px 0 rgba(255,255,255,0.05) inset;
+    }
     .user-info { display: flex; flex-direction: column; font-size: 13px; line-height: 1.3; }
     .user-name { color: #fff; font-weight: 500; }
     .user-plan { color: var(--text-muted); font-size: 11px; text-transform: capitalize; }
 
-    main { flex: 1; overflow-y: auto; padding: 40px 60px; position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; }
-    
+    main {
+      flex: 1; overflow-y: auto; padding: 40px 60px; position: relative; z-index: 1;
+      display: flex; flex-direction: column; align-items: center;
+    }
+    main::-webkit-scrollbar { width: 5px; }
+    main::-webkit-scrollbar-track { background: transparent; }
+    main::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+
     /* --- Wizard Styles --- */
     .wizard-container { max-width: 600px; width: 100%; margin: auto; padding: 20px 0; }
+
     .progress-bar { display: flex; gap: 8px; margin-bottom: 40px; }
-    .progress-dot { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.1); transition: 0.3s var(--ease-out); }
-    .progress-dot.active { background: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
-    .progress-dot.completed { background: var(--accent); opacity: 0.5; }
+    .progress-dot {
+      flex: 1; height: 3px; border-radius: 2px;
+      background: rgba(255,255,255,0.06); transition: 0.3s var(--ease-out);
+    }
+    .progress-dot.active {
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+    .progress-dot.completed { background: var(--accent); opacity: 0.4; }
 
-    .step { display: none; animation: fadeIn 0.4s var(--ease-out) forwards; }
+    .step { display: none; animation: fadeIn 0.5s var(--ease-out) forwards; }
     .step.active { display: block; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 
-    .step-header { font-size: 28px; font-weight: 300; margin: 0 0 12px; color: #fff; }
+    .step-header { font-size: 28px; font-weight: 300; margin: 0 0 12px; color: #fff; letter-spacing: -0.5px; }
     .step-desc { font-size: 15px; color: var(--text-muted); margin: 0 0 32px; line-height: 1.5; }
 
+    /* --- OPTION CARDS with 3D feel --- */
     .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .option-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 24px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; }
-    .option-card:hover { border-color: var(--accent); background: rgba(59, 108, 255, 0.05); transform: translateY(-4px); }
-    body.premium .option-card:hover { border-color: var(--accent); background: rgba(255, 215, 0, 0.05); }
+
+    .option-card {
+      background: linear-gradient(180deg, rgba(22, 22, 28, 0.8) 0%, rgba(14, 14, 18, 0.8) 100%);
+      border: 1px solid var(--border); border-radius: var(--radius-lg);
+      padding: 28px 24px; cursor: pointer; transition: all 0.2s var(--ease-out);
+      display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px;
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.04) inset,
+        0 4px 12px rgba(0,0,0,0.4),
+        0 2px 4px rgba(0,0,0,0.2);
+      position: relative; overflow: hidden;
+    }
+    .option-card::before {
+      content: ''; position: absolute; top: 0; left: 20%; right: 20%; height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+      opacity: 0; transition: opacity 0.3s;
+    }
+    .option-card:hover {
+      border-color: rgba(59, 108, 255, 0.3);
+      background: linear-gradient(180deg, rgba(30, 30, 40, 0.9) 0%, rgba(18, 18, 24, 0.9) 100%);
+      transform: translateY(-4px);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.06) inset,
+        0 12px 30px rgba(0,0,0,0.5),
+        0 4px 8px rgba(0,0,0,0.3),
+        0 0 30px rgba(59, 108, 255, 0.06);
+    }
+    .option-card:hover::before { opacity: 1; }
+    .option-card:active {
+      transform: translateY(0px);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.03) inset,
+        0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    body.premium .option-card:hover {
+      border-color: rgba(255, 215, 0, 0.3);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.06) inset,
+        0 12px 30px rgba(0,0,0,0.5),
+        0 4px 8px rgba(0,0,0,0.3),
+        0 0 30px rgba(255, 215, 0, 0.06);
+    }
+
     .option-icon { font-size: 32px; color: #fff; }
     .option-title { font-size: 16px; font-weight: 500; color: #fff; margin: 0; }
-    .option-desc { font-size: 13px; color: var(--text-muted); margin: 0; }
+    .option-desc { font-size: 13px; color: var(--text-muted); margin: 0; line-height: 1.4; }
 
-    .btn-submit { background: var(--accent); color: #fff; border: none; padding: 14px 28px; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
-    .btn-submit:hover { filter: brightness(1.1); transform: translateY(-2px); box-shadow: 0 10px 20px var(--accent-glow); }
-    body.premium .btn-submit { color: #000; }
+    /* --- 3D SUBMIT BUTTON --- */
+    .btn-submit {
+      background: linear-gradient(180deg, #4f7fff 0%, #2a5cee 50%, #1a4ad4 100%);
+      color: #fff; border: none; padding: 14px 28px;
+      border-radius: var(--radius); font-size: 15px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s var(--ease-out);
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.2) inset,
+        0 -2px 0 rgba(0,0,0,0.3) inset,
+        0 4px 12px rgba(59, 108, 255, 0.35),
+        0 2px 4px rgba(0,0,0,0.3);
+    }
+    .btn-submit:hover {
+      transform: translateY(-2px);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.25) inset,
+        0 -2px 0 rgba(0,0,0,0.3) inset,
+        0 8px 24px rgba(59, 108, 255, 0.45),
+        0 4px 8px rgba(0,0,0,0.4);
+      filter: brightness(1.08);
+    }
+    .btn-submit:active {
+      transform: translateY(1px);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.1) inset,
+        0 -1px 0 rgba(0,0,0,0.2) inset,
+        0 1px 4px rgba(59, 108, 255, 0.2);
+    }
+    body.premium .btn-submit {
+      background: linear-gradient(180deg, #ffe14d 0%, #ffd700 50%, #e6b800 100%);
+      color: #000;
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.3) inset,
+        0 -2px 0 rgba(0,0,0,0.2) inset,
+        0 4px 12px rgba(255, 215, 0, 0.3),
+        0 2px 4px rgba(0,0,0,0.3);
+    }
 
-    /* --- Chat Test UI --- */
-    .chat-box { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; display: flex; flex-direction: column; height: 450px; overflow: hidden; margin-bottom: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
-    .chat-messages { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth; }
-    
-    /* Markdown Styles for Chat */
-    .msg { max-width: 85%; padding: 12px 16px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-wrap: break-word; }
-    .msg.ai { align-self: flex-start; background: rgba(255,255,255,0.03); color: #fff; border: 1px solid var(--border); border-bottom-left-radius: 4px; }
-    .msg.user { align-self: flex-end; background: var(--accent); color: var(--btn-text, #fff); border-bottom-right-radius: 4px; }
-    
+    /* --- CHAT BOX --- */
+    .chat-box {
+      background: linear-gradient(180deg, rgba(18, 18, 24, 0.9) 0%, rgba(10, 10, 14, 0.9) 100%);
+      border: 1px solid var(--border); border-radius: var(--radius-lg);
+      display: flex; flex-direction: column; height: 450px; overflow: hidden;
+      margin-bottom: 20px;
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.03) inset,
+        0 20px 50px rgba(0,0,0,0.5),
+        0 6px 12px rgba(0,0,0,0.3);
+    }
+
+    .chat-messages {
+      flex: 1; padding: 20px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth;
+    }
+    .chat-messages::-webkit-scrollbar { width: 4px; }
+    .chat-messages::-webkit-scrollbar-track { background: transparent; }
+    .chat-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 2px; }
+
+    /* Messages */
+    .msg {
+      max-width: 85%; padding: 14px 18px; border-radius: var(--radius);
+      font-size: 14px; line-height: 1.55; word-wrap: break-word;
+    }
+    .msg.ai {
+      align-self: flex-start;
+      background: rgba(255,255,255,0.03); color: #fff;
+      border: 1px solid var(--border);
+      border-bottom-left-radius: var(--radius-sm);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+    .msg.user {
+      align-self: flex-end;
+      background: linear-gradient(180deg, #4f7fff 0%, #2a5cee 100%);
+      color: #fff;
+      border-bottom-right-radius: var(--radius-sm);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.1) inset,
+        0 3px 10px rgba(59, 108, 255, 0.25);
+    }
+    body.premium .msg.user {
+      background: linear-gradient(180deg, #ffe14d 0%, #ffd700 100%);
+      color: #000;
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.2) inset,
+        0 3px 10px rgba(255, 215, 0, 0.2);
+    }
+
     .msg p { margin: 0 0 10px 0; }
     .msg p:last-child { margin: 0; }
-    .msg pre { background: rgba(0,0,0,0.4); padding: 12px; border-radius: 8px; overflow-x: auto; margin: 10px 0; border: 1px solid rgba(255,255,255,0.1); }
-    .msg code { font-family: monospace; background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #e2e8f0; }
+    .msg pre {
+      background: rgba(0,0,0,0.5); padding: 12px; border-radius: var(--radius-sm);
+      overflow-x: auto; margin: 10px 0; border: 1px solid rgba(255,255,255,0.06);
+    }
+    .msg code {
+      font-family: monospace; background: rgba(0,0,0,0.4);
+      padding: 2px 6px; border-radius: 3px; font-size: 13px; color: #e2e8f0;
+    }
     .msg pre code { background: transparent; padding: 0; }
     .msg ul, .msg ol { margin: 8px 0; padding-left: 24px; }
     .msg a { color: var(--accent); text-decoration: underline; }
 
-    .chat-input-area { padding: 16px; border-top: 1px solid var(--border); background: rgba(0,0,0,0.3); display: flex; gap: 12px; align-items: center; }
-    .chat-input { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid var(--border); padding: 14px 16px; border-radius: 12px; color: #fff; font-size: 14px; outline: none; transition: 0.2s; }
-    .chat-input:focus { border-color: var(--accent); background: rgba(255,255,255,0.08); }
-    .chat-btn { background: var(--accent); color: var(--btn-text, #fff); border: none; border-radius: 12px; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; font-size: 18px; }
-    .chat-btn:hover { filter: brightness(1.1); transform: scale(1.05); }
-    .chat-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .chat-input-area {
+      padding: 16px; border-top: 1px solid var(--border);
+      background: rgba(0,0,0,0.3); display: flex; gap: 12px; align-items: center;
+    }
+    .chat-input {
+      flex: 1; background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border); padding: 14px 16px;
+      border-radius: var(--radius); color: #fff; font-size: 14px;
+      transition: all 0.2s var(--ease-out);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2) inset, 0 1px 0 rgba(255,255,255,0.02);
+    }
+    .chat-input::placeholder { color: rgba(255,255,255,0.18); }
+    .chat-input:focus {
+      border-color: var(--accent);
+      background: rgba(255,255,255,0.05);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3) inset, 0 0 0 1px rgba(59,108,255,0.15);
+    }
 
-    .skip-btn { font-size: 13px; color: var(--text-muted); cursor: pointer; text-decoration: underline; background: none; border: none; padding: 10px; margin: 0; text-align: center; transition: 0.2s; height: 100%; border-radius: 12px; }
-    .skip-btn:hover { color: #fff; background: rgba(255,255,255,0.05); }
-    
+    /* 3D Chat Send Button */
+    .chat-btn {
+      background: linear-gradient(180deg, #4f7fff 0%, #2a5cee 100%);
+      color: #fff; border: none; border-radius: var(--radius);
+      width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: all 0.15s var(--ease-out); font-size: 18px;
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.15) inset,
+        0 -2px 0 rgba(0,0,0,0.3) inset,
+        0 3px 8px rgba(59,108,255,0.3);
+    }
+    .chat-btn:hover {
+      transform: translateY(-1px) scale(1.04);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.2) inset,
+        0 -2px 0 rgba(0,0,0,0.3) inset,
+        0 6px 16px rgba(59,108,255,0.4);
+    }
+    .chat-btn:active {
+      transform: translateY(1px) scale(0.98);
+      box-shadow: 0 1px 3px rgba(59,108,255,0.15);
+    }
+    .chat-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    body.premium .chat-btn {
+      background: linear-gradient(180deg, #ffe14d 0%, #ffd700 100%);
+      color: #000;
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.25) inset,
+        0 -2px 0 rgba(0,0,0,0.15) inset,
+        0 3px 8px rgba(255,215,0,0.25);
+    }
+
+    .skip-btn {
+      font-size: 13px; color: var(--text-muted); cursor: pointer; text-decoration: none;
+      background: rgba(255,255,255,0.02); border: 1px solid var(--border); padding: 12px;
+      text-align: center; transition: all 0.15s var(--ease-out);
+      border-radius: var(--radius);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2), 0 1px 0 rgba(255,255,255,0.02) inset;
+    }
+    .skip-btn:hover {
+      color: #fff; background: rgba(255,255,255,0.05);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3), 0 1px 0 rgba(255,255,255,0.04) inset;
+      border-color: rgba(255,255,255,0.1);
+    }
+    .skip-btn:active { transform: translateY(1px); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+
     .actions-row { display: flex; gap: 12px; margin-top: 16px; }
   </style>
 
   <script>
-    // 🚨 Inject the actual key generated by the backend!
     const GORILLA_API_KEY = "{{ gorilla_api_key }}";
   </script>
-
 </head>
+
 <body class="{% if user.plan == 'premium' %}premium{% endif %}">
 
   <div class="noise-overlay"></div>
   <div class="glow-spot"></div>
+  <div class="glow-spot-2"></div>
+  <div class="grid-overlay"></div>
 
   <aside>
     <div class="logo">
@@ -135,7 +420,7 @@
 
   <main>
     <div class="wizard-container">
-      
+
       <div class="progress-bar" id="progressBar">
         <div class="progress-dot active" id="dot-1"></div>
         <div class="progress-dot" id="dot-2"></div>
@@ -144,6 +429,7 @@
         <div class="progress-dot" id="dot-5"></div>
       </div>
 
+      <!-- Step 1 -->
       <div class="step active" id="step-1">
         <h2 class="step-header">Visual Preference</h2>
         <p class="step-desc">How should the AI handle icons and graphical elements in your apps?</p>
@@ -161,6 +447,7 @@
         </div>
       </div>
 
+      <!-- Step 2 -->
       <div class="step" id="step-2">
         <h2 class="step-header">UI Framework</h2>
         <p class="step-desc">What is your preferred styling approach?</p>
@@ -178,6 +465,7 @@
         </div>
       </div>
 
+      <!-- Step 3 -->
       <div class="step" id="step-3">
         <h2 class="step-header">Code Style</h2>
         <p class="step-desc">How should the AI structure and comment your code?</p>
@@ -195,6 +483,7 @@
         </div>
       </div>
 
+      <!-- Step 4 -->
       <div class="step" id="step-4">
         <h2 class="step-header">Agent Personality</h2>
         <p class="step-desc">How should the AI communicate with you in the chat?</p>
@@ -212,10 +501,11 @@
         </div>
       </div>
 
+      <!-- Step 5 -->
       <div class="step" id="step-5">
         <h2 class="step-header">Draft Your Golden Rules</h2>
         <p class="step-desc">Chat with the AI to set strict boundaries for your apps (e.g. "Always use Dark Mode", "Never use alert()"). The AI will format and auto-save them when you're done!</p>
-        
+
         <div class="chat-box" id="rulesChatBox">
           <div class="chat-messages" id="chatWindow">
             <div class="msg ai">I see you've selected your core preferences! Are there any specific 'Golden Rules' you want me to ALWAYS follow when writing code? Just tell me what you need, and I'll draft them up for you!</div>
@@ -239,11 +529,7 @@
     const skillsPayload = {};
     let chatHistory = [];
 
-    // Configure marked.js options
-    marked.setOptions({
-      breaks: true, // translate newlines into <br> tags
-      gfm: true     // GitHub Flavored Markdown
-    });
+    marked.setOptions({ breaks: true, gfm: true });
 
     function selectOption(key, value, nextStepId) {
       skillsPayload[key] = value;
@@ -251,24 +537,16 @@
       document.getElementById('step-' + nextStepId).classList.add('active');
       document.getElementById('dot-' + (nextStepId - 1)).classList.add('completed');
       document.getElementById('dot-' + nextStepId).classList.add('active');
-
-      // Initialize the Chat system prompt once they reach Step 5
-      if (nextStepId === 5) {
-        initChatSystem();
-      }
+      if (nextStepId === 5) initChatSystem();
     }
 
     function initChatSystem() {
       const tone = skillsPayload.personality === 'casual' ? 'casual, friendly, and use emojis' : 'strictly professional and formal';
-      
       const sysPrompt = `You are a ${tone} AI assistant helping a developer set up their 'Golden Rules' for an auto-coding agent.
       Their current preferences: Visuals=${skillsPayload.visuals}, Framework=${skillsPayload.framework}, Style=${skillsPayload.style}.
-      
-      Your goal: Ask them what specific aesthetic/coding habits or rules they want to enforce (most of them are not professional developpers, only vybecoders at max). 
+      Your goal: Ask them what specific aesthetic/coding habits or rules they want to enforce (most of them are not professional developpers, only vybecoders at max).
       Help them formulate a clear list. You can use markdown to bold text or create lists.
-
       Never ever tell the user that you will format it in json or mention the JSON block. The user should only see a natural conversation.
-      
       CRITICAL INSTRUCTION: Once they are satisfied with the rules, OR if they explicitly say they are done, you MUST output a JSON block at the very end of your message in this EXACT format so the system can save it:
       \`\`\`json
       {"final_rules": "- Rule 1\\n- Rule 2"}
@@ -279,14 +557,10 @@
       chatHistory.push({ role: "assistant", content: "I see you've selected your core preferences! Are there any specific 'Golden Rules' you want me to ALWAYS follow when writing code? Just tell me what you need, and I'll draft them up for you!" });
     }
 
-    function handleEnter(e) {
-      if (e.key === 'Enter') sendMessage();
-    }
+    function handleEnter(e) { if (e.key === 'Enter') sendMessage(); }
 
-    // Force the AI to finish and output the JSON
     function forceComplete() {
-      const input = document.getElementById('chatInput');
-      input.value = "I am completely done adding rules. Please save them now.";
+      document.getElementById('chatInput').value = "I am completely done adding rules. Please save them now.";
       sendMessage();
     }
 
@@ -298,19 +572,15 @@
 
       input.value = "";
       sendBtn.disabled = true;
-      
       const chatWindow = document.getElementById('chatWindow');
-      
-      // Render User Message (Parse basic markdown if they type it, though usually not needed for user)
+
       const userDiv = document.createElement('div');
       userDiv.className = 'msg user';
-      userDiv.innerText = text; // User input stays text to avoid script injection
+      userDiv.innerText = text;
       chatWindow.appendChild(userDiv);
       chatWindow.scrollTop = chatWindow.scrollHeight;
-
       chatHistory.push({ role: "user", content: text });
 
-      // Render AI Placeholder
       const aiDiv = document.createElement('div');
       aiDiv.className = 'msg ai';
       aiDiv.innerHTML = '<i class="ph-bold ph-spinner ph-spin"></i> Thinking...';
@@ -320,22 +590,11 @@
       try {
         const res = await fetch('/api/v1/chat/completions/bargain', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${GORILLA_API_KEY}`
-          },
-          body: JSON.stringify({
-            model: "proxy-test",
-            messages: chatHistory,
-            stream: true
-          })
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GORILLA_API_KEY}` },
+          body: JSON.stringify({ model: "proxy-test", messages: chatHistory, stream: true })
         });
 
-        if (res.status === 402) {
-           aiDiv.innerText = "Error: Out of Gorilla Credits! Please top up to continue.";
-           return;
-        }
-
+        if (res.status === 402) { aiDiv.innerText = "Error: Out of Gorilla Credits! Please top up to continue."; return; }
         if (!res.ok) throw new Error("Proxy error");
 
         const reader = res.body.getReader();
@@ -346,18 +605,13 @@
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          
           const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n');
-          
-          for (let line of lines) {
+          for (let line of chunk.split('\n')) {
             if (line.startsWith('data: ') && line !== 'data: [DONE]') {
               try {
                 const data = JSON.parse(line.slice(6));
                 if (data.choices && data.choices[0].delta.content) {
                   fullResponse += data.choices[0].delta.content;
-                  
-                  // Hide the JSON block from the user, parse the rest as Markdown
                   const displayStr = fullResponse.split('```json')[0];
                   aiDiv.innerHTML = marked.parse(displayStr);
                   chatWindow.scrollTop = chatWindow.scrollHeight;
@@ -366,24 +620,20 @@
             }
           }
         }
-        
+
         chatHistory.push({ role: "assistant", content: fullResponse });
         sendBtn.disabled = false;
-        
-        // 🚨 MAGIC TRIGGER: Check if the AI generated the JSON block!
+
         const jsonMatch = fullResponse.match(/```(?:json)?\s*(\{[\s\S]*?"final_rules"[\s\S]*?\})\s*```/i);
         if (jsonMatch) {
-            try {
-                const parsed = JSON.parse(jsonMatch[1]);
-                if (parsed.final_rules) {
-                    aiDiv.innerHTML += '<br><br><span style="color:#10b981; font-weight:600;"><i class="ph-bold ph-check-circle"></i> Rules Captured! Saving...</span>';
-                    setTimeout(() => saveAndFinish(parsed.final_rules), 1500);
-                }
-            } catch(e) {
-                console.error("Failed to parse JSON trigger", e);
+          try {
+            const parsed = JSON.parse(jsonMatch[1]);
+            if (parsed.final_rules) {
+              aiDiv.innerHTML += '<br><br><span style="color:#10b981; font-weight:600;"><i class="ph-bold ph-check-circle"></i> Rules Captured! Saving...</span>';
+              setTimeout(() => saveAndFinish(parsed.final_rules), 1500);
             }
+          } catch(e) { console.error("Failed to parse JSON trigger", e); }
         }
-
       } catch (err) {
         aiDiv.innerText = "Connection failed. Please check your network.";
         sendBtn.disabled = false;
@@ -392,14 +642,10 @@
 
     async function saveAndFinish(finalRulesStr) {
       skillsPayload['rules'] = finalRulesStr;
-      
       const chatBox = document.getElementById('rulesChatBox');
       chatBox.style.opacity = "0.5";
       chatBox.style.pointerEvents = "none";
-      
-      // Also disable the buttons
-      const buttons = document.querySelectorAll('.actions-row button');
-      buttons.forEach(b => b.disabled = true);
+      document.querySelectorAll('.actions-row button').forEach(b => b.disabled = true);
 
       try {
         const res = await fetch('/api/user/skills', {
@@ -407,15 +653,9 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(skillsPayload)
         });
-
-        if (res.ok) {
-          window.location.href = "/dashboard";
-        } else {
-          alert("Failed to save skills to database.");
-        }
-      } catch (err) {
-        alert("Network error while saving.");
-      }
+        if (res.ok) window.location.href = "/dashboard";
+        else alert("Failed to save skills to database.");
+      } catch (err) { alert("Network error while saving."); }
     }
   </script>
 </body>

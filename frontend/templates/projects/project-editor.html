@@ -582,7 +582,7 @@
         <a class="pill" href="/dashboard" target="_blank">Dashboard</a>
         {% if user.plan != 'premium' %}
           <a class="pill" style="background-color:var(--accent); color:#fff; border-color:var(--accent);" href="/pricing" target="_blank">UPGRADE</a>
-        {% endif %}e
+        {% endif %}
 
         <div style="width: 1px; height: 20px; background: var(--border); margin: 0 4px;"></div>
 
@@ -1409,8 +1409,8 @@ function startStream(){
                          tLower.includes("asking") ||
                          tLower.includes("bypassing review") ||
                          tLower.includes("executing") ||
-                         tLower.includes("analyzing: --- previous");
-                         tLower.includes("building:");
+                         tLower.includes("analyzing: --- previous") ||
+                         tLower.includes("building:") ||
                          tLower.includes(": [project:");
                          
           if (!isJunk) {

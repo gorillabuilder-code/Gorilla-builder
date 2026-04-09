@@ -4,29 +4,29 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}Docs{% endblock %} · Gor://a Builder</title>
-  
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Funnel+Display:wght@300..800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
-  
+
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 
   <style>
-    /* --- CORE THEME --- */
     :root {
       --bg: #050505;
-      --sidebar-bg: rgba(10, 10, 12, 0.6);
+      --sidebar-bg: rgba(8, 8, 10, 0.85);
       --panel: rgba(20, 20, 25, 0.4);
-      --border: rgba(255, 255, 255, 0.08);
-      --border-hover: rgba(255, 255, 255, 0.15);
-      
+      --border: rgba(255, 255, 255, 0.06);
+      --border-hover: rgba(255, 255, 255, 0.14);
       --accent: #3b6cff;
       --accent-glow: rgba(59, 108, 255, 0.25);
       --text: #ffffff;
-      --text-muted: #8a8a93;
-      
+      --text-muted: #7a7a85;
+      --radius: 10px;
+      --radius-sm: 6px;
+      --radius-lg: 12px;
       --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E");
       --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
     }
@@ -37,62 +37,66 @@
     }
 
     * { box-sizing: border-box; outline: none; }
-    
-    body { 
-      margin: 0; 
-      background: var(--bg); 
-      color: var(--text); 
+
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
       font-family: 'Funnel Display', system-ui, sans-serif;
-      height: 100vh; 
-      display: flex; 
-      overflow: hidden; 
+      height: 100vh; display: flex; overflow: hidden;
     }
 
-    /* --- BACKGROUND EFFECTS --- */
-    .noise-overlay {
-      position: fixed; inset: 0; background-image: var(--noise); pointer-events: none; z-index: 0;
-    }
+    /* --- EFFECTS --- */
+    .noise-overlay { position: fixed; inset: 0; background-image: var(--noise); pointer-events: none; z-index: 0; }
     .glow-spot {
-      position: fixed; width: 800px; height: 800px;
+      position: fixed; width: 700px; height: 700px;
       background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
       opacity: 0.3; pointer-events: none; z-index: 0;
-      top: -300px; left: 15%; filter: blur(80px);
+      top: -250px; left: 15%; filter: blur(100px);
+    }
+    .glow-spot-2 {
+      position: fixed; width: 400px; height: 400px;
+      background: radial-gradient(circle, rgba(139, 92, 246, 0.08) 0%, transparent 70%);
+      opacity: 0.5; pointer-events: none; z-index: 0;
+      bottom: -100px; right: 10%; filter: blur(80px);
+    }
+    .grid-overlay {
+      position: fixed; top: 0; left: 320px; right: 0; bottom: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.012) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.012) 1px, transparent 1px);
+      background-size: 60px 60px;
+      pointer-events: none; z-index: 0;
+      mask-image: radial-gradient(ellipse 70% 50% at 50% 30%, black, transparent);
     }
 
-    /* --- APP SHELL LAYOUT --- */
+    /* --- SHELL --- */
     .shell {
-      display: flex;
-      width: 100%;
-      height: 100%;
-      position: relative;
-      z-index: 10;
+      display: flex; width: 100%; height: 100%;
+      position: relative; z-index: 10;
     }
 
     /* --- SIDEBAR --- */
     aside.sidebar {
-      width: 320px;
-      min-width: 320px;
-      background: var(--sidebar-bg);
-      backdrop-filter: blur(20px);
+      width: 320px; min-width: 320px;
+      background: var(--sidebar-bg); backdrop-filter: blur(30px);
       border-right: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      overflow-y: auto;
+      display: flex; flex-direction: column; overflow-y: auto;
+      position: relative;
     }
-    
-    aside.sidebar::-webkit-scrollbar { width: 6px; }
+    aside.sidebar::after {
+      content: ''; position: absolute; top: 0; right: 0; width: 1px; height: 100%;
+      background: linear-gradient(to bottom, var(--accent-glow), transparent 40%, transparent 60%, rgba(139,92,246,0.1));
+      pointer-events: none; z-index: 30;
+    }
+
+    aside.sidebar::-webkit-scrollbar { width: 4px; }
     aside.sidebar::-webkit-scrollbar-track { background: transparent; }
-    aside.sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
-    aside.sidebar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+    aside.sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 2px; }
+    aside.sidebar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.12); }
 
     .logo-container {
-      padding: 24px 20px;
-      position: sticky;
-      top: 0;
-      background: var(--sidebar-bg);
-      backdrop-filter: blur(20px);
-      border-bottom: 1px solid var(--border);
-      z-index: 20;
+      padding: 24px 20px; position: sticky; top: 0;
+      background: var(--sidebar-bg); backdrop-filter: blur(30px);
+      border-bottom: 1px solid var(--border); z-index: 20;
     }
 
     .logo {
@@ -101,7 +105,7 @@
       letter-spacing: -0.5px;
     }
     .logo svg { color: var(--accent); width: 24px; height: 24px; }
-    
+
     .back-btn {
       display: flex; align-items: center; gap: 6px;
       font-size: 13px; color: var(--text-muted); text-decoration: none;
@@ -110,202 +114,226 @@
     .back-btn:hover { color: #fff; }
 
     nav.docs-nav {
-      padding: 20px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 32px;
+      padding: 20px 14px; display: flex; flex-direction: column; gap: 28px;
     }
 
-    .nav-group { display: flex; flex-direction: column; gap: 6px; }
-    
+    .nav-group { display: flex; flex-direction: column; gap: 2px; }
+
     .nav-group-title {
-      font-size: 11px; font-weight: 700; color: var(--text-muted);
-      text-transform: uppercase; letter-spacing: 1px;
+      font-size: 10px; font-weight: 700; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 1.5px;
       padding: 0 12px; margin-bottom: 8px;
       display: flex; align-items: center; gap: 8px;
     }
 
     nav.docs-nav a {
-      color: #a1a1aa; text-decoration: none; padding: 8px 12px;
-      border-radius: 10px; font-size: 14px; transition: all 0.2s var(--ease-out);
+      color: #8a8a93; text-decoration: none; padding: 7px 12px;
+      border-radius: var(--radius); font-size: 13.5px; transition: all 0.2s var(--ease-out);
       display: flex; align-items: center; gap: 10px; line-height: 1.3;
+      border: 1px solid transparent; position: relative;
     }
-    nav.docs-nav a:hover { background: rgba(255,255,255,0.05); color: #fff; }
-    nav.docs-nav a.active { 
-      background: rgba(59, 108, 255, 0.1); 
-      color: var(--accent); 
-      font-weight: 500; 
-      border: 1px solid rgba(59, 108, 255, 0.2);
+    nav.docs-nav a:hover {
+      background: rgba(255,255,255,0.04); color: #fff;
+      border-color: rgba(255,255,255,0.04);
+    }
+    nav.docs-nav a.active {
+      background: rgba(59, 108, 255, 0.08);
+      color: var(--accent); font-weight: 500;
+      border: 1px solid rgba(59, 108, 255, 0.15);
+      box-shadow: 0 2px 8px rgba(59, 108, 255, 0.08);
+    }
+    nav.docs-nav a.active::before {
+      content: ''; position: absolute; left: 0; top: 20%; height: 60%; width: 2px;
+      background: var(--accent); border-radius: 0 2px 2px 0;
+      box-shadow: 0 0 8px var(--accent-glow);
     }
     body.premium nav.docs-nav a.active {
-      background: rgba(255, 215, 0, 0.1);
-      border-color: rgba(255, 215, 0, 0.3);
+      background: rgba(255, 215, 0, 0.08);
+      border-color: rgba(255, 215, 0, 0.15);
       color: var(--accent);
-    }
-    
-    .nav-number {
-      font-size: 11px;
-      font-family: 'JetBrains Mono', monospace;
-      opacity: 0.5;
-      width: 20px;
+      box-shadow: 0 2px 8px rgba(255, 215, 0, 0.06);
     }
 
-    /* --- MAIN CONTENT AREA --- */
-    main.content-area {
-      flex: 1;
-      overflow-y: auto;
-      scroll-behavior: smooth;
-      display: flex;
-      flex-direction: column;
+    .nav-number {
+      font-size: 10px; font-family: 'JetBrains Mono', monospace;
+      opacity: 0.4; width: 20px; flex-shrink: 0;
     }
-    main.content-area::-webkit-scrollbar { width: 6px; }
-    main.content-area::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+
+    /* --- MAIN --- */
+    main.content-area {
+      flex: 1; overflow-y: auto; scroll-behavior: smooth;
+      display: flex; flex-direction: column;
+    }
+    main.content-area::-webkit-scrollbar { width: 5px; }
+    main.content-area::-webkit-scrollbar-track { background: transparent; }
+    main.content-area::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
 
     .topbar {
-      height: 64px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      padding: 0 60px;
-      background: rgba(5, 5, 5, 0.8);
-      backdrop-filter: blur(12px);
-      position: sticky;
-      top: 0;
-      z-index: 10;
+      height: 56px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; padding: 0 60px;
+      background: rgba(5, 5, 5, 0.85); backdrop-filter: blur(16px);
+      position: sticky; top: 0; z-index: 10;
     }
     .breadcrumb {
-      font-size: 14px; color: var(--text-muted);
+      font-size: 13px; color: var(--text-muted);
       display: flex; align-items: center; gap: 8px;
     }
     .breadcrumb span { color: #fff; font-weight: 500; }
 
     .reading-container {
-      max-width: 900px;
-      margin: 0 auto;
-      padding: 60px 40px 120px 40px;
-      width: 100%;
+      max-width: 900px; margin: 0 auto;
+      padding: 60px 40px 120px 40px; width: 100%;
     }
 
-    /* --- TYPOGRAPHY & MARKDOWN STYLES --- */
-    .prose {
-      color: #d1d5db;
-      font-size: 16px;
-      line-height: 1.7;
-    }
+    /* --- PROSE / MARKDOWN --- */
+    .prose { color: #c8c8d0; font-size: 16px; line-height: 1.75; }
+
     .prose h1 {
-      font-size: 46px; font-weight: 400; color: #fff;
-      margin: 0 0 16px 0; letter-spacing: -1px; line-height: 1.2;
+      font-size: 44px; font-weight: 400; color: #fff;
+      margin: 0 0 16px 0; letter-spacing: -1px; line-height: 1.15;
     }
     .prose h2 {
-      font-size: 28px; font-weight: 500; color: #fff;
-      margin: 60px 0 20px 0; padding-bottom: 10px;
-      border-bottom: 1px solid var(--border);
+      font-size: 26px; font-weight: 500; color: #fff;
+      margin: 60px 0 20px 0; padding-bottom: 12px;
+      border-bottom: 1px solid var(--border); position: relative;
+    }
+    .prose h2::after {
+      content: ''; position: absolute; bottom: -1px; left: 0; width: 60px; height: 1px;
+      background: var(--accent); opacity: 0.5;
     }
     .prose h3 {
       font-size: 20px; font-weight: 500; color: #fff;
-      margin: 32px 0 12px 0;
+      margin: 36px 0 14px 0;
     }
     .prose p { margin: 0 0 24px 0; }
     .prose a { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; transition: 0.2s; }
     .prose a:hover { border-bottom-color: var(--accent); }
-    
+
     .prose ul, .prose ol { margin: 0 0 24px 0; padding-left: 24px; }
     .prose li { margin-bottom: 10px; }
     .prose li::marker { color: var(--text-muted); }
-
     .prose strong { color: #fff; font-weight: 600; }
-    
-    /* Code Blocks */
+
+    /* Code */
     .prose code {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 13.5px;
-      background: rgba(255,255,255,0.06);
-      padding: 3px 6px;
-      border-radius: 6px;
-      color: #e2e8f0;
-      border: 1px solid rgba(255,255,255,0.05);
+      font-family: 'JetBrains Mono', monospace; font-size: 13px;
+      background: rgba(255,255,255,0.05); padding: 3px 7px;
+      border-radius: var(--radius-sm); color: #e2e8f0;
+      border: 1px solid rgba(255,255,255,0.04);
     }
     .prose pre {
-      background: #080a0f;
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 24px;
-      overflow-x: auto;
-      margin: 32px 0;
-      box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);
+      background: linear-gradient(180deg, #080a0f 0%, #060810 100%);
+      border: 1px solid var(--border); border-radius: var(--radius-lg);
+      padding: 24px; overflow-x: auto; margin: 32px 0;
+      box-shadow:
+        inset 0 2px 10px rgba(0,0,0,0.5),
+        0 4px 12px rgba(0,0,0,0.3);
+      position: relative;
+    }
+    .prose pre::before {
+      content: ''; position: absolute; top: 0; left: 20%; right: 20%; height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent);
     }
     .prose pre code {
-      background: transparent; border: none; padding: 0; color: inherit; font-size: 14px; line-height: 1.6;
+      background: transparent; border: none; padding: 0; color: inherit;
+      font-size: 14px; line-height: 1.6;
     }
 
-    /* Callouts / Admonitions */
+    /* Callouts */
     .callout {
-      padding: 20px 24px;
-      border-radius: 14px;
-      margin: 32px 0;
-      display: flex;
-      gap: 16px;
-      background: rgba(59, 108, 255, 0.05);
-      border: 1px solid rgba(59, 108, 255, 0.2);
+      padding: 20px 24px; border-radius: var(--radius-lg); margin: 32px 0;
+      display: flex; gap: 16px;
+      background: rgba(59, 108, 255, 0.04);
+      border: 1px solid rgba(59, 108, 255, 0.12);
+      box-shadow: 0 2px 8px rgba(59, 108, 255, 0.04);
     }
     .callout.warning {
-      background: rgba(245, 158, 11, 0.05);
-      border-color: rgba(245, 158, 11, 0.2);
+      background: rgba(245, 158, 11, 0.04);
+      border-color: rgba(245, 158, 11, 0.12);
+      box-shadow: 0 2px 8px rgba(245, 158, 11, 0.04);
     }
     .callout.success {
-      background: rgba(16, 185, 129, 0.05);
-      border-color: rgba(16, 185, 129, 0.2);
+      background: rgba(16, 185, 129, 0.04);
+      border-color: rgba(16, 185, 129, 0.12);
+      box-shadow: 0 2px 8px rgba(16, 185, 129, 0.04);
     }
-    .callout i { font-size: 24px; flex-shrink: 0; }
+    .callout i { font-size: 22px; flex-shrink: 0; margin-top: 2px; }
     .callout.warning i { color: #f59e0b; }
     .callout.success i { color: #10b981; }
     .callout-content p { margin: 0; }
     .callout-content p:not(:last-child) { margin-bottom: 8px; }
 
-    /* Docs Navigation Footer */
+    /* --- DOCS FOOTER NAV (3D buttons) --- */
     .docs-footer {
-      display: flex;
-      justify-content: space-between;
-      margin-top: 80px;
-      padding-top: 32px;
+      display: flex; justify-content: space-between;
+      margin-top: 80px; padding-top: 32px;
       border-top: 1px solid var(--border);
+      gap: 20px;
     }
+
     .docs-nav-btn {
       display: flex; flex-direction: column; gap: 6px;
-      text-decoration: none; padding: 20px 24px; border-radius: 14px;
-      border: 1px solid var(--border); background: var(--panel);
-      transition: all 0.2s; width: 48%;
+      text-decoration: none; padding: 20px 24px; border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(22, 22, 28, 0.8) 0%, rgba(14, 14, 18, 0.8) 100%);
+      transition: all 0.2s var(--ease-out); width: 48%;
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.03) inset,
+        0 4px 12px rgba(0,0,0,0.3),
+        0 2px 4px rgba(0,0,0,0.2);
     }
     .docs-nav-btn:hover {
-      border-color: var(--accent); background: rgba(59, 108, 255, 0.05);
-      transform: translateY(-2px); box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+      border-color: rgba(59, 108, 255, 0.25);
+      transform: translateY(-3px);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.05) inset,
+        0 12px 30px rgba(0,0,0,0.4),
+        0 4px 8px rgba(0,0,0,0.3),
+        0 0 20px rgba(59, 108, 255, 0.05);
     }
-    .docs-nav-btn span { font-size: 12px; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.5px; }
-    .docs-nav-btn strong { font-size: 18px; color: #fff; font-weight: 500; }
-    .docs-nav-btn.next { align-items: flex-end; text-align: right; }
+    .docs-nav-btn:active {
+      transform: translateY(0px);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    body.premium .docs-nav-btn:hover {
+      border-color: rgba(255, 215, 0, 0.25);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.05) inset,
+        0 12px 30px rgba(0,0,0,0.4),
+        0 0 20px rgba(255, 215, 0, 0.05);
+    }
 
+    .docs-nav-btn span {
+      font-size: 11px; text-transform: uppercase; color: var(--text-muted);
+      font-weight: 600; letter-spacing: 1px;
+    }
+    .docs-nav-btn strong { font-size: 17px; color: #fff; font-weight: 500; }
+    .docs-nav-btn.next { align-items: flex-end; text-align: right; }
   </style>
 </head>
+
 <body class="{% if user and user.plan == 'premium' %}premium{% endif %}">
 
   <div class="noise-overlay"></div>
   <div class="glow-spot"></div>
+  <div class="glow-spot-2"></div>
+  <div class="grid-overlay"></div>
 
   <div class="shell">
-    
+
     <aside class="sidebar">
       <div class="logo-container">
         <a href="/dashboard" class="logo">
-          <svg version="1.0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 550" preserveAspectRatio="xMidYMid meet"> 
-            <g transform="translate(0.000000,603.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none"> 
-              <path d="M1497 6023 c827 -2 2179 -2 3005 0 827 1 151 2 -1502 2 -1653 0 -2329 -1 -1503 -2z"/> 
-              <path d="M2802 5273 c-43 -24 -131 -143 -182 -246 -99 -202 -106 -410 -19 -598 59 -128 153 -189 246 -158 56 18 81 37 108 84 34 57 32 112 -6 216 -54 145 -51 327 7 490 41 113 27 176 -46 214 -38 20 -68 19 -108 -2z"/> 
-              <path d="M3290 5268 c-74 -50 -185 -230 -228 -369 -44 -142 -37 -293 19 -440 52 -134 141 -208 234 -195 131 20 194 151 136 281 -67 150 -67 316 0 522 26 80 29 98 20 126 -28 83 -116 119 -181 75z"/> 
-              <path d="M685 4560 c-171 -34 -283 -139 -331 -306 -15 -50 -18 -129 -23 -519 -4 -321 -10 -466 -18 -480 -32 -56 -64 -70 -205 -90 -26 -4 -46 -17 -72 -45 -33 -36 -36 -45 -36 -99 0 -98 62 -161 157 -161 59 0 119 -26 146 -64 22 -31 22 -35 28 -496 5 -424 8 -471 26 -531 11 -37 31 -87 46 -111 72 -124 228 -198 418 -198 125 0 200 111 151 223 -26 59 -64 82 -148 90 -73 7 -116 27 -148 70 -20 28 -21 41 -27 490 -6 505 -8 526 -68 632 l-28 50 28 50 c60 106 62 128 68 630 6 427 7 462 25 491 26 44 68 65 139 71 81 7 131 35 157 88 26 53 25 91 -2 145 -32 61 -73 80 -168 79 -41 -1 -93 -5 -115 -9z"/> 
-              <path d="M5102 4550 c-68 -42 -92 -135 -54 -209 26 -52 60 -72 140 -81 83 -9 128 -32 157 -80 19 -33 20 -56 26 -500 6 -505 6 -513 66 -621 l26 -45 -26 -45 c-59 -103 -61 -113 -67 -619 -5 -461 -5 -465 -28 -501 -28 -45 -72 -67 -156 -77 -111 -14 -160 -66 -153 -165 4 -66 26 -103 78 -130 28 -15 50 -18 124 -13 218 12 351 101 416 278 22 61 23 74 28 533 6 503 6 500 58 547 19 18 78 34 155 43 33 4 56 15 78 35 29 27 30 31 30 118 0 88 -1 91 -31 116 -33 28 -45 32 -127 40 -66 7 -110 31 -137 76 -19 33 -20 56 -26 505 -6 496 -6 500 -55 598 -70 138 -221 217 -414 217 -57 0 -83 -5 -108 -20z"/> 
-              <path d="M1965 3849 c-113 -9 -166 -24 -280 -79 -312 -150 -493 -462 -471 -810 13 -209 89 -379 238 -529 161 -163 321 -236 545 -248 269 -14 478 70 667 267 61 65 95 111 130 179 70 136 89 217 89 386 0 124 -3 151 -27 230 -53 176 -145 314 -282 425 -174 139 -372 197 -609 179z m214 -324 c173 -46 319 -185 372 -354 23 -76 28 -212 9 -282 -50 -186 -208 -340 -391 -384 -181 -42 -372 15 -499 152 -100 106 -144 218 -143 363 1 290 228 517 518 519 44 0 104 -6 134 -14z"/> 
-              <path d="M3880 3849 c-190 -17 -341 -86 -488 -224 -112 -104 -200 -249 -239 -395 -25 -92 -25 -339 0 -430 78 -281 316 -519 597 -597 101 -28 339 -25 443 5 152 44 285 128 397 250 146 158 211 332 212 557 0 244 -82 436 -259 606 -181 175 -402 251 -663 228z m213 -324 c282 -73 454 -362 382 -640 -45 -171 -179 -312 -355 -371 -80 -27 -243 -25 -324 5 -202 73 -337 252 -353 466 -17 243 150 475 388 539 71 19 191 20 262 1z"/> 
-            </g> 
+          <svg version="1.0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 550" preserveAspectRatio="xMidYMid meet">
+            <g transform="translate(0.000000,603.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none">
+              <path d="M1497 6023 c827 -2 2179 -2 3005 0 827 1 151 2 -1502 2 -1653 0 -2329 -1 -1503 -2z"/>
+              <path d="M2802 5273 c-43 -24 -131 -143 -182 -246 -99 -202 -106 -410 -19 -598 59 -128 153 -189 246 -158 56 18 81 37 108 84 34 57 32 112 -6 216 -54 145 -51 327 7 490 41 113 27 176 -46 214 -38 20 -68 19 -108 -2z"/>
+              <path d="M3290 5268 c-74 -50 -185 -230 -228 -369 -44 -142 -37 -293 19 -440 52 -134 141 -208 234 -195 131 20 194 151 136 281 -67 150 -67 316 0 522 26 80 29 98 20 126 -28 83 -116 119 -181 75z"/>
+              <path d="M685 4560 c-171 -34 -283 -139 -331 -306 -15 -50 -18 -129 -23 -519 -4 -321 -10 -466 -18 -480 -32 -56 -64 -70 -205 -90 -26 -4 -46 -17 -72 -45 -33 -36 -36 -45 -36 -99 0 -98 62 -161 157 -161 59 0 119 -26 146 -64 22 -31 22 -35 28 -496 5 -424 8 -471 26 -531 11 -37 31 -87 46 -111 72 -124 228 -198 418 -198 125 0 200 111 151 223 -26 59 -64 82 -148 90 -73 7 -116 27 -148 70 -20 28 -21 41 -27 490 -6 505 -8 526 -68 632 l-28 50 28 50 c60 106 62 128 68 630 6 427 7 462 25 491 26 44 68 65 139 71 81 7 131 35 157 88 26 53 25 91 -2 145 -32 61 -73 80 -168 79 -41 -1 -93 -5 -115 -9z"/>
+              <path d="M5102 4550 c-68 -42 -92 -135 -54 -209 26 -52 60 -72 140 -81 83 -9 128 -32 157 -80 19 -33 20 -56 26 -500 6 -505 6 -513 66 -621 l26 -45 -26 -45 c-59 -103 -61 -113 -67 -619 -5 -461 -5 -465 -28 -501 -28 -45 -72 -67 -156 -77 -111 -14 -160 -66 -153 -165 4 -66 26 -103 78 -130 28 -15 50 -18 124 -13 218 12 351 101 416 278 22 61 23 74 28 533 6 503 6 500 58 547 19 18 78 34 155 43 33 4 56 15 78 35 29 27 30 31 30 118 0 88 -1 91 -31 116 -33 28 -45 32 -127 40 -66 7 -110 31 -137 76 -19 33 -20 56 -26 505 -6 496 -6 500 -55 598 -70 138 -221 217 -414 217 -57 0 -83 -5 -108 -20z"/>
+              <path d="M1965 3849 c-113 -9 -166 -24 -280 -79 -312 -150 -493 -462 -471 -810 13 -209 89 -379 238 -529 161 -163 321 -236 545 -248 269 -14 478 70 667 267 61 65 95 111 130 179 70 136 89 217 89 386 0 124 -3 151 -27 230 -53 176 -145 314 -282 425 -174 139 -372 197 -609 179z m214 -324 c173 -46 319 -185 372 -354 23 -76 28 -212 9 -282 -50 -186 -208 -340 -391 -384 -181 -42 -372 15 -499 152 -100 106 -144 218 -143 363 1 290 228 517 518 519 44 0 104 -6 134 -14z"/>
+              <path d="M3880 3849 c-190 -17 -341 -86 -488 -224 -112 -104 -200 -249 -239 -395 -25 -92 -25 -339 0 -430 78 -281 316 -519 597 -597 101 -28 339 -25 443 5 152 44 285 128 397 250 146 158 211 332 212 557 0 244 -82 436 -259 606 -181 175 -402 251 -663 228z m213 -324 c282 -73 454 -362 382 -640 -45 -171 -179 -312 -355 -371 -80 -27 -243 -25 -324 5 -202 73 -337 252 -353 466 -17 243 150 475 388 539 71 19 191 20 262 1z"/>
+            </g>
           </svg>
           Gor://a Docs
         </a>
@@ -313,7 +341,7 @@
       </div>
 
       <nav class="docs-nav" id="sidebarNav">
-        
+
         <div class="nav-group">
           <div class="nav-group-title"><i class="ph-bold ph-books"></i> Getting Started</div>
           <a href="/docs/intro" data-page="intro"><span class="nav-number">01</span> Introduction to Gor://a Builder</a>
@@ -392,8 +420,7 @@
     </aside>
 
     <main class="content-area">
-      <div class="topbar">
-      </div>
+      <div class="topbar"></div>
 
       <div class="reading-container">
         <article class="prose">
@@ -411,23 +438,18 @@
   </div>
 
   <script>
-    // Highlight the active page in the sidebar
     document.addEventListener("DOMContentLoaded", () => {
-      const currentPage = "{{ page }}"; // Passed from FastAPI backend
+      const currentPage = "{{ page }}";
       const links = document.querySelectorAll('#sidebarNav a');
-      
+
       links.forEach(link => {
         if (link.getAttribute('data-page') === currentPage) {
           link.classList.add('active');
-          // Scroll sidebar to active link if it's far down
           link.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
       });
 
-      // Initialize syntax highlighting for code blocks
-      if (typeof hljs !== 'undefined') {
-        hljs.highlightAll();
-      }
+      if (typeof hljs !== 'undefined') hljs.highlightAll();
     });
   </script>
 </body>

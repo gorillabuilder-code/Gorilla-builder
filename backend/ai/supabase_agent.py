@@ -27,8 +27,8 @@ import httpx
 
 # --- Configuration for OpenRouter ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("MODEL", "qwen/qwen3-coder-next")
-VISION_MODEL = os.getenv("MODEL", "xiaomi/mimo-v2-omni")
+MODEL = os.getenv("MODEL", "qwen/qwen3.6-plus")
+VISION_MODEL = os.getenv("MODEL", "arcee-ai/trinity-large-thinking")
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions").strip()
 SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev").strip()
 SITE_NAME = os.getenv("SITE_NAME", "Gorilla Builder")
@@ -751,7 +751,7 @@ class BaseAgent:
             "messages": messages,
             "temperature": temperature,
             "provider": {
-                "order": ["ionstream/fp8"],
+                "order": ["alibaba"],
                 "allow_fallbacks": False
             }
         }
@@ -776,7 +776,7 @@ class BaseAgent:
         usage = data.get("usage", {})
         p_tokens = usage.get("prompt_tokens", 0)
         c_tokens = usage.get("completion_tokens", 0)
-        weighted_tokens = int((p_tokens * 0.3) + (c_tokens * 0.9))
+        weighted_tokens = int((p_tokens * 0.4) + (c_tokens * 1.5))
         
         # Track tokens
         self.total_tokens_used += weighted_tokens
@@ -823,7 +823,7 @@ class BaseAgent:
         usage = data.get("usage", {})
         p_tokens = usage.get("prompt_tokens", 0)
         c_tokens = usage.get("completion_tokens", 0)
-        weighted_tokens = int((p_tokens * 0.3) + (c_tokens * 1.2))
+        weighted_tokens = int((p_tokens * 0.4) + (c_tokens * 1.5))
         
         # Track tokens
         self.total_tokens_used += weighted_tokens
@@ -921,7 +921,7 @@ class PlannerAgent(BaseAgent):
     "   - Do not try to ask the user more than 1 question to elaborate on their request, if you do, they should be obvious and add functionality to their app if they agree DO NOT BOTHER THEM MORE THAN ONCE. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY QUESTIONS IF THEY DONT FEEL LIKE IT OR ANY DEBUGGING QUESTIONS.\n"
     "   - CONSOLIDATE TASKS: You MUST bundle related operations together. Combine them into Macro Steps (e.g., 'Step 1: Database & Backend setup', 'Step 2: Core UI Components', 'Step 3: Frontend Wiring').\n"
     "   - Simple Apps: Maximum 3+ Macro/clubbed Tasks. + DB TASK (if there are no questions only!)\n"
-    "   - Complex Apps: UNLIMITED Macro/clubbed Tasks. + DB TASK (if there are no questions only!)\n"
+    "   - Complex Apps: No more than 7 Macro/clubbed Tasks. + DB TASK (if there are no questions only!)\n"
     "   - Debugging/Simple addition Tasks: 1 task only. DO NOT ASK QUESTIONS FOR DEBUGGING.\n"
     "   - Update `server.js` and `App.tsx` **LAST** to wire up components/routes.\n"
     "   - NEVER bundle more than 4 or less than 2 files into a single task. Break large frontend or backend builds into multiple, smaller steps to prevent output truncation. AND ALWAYS TRY TO USE MULTI PAGE ARCHITECTURES.\n"
@@ -1175,7 +1175,7 @@ class CoderAgent(BaseAgent):
         "    }\n"
         "  ]\n"
         "}\n\n"
-        "**AI Integration Specs (USE THESE EXACTLY):**\n"
+        "**AI Integration Specs ALWAYS IN BACKEND, NEVER IN FRONTEND (USE THESE EXACTLY):**\n"
         "   - **Core Rule**: You MUST route all AI API calls through the Gorilla Proxy using `process.env.GORILLA_API_KEY`.\n"
         "   - **High-Performance Logic (LLM/Vision with B64)**: Use `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/chat/completions ` with the process.env GORILLA_API_KEY, DO NOT SPECIFY THE MODEL OR ANY OTHER VALUES LIKE TEMPERATURE... NO MATTER WHAT. For vision send the image as BASE64 data as a part of the prompt to the model, do not use a base 64 package, instead use ```Buffer.from...```\n"
         "   - **Image Generation**: Send POST request to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/generations ` with standard OpenAI payload.\n"
