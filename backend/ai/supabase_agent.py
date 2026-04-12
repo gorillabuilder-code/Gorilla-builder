@@ -1581,6 +1581,7 @@ class BaseAgent:
             "model": MODEL,
             "messages": messages,
             "temperature": temperature,
+            "max_tokens": 20000,
             "provider": {
                 "order": ["deepinfra/fp4"],
                 "allow_fallbacks": False
