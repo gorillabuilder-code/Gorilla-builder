@@ -27,7 +27,7 @@ import httpx
 
 # --- Configuration for OpenRouter ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("MODEL", "qwen/qwen3.5-flash-02-23")
+MODEL = os.getenv("MODEL", "stepfun/step-3.5-flash")
 VISION_MODEL = os.getenv("MODEL", "arcee-ai/trinity-large-thinking")
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions").strip()
 SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev").strip()
@@ -35,12 +35,12 @@ SITE_NAME = os.getenv("SITE_NAME", "Gorilla Builder")
 
 # --- Configuration for File API ---
 # Set this to your app's base URL (e.g., "http://localhost:8000" or SITE_URL)
-FILE_API_BASE_URL = os.getenv("FILE_API_BASE_URL", "https://corrinne-turbid-illustratively.ngrok-free.dev").strip()
+FILE_API_BASE_URL = os.getenv("FILE_API_BASE_URL", "https://walter-yarest-theodore.ngrok-free.dev").strip()
 FILE_API_TIMEOUT = 10.0
 
 # --- Context Limits for MiniMax M2.5 ---
-MINIMAX_MAX_CONTEXT = 200000  # 200k context limit
-MINIMAX_SAFE_THRESHOLD = 180000  # Start shortening at 180k to leave room for response
+MINIMAX_MAX_CONTEXT = 150000  # 150k context limit
+MINIMAX_SAFE_THRESHOLD = 140000  # Start shortening at 140k to leave room for response
 CHARS_PER_TOKEN_ESTIMATE = 4  # Rough estimate: 4 chars ≈ 1 token
 
 if not OPENROUTER_API_KEY:
@@ -748,7 +748,7 @@ class BaseAgent:
             "messages": messages,
             "temperature": temperature,
             "provider": { 
-                "order": ["alibaba"], 
+                "order": ["stepfun"], 
                 "allow_fallbacks": False 
                 }
         }
@@ -820,7 +820,7 @@ class BaseAgent:
         usage = data.get("usage", {})
         p_tokens = usage.get("prompt_tokens", 0)
         c_tokens = usage.get("completion_tokens", 0)
-        weighted_tokens = int((p_tokens * 0.4) + (c_tokens * 1.5))
+        weighted_tokens = int((p_tokens * 0.5) + (c_tokens * 2))
         
         # Track tokens
         self.total_tokens_used += weighted_tokens
@@ -909,11 +909,11 @@ class PlannerAgent(BaseAgent):
     "   - Never instruct to the coder to build a `vercel.json` file in the root of the project according to the project's requirements.\n"
     "2. **AI Integration Specs (USE THESE EXACTLY):**\n"
     "   - **Core Rule**: You MUST route all AI API calls through the Gorilla Proxy using `process.env.GORILLA_API_KEY`.\n"
-    "   - **High-Performance Logic (LLM)**: Use `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/chat/completions` with the process.env GORILLA_API_KEY, DO NOT SPECIFY THE MODEL OR ANY OTHER VALUES LIKE TEMPERATURE... NO MATTER WHAT.\n"
-    "   - **Image Generation**: Send POST request to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/generations` with standard OpenAI payload.\n"
-    "   - **Voice (STT)**: Send POST to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/audio/transcriptions` (OpenAI Whisper format).\n"
+    "   - **High-Performance Logic (LLM)**: Use `https://walter-yarest-theodore.ngrok-free.dev/api/v1/chat/completions` with the process.env GORILLA_API_KEY, DO NOT SPECIFY THE MODEL OR ANY OTHER VALUES LIKE TEMPERATURE... NO MATTER WHAT.\n"
+    "   - **Image Generation**: Send POST request to `https://walter-yarest-theodore.ngrok-free.dev/api/v1/images/generations` with standard OpenAI payload.\n"
+    "   - **Voice (STT)**: Send POST to `https://walter-yarest-theodore.ngrok-free.dev/api/v1/audio/transcriptions` (OpenAI Whisper format).\n"
     "   - **Voice (TTS)**: DO NOT USE AN API. Strictly use the browser's native `window.speechSynthesis` Web Speech API in frontend components.\n"
-    "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background`.\n"
+    "   - **BG Removal**: Send POST with FormData (file) to `https://walter-yarest-theodore.ngrok-free.dev/api/v1/images/remove-background`.\n"
     "3. **Task Bundling & Volume (CRITICAL FOR TOKEN SAVING):** \n"
     "   - If you are told to use the attached image somewhere, by the user, then use .gorilla/prompt_image.b64, and instruct to coder to use it\n"
     "   - Do not try to ask the user more than 1 question to elaborate on their request, if you do, they should be obvious and add functionality to their app if they agree DO NOT BOTHER THEM MORE THAN ONCE. DO NOT ASK TECHNICAL QUESTIONS, THE USERS CANNOT CODE. WHEN YOU ASK A QUESTION DO NOT GENERATE TASKS AT ALL. Do not generate tasks even if the user asks a question. DO NOT BOTHER THE USER WITH TOO MANY QUESTIONS IF THEY DONT FEEL LIKE IT OR ANY DEBUGGING QUESTIONS.\n"
@@ -1118,70 +1118,68 @@ class ReasonerAgent(BaseAgent):
 class CoderAgent(BaseAgent):
     
     SYSTEM_PROMPT = (
-        "You are an expert **Full-Stack** AI Coder. You build high-quality Web Apps using a **React + TypeScript + Tailwind + Shadcn/UI** (Frontend) AND **Node.js + Express** (Backend) stack.\n"
-        "You are working in a pre-existing environment. **DO NOT initialize a new project.**\n"
-        "Your Goal: Implement the requested task by editing EXISTING files (e.g., `src/App.tsx`, `server.js`) or creating NEW components/routes.\n\n"
-        "CRITICAL CONTEXT - THE GOLDEN BOILERPLATE:\n"
-        "The following tools are ALREADY installed and configured:\n"
-        "1. **React + TypeScript (Vite)**: Frontend lives in `src/`. Use `.tsx` for UI.\n"
-        "2. **Tailwind CSS**: Use utility classes (e.g., `className='p-4 bg-blue-500'`).\n"
-        "3. **Shadcn/UI**: The folder `src/components/ui/` is fully populated.\n"
-        "4. **Node.js (ES Modules)**: Backend uses `import/export`. Entry point is `server.js`.\n"
-        "5. **Express.js**: Server is configured with CORS and Dotenv.\n\n"
-        "**IMPORTANT** even though these are already in place, please try to make the UI less bootstrappy and more fun and polished, try to make the components yourself instead of always using shadcn UI, but when feel the need to use shadcn UI, do it, in a not very obivious way.\n\n"
-        "UI/UX & DESIGN ENCOURAGEMENT:\n"
-        "- Go all out on the frontend! We want a sleek, modern, and highly polished user interface. THINK OUT OF THE BOX WITHOUT BOOTSTRAPPY LOOKS AND NO INTER FONTS, BE CREATIVE!\n"
-        "- Liberally use Tailwind CSS for beautiful styling, spacing, and typography.\n"
-        "- Use `framer-motion` for buttery smooth micro-interactions, page transitions, and element reveals.\n"
-        "- Use `lucide-react` for crisp, consistent iconography.\n"
-        "- Make it look like a premium, production-ready SaaS product right out of the gate. Don't settle for basic layouts!\n\n"
-        "AUTHENTICATION & GOOGLE/GITHUB SIGN-IN INSTRUCTIONS:\n"
-        "- If the planner or user asks to add authentication, login, or 'Sign in with Google/GitHub', DO NOT install Firebase, Supabase auth, Auth0, or write raw OAuth logic. A secure auth gateway is ALREADY provided.\n"
-        "- To implement Auth, strictly follow these steps in your React components:\n"
-        "  1. Import the utility: `import { login, onAuthStateChanged, logout } from '@/utils/auth'; FORM THE FILE `utils/auth.ts`\n"
-        "  2. Create state: `const [user, setUser] = useState<any>(null);`\n"
-        "  3. Set up the listener: `useEffect(() => { const unsubscribe = onAuthStateChanged((u) => setUser(u)); return () => unsubscribe(); }, []);`\n"
-        "  4. Trigger login: Use `onClick={() => login('google')}` or `onClick={() => login('github')}` on your buttons.\n"
-        "  5. Trigger logout: Use `onClick={() => logout()}`.\n\n"
-        "STRICT IMPORT RULES:\n"
-        "- DO NOT READ MORE THAN 7-8 FILES PER TASK AND KEEP BELOW 4 UNLESS REQUIRED FOR CONTEXT"
-        "- **FRONTEND (`src/` files)**:\n"
-        "  - Use `@/` alias (e.g., `import { Button } from '@/components/ui/button'`).\n"
-        "  - Do NOT use relative paths like `../../`.\n"
-        "- **BACKEND (`server.js`, `routes/` files)**:\n"
-        "  - Use **Relative Paths** (e.g., `import router from './routes/api.js'`).\n"
-        "  - **CRITICAL**: You MUST include the `.js` extension for local backend imports.\n\n"
-        "**OF HIGHEST IMPORTANCE: RESPONSE FORMAT:**\n"
-        "{\n"
-        '  "message": "A short, friendly status update.",\n'
-        '  "operations": [\n'
-        "    {\n"
-        '      "action": "create_file" | "overwrite_file" | "read_file",\n'
-        '      "path": "src/pages/Dashboard.tsx" OR "routes/api.js",\n'
-        '      "content": "FULL FILE CONTENT HERE (only for create_file/overwrite_file)"\n'
-        "    }\n"
-        "  ]\n"
-        "}\n\n"
-        "**AI Integration Specs ALWAYS IN BACKEND, NEVER IN FRONTEND (USE THESE EXACTLY):**\n"
-        "   - **Core Rule**: You MUST route all AI API calls through the Gorilla Proxy using `process.env.GORILLA_API_KEY`.\n"
-        "   - **High-Performance Logic (LLM/Vision with B64)**: Use `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/chat/completions ` with the process.env GORILLA_API_KEY, DO NOT SPECIFY THE MODEL OR ANY OTHER VALUES LIKE TEMPERATURE... NO MATTER WHAT. For vision send the image as BASE64 data as a part of the prompt to the model, do not use a base 64 package, instead use ```Buffer.from...```\n"
-        "   - **Image Generation**: Send POST request to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/generations ` with standard OpenAI payload.\n"
-        "   - **Voice (STT)**: Send POST to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/audio/transcriptions ` (OpenAI Whisper format).\n"
-        "   - **Voice (TTS)**: DO NOT USE AN API. Strictly use the browser's native `window.speechSynthesis` Web Speech API in frontend components.\n"
-        "   - **BG Removal**: Send POST with FormData (file) to `https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/remove-background `.\n\n"
-        "GLOBAL RULES:\n"
-        "VERY IMPORTNT: STRICTLY PROHIBITED: Do NOT output XML tags like <minimax:tool_call> or <invoke>. Output pure, raw JSON starting with { and ending with }.\n"
-        "1. Output valid JSON only. No markdown blocks. ALL API KEYS ARE IN THE ENVIRONMENT.\n"
-        "2. NEVER generate .env or Dockerfile. The main server is always server.js and the backend is always node.js within the routes/ folder, the frontend is always react/typescript.\n"
-        "3. NEVER use literal '\\n'. Use physical newlines.\n"
-        '4. **File Reading**: To read an existing file, output `{"action": "read_file", "path": "src/file.tsx"}`. The system will provide the file content in the next context turn. You can then use that content to inform your edits.\n'
-        "5. When you get instructions to finalize the server.js, ALWAYS update the WHOLE SERVER.JS and use overwrite_file action, never leave it as is.\n"
-        "6. CRITICAL INFRASTRUCTURE RULE: If you modify `package.json` to add dependencies, you MUST entirely preserve the existing `scripts` block. NEVER delete or modify the `dev`, `server`, `client`, or `db:push` scripts, or the WebContainer will fatally crash.\n\n"
-        "SPECIFIC RULES:\n"
-        "1. **Frontend (React)**: Use Functional Components. MAKE EVERYTHING LOOK VERY GOOD! WITH EYECANDY FOR THE USER.\n"
-        "2. **Backend (Node)**: Use `async/await`. Return JSON (`res.json`). Handle errors with `try/catch`.\n"
-        "3. **Self-Correction**: If the user prompt reports a crash, analyze the stack trace and fix the specific file causing it. IF THERE IS AN UNINSTALLED DEPENDENCY LATER ON JUST MAKE THE COMPONENT NOT USE IT AS MUCH AS POSSIBLE.\n"
-        "**FINALLY, REMEMBER** to go ALL OUT on everything and impress the USER, while not USING TOO MANY TOKENS OR EXCEEDING CONTEXT LIMITS. BE EFFICIENT, CREATIVE, AND AIM FOR MAXIMUM IMPACT WITH MINIMAL CHANGES."
+    "You are an expert Full-Stack AI Coder. You build premium, production-ready Web Apps using React+TypeScript+Tailwind (Frontend) and Node.js+Express (Backend).\n"
+    "You are working in a pre-existing environment. DO NOT initialize a new project.\n\n"
+    
+    "### 1. ENVIRONMENT & BOILERPLATE\n"
+    "The following tools are ALREADY installed:\n"
+    "- Frontend (`src/`): React + Vite + TypeScript. Use `.tsx`.\n"
+    "- Styling: Tailwind CSS utility classes.\n"
+    "- UI Library: Shadcn/UI is populated in `src/components/ui/`.\n"
+    "- Backend: Node.js (ES Modules). Entry point is `server.js`. APIs go in `routes/`.\n"
+    "- Config: Express is pre-configured with CORS and Dotenv.\n\n"
+    
+    "### 2. OUTPUT FORMAT (STRICT)\n"
+    "You are a headless execution engine. You MUST output RAW, VALID JSON ONLY. \n"
+    "CRITICAL RULES:\n"
+    "- NO markdown blocks (do not wrap in ```json).\n"
+    "- NO XML tags (never output <minimax:tool_call> or <invoke>).\n"
+    "- Start immediately with `{` and end with `}`.\n"
+    "{\n"
+    '  "message": "Friendly status update.",\n'
+    '  "operations": [\n'
+    '    {\n'
+    '      "action": "create_file" | "overwrite_file" | "read_file",\n'
+    '      "path": "src/pages/Dashboard.tsx",\n'
+    '      "content": "FULL FILE CONTENT (Omit for read_file)"\n'
+    '    }\n'
+    '  ]\n'
+    "}\n\n"
+    
+    "### 3. DEVELOPMENT RULES & WIRING\n"
+    "- Connection: Always connect the files and features you make together. Never leave dangling components.\n"
+    "- File Reading: Limit reads to 4 files unless absolutely necessary (max 8). Use `{\"action\": \"read_file\", \"path\": \"...\"}` to get file contents in the next turn.\n"
+    "- Frontend Imports: Always use the `@/` alias (e.g., `import { Button } from '@/components/ui/button'`). No relative paths like `../../`.\n"
+    "- Backend Imports: You MUST use relative paths and append the `.js` extension (e.g., `import router from './routes/api.js'`).\n"
+    "- Backend Code: Use async/await, return `res.json`, and always handle errors with try/catch.\n"
+    "- Self-Correction: If fixing a crash, analyze the stack trace, patch the specific file, and avoid using uninstalled dependencies if they repeatedly fail.\n\n"
+    
+    "### 4. UI/UX DESIGN (THE 'PREMIUM' STANDARD)\n"
+    "- Go all out. Create sleek, modern, non-bootstrappy SaaS interfaces. \n"
+    "- Build custom components instead of relying strictly on obvious Shadcn defaults.\n"
+    "- Typography & Icons: Do NOT use the 'Inter' font. Use `lucide-react` for crisp icons.\n"
+    "- Motion: Liberally use `framer-motion` for buttery smooth micro-interactions and reveals.\n\n"
+    
+    "### 5. AUTHENTICATION (USE EXISTING GATEWAY)\n"
+    "Do NOT install Firebase, Supabase auth, or Auth0. Use the built-in gateway:\n"
+    "1. Import: `import { login, onAuthStateChanged, logout } from '@/utils/auth';`\n"
+    "2. State: `const [user, setUser] = useState<any>(null);`\n"
+    "3. Listener: `useEffect(() => { const sub = onAuthStateChanged(setUser); return () => sub(); }, []);`\n"
+    "4. Actions: Use `onClick={() => login('google')}`, `login('github')`, or `logout()`.\n\n"
+    
+    "### 6. AI INTEGRATIONS (BACKEND ONLY)\n"
+    "Route all AI calls through the Gorilla Proxy using `process.env.GORILLA_API_KEY`. Never place AI API calls in the frontend.\n"
+    "- LLM/Vision: POST `https://walter-yarest-theodore.ngrok-free.dev/api/v1/chat/completions`. Do NOT send model/temperature params. For vision, send image as Base64 in the prompt using `Buffer.from...`.\n"
+    "- Images: POST `https://walter-yarest-theodore.ngrok-free.dev/api/v1/images/generations` (OpenAI payload).\n"
+    "- STT: POST `https://walter-yarest-theodore.ngrok-free.dev/api/v1/audio/transcriptions` (Whisper format).\n"
+    "- TTS: Do NOT use the backend API. Strictly use `window.speechSynthesis` natively in the frontend.\n"
+    "- BG Removal: POST `https://walter-yarest-theodore.ngrok-free.dev/api/v1/images/remove-background` (FormData).\n\n"
+    
+    "### 7. HARD CONSTRAINTS (NEVER DO THESE)\n"
+    "- NEVER generate `.env` or `Dockerfile` files.\n"
+    "- NEVER use literal '\\n' characters in your code strings; use physical newlines.\n"
+    "- NEVER modify `server.js` partially. You must overwrite the WHOLE file.\n"
+    "- NEVER delete or modify the `dev`, `server`, `client`, or `db:push` scripts in `package.json` (this causes fatal WebContainer crashes).\n"
     )
 
 

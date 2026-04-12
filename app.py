@@ -87,7 +87,7 @@ DEFAULT_TOKEN_LIMIT = int(os.getenv("MONTHLY_TOKEN_LIMIT", "500000"))
 # 4. Google Auth Keys
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://corrinne-turbid-illustratively.ngrok-free.dev/auth/google/callback")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://walter-yarest-theodore.ngrok-free.dev/auth/google/callback")
 
 # ==========================================================================
 # CONFIGURATION: RESEND & SUPABASE (CRITICAL FIX)
@@ -142,8 +142,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allows apps hosted anywhere to use the API
-    allow_credentials=True,
+    # 🌍 Now any deployed app, on any custom domain, can hit your AI Gateway
+    allow_origins=["*"], 
+    
+    # 🔐 Set to False! We use API Keys for cross-origin, not cookies.
+    # This magically makes the "*" wildcard legal again.
+    allow_credentials=False, 
+    
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1453,7 +1458,7 @@ async def generate_project_snapshot(project_id: str, prompt: str, user_api_key: 
         
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                "https://corrinne-turbid-illustratively.ngrok-free.dev/api/v1/images/generations", 
+                "https://walter-yarest-theodore.ngrok-free.dev/api/v1/images/generations", 
                 json=payload, 
                 headers=headers, 
                 timeout=60.0
@@ -3048,82 +3053,51 @@ async def get_file_content(request: Request, project_id: str, path: str):
 
 import base64
 import mimetypes
-import logging
-from fastapi import Request, HTTPException
-from starlette.datastructures import UploadFile
+from fastapi import Request, Form, UploadFile, File
 
-# Set up a logger so silent failures don't drive you crazy
-logger = logging.getLogger(__name__)
+import base64
+import mimetypes
+from fastapi import Request, HTTPException
 
 @app.post("/api/project/{project_id}/save")
 async def save_file(request: Request, project_id: str):
-    # (Auth checks commented out as in your original code)
     # user = get_current_user(request)
     # _require_project_owner(user, project_id)
     
-    # 1. Safely parse the raw form data
-    try:
-        form_data = await request.form()
-    except Exception as e:
-        logger.error(f"Failed to parse incoming form data: {e}")
-        raise HTTPException(status_code=400, detail="Invalid form data payload")
-
+    # 1. Parse the raw form data to bypass strict FastAPI 422 type validation
+    form_data = await request.form()
     file_path = form_data.get("file")
     content_obj = form_data.get("content")
     
-    if not file_path:
-        raise HTTPException(status_code=400, detail="Missing 'file' (path) in payload")
-    if content_obj is None:
-        raise HTTPException(status_code=400, detail="Missing 'content' in payload")
-
-    file_path_str = str(file_path)
-    final_content = ""
+    if not file_path or content_obj is None:
+        raise HTTPException(status_code=400, detail="Missing file path or content")
         
     # 2. Dynamically handle the payload (File/Blob vs String)
-    try:
-        # CRITICAL FIX: Use isinstance() instead of hasattr() for Starlette UploadFiles
-        if isinstance(content_obj, UploadFile):
-            file_bytes = await content_obj.read()
-            
-            try:
-                # Attempt to parse as standard UTF-8 text (e.g., code files sent as Blobs)
-                final_content = file_bytes.decode('utf-8')
-            except UnicodeDecodeError:
-                # Decode failed = Binary Data. Convert to Base64!
-                mime_type, _ = mimetypes.guess_type(file_path_str)
-                
-                # Fallback: if mimetypes fails to guess, use the one provided by the browser
-                if not mime_type:
-                    mime_type = content_obj.content_type or 'application/octet-stream'
-                    
-                encoded_str = base64.b64encode(file_bytes).decode('utf-8')
-                final_content = f"data:{mime_type};base64,{encoded_str}"
-        else:
-            # The frontend sent a standard URL-encoded string
-            final_content = str(content_obj)
-            
-    except Exception as e:
-        logger.error(f"Error processing file content for {file_path_str}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to process file contents")
-
-    # 3. Save to database safely
-    try:
-        # -> Replace with your actual database logic
-        # db_upsert(
-        #     "files", 
-        #     {"project_id": project_id, "path": file_path_str, "content": final_content}, 
-        #     on_conflict="project_id,path"
-        # )
-        pass # Placeholder
-    except Exception as e:
-        logger.error(f"Database error saving {file_path_str}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to save file to database")
+    if hasattr(content_obj, "filename"):
+        # The frontend sent a physical File or Blob
+        file_bytes = await content_obj.read()
+        try:
+            # Try to decode it as text (for code files disguised as Blobs)
+            final_content = file_bytes.decode('utf-8')
+        except UnicodeDecodeError:
+            # If decode fails, it's actual binary image data. Convert to base64!
+            mime_type, _ = mimetypes.guess_type(str(file_path))
+            encoded_str = base64.b64encode(file_bytes).decode('utf-8')
+            final_content = f"data:{mime_type or 'application/octet-stream'};base64,{encoded_str}"
+    else:
+        # The frontend sent a standard URL-encoded string
+        final_content = str(content_obj)
+        
+    # 3. Save to database
+    db_upsert(
+        "files", 
+        {"project_id": project_id, "path": str(file_path), "content": final_content}, 
+        on_conflict="project_id,path"
+    )
     
-    return {
-        "success": True, 
-        "path": file_path_str, 
-        "format": "base64" if final_content.startswith("data:") else "text"
-    }
+    # supabase.table("projects").update({"updated_at": "now()"}).eq("id", project_id).execute()
+    
+    return {"success": True}
 
 
 @app.get("/api/project/{project_id}/tokens")
