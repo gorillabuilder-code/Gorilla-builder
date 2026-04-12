@@ -2055,7 +2055,7 @@ from backend.ai.agent import Agent as RegularAgent, _render_token_limit_message
 from backend.ai.Xagent import XAgent
 from backend.ai.supabase_agent import SupabaseAgentSwarm
 import backend.ai.scope_guard
-import backend.ai.json arnour        
+import backend.ai.json armour        
 
 # Global tracking for active AI fixes
 active_ai_fixes = set()
