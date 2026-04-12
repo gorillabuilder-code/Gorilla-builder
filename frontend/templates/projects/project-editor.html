@@ -1412,7 +1412,8 @@ function startStream(){
                          tLower.includes("executing") ||
                          tLower.includes("analyzing: --- previous") ||
                          tLower.includes("building:") ||
-                         tLower.includes(": [project:");
+                         tLower.includes("dispatch") ||
+                         tLower.includes("subscribed:");
                          
           if (!isJunk) {
               addThought(m.text, role);
