@@ -87,7 +87,7 @@ DEFAULT_TOKEN_LIMIT = int(os.getenv("MONTHLY_TOKEN_LIMIT", "500000"))
 # 4. Google Auth Keys
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://walter-yarest-theodore.ngrok-free.dev/auth/google/callback")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://slaw-carefully-cried.ngrok-free.dev/auth/google/callback")
 
 # ==========================================================================
 # CONFIGURATION: RESEND & SUPABASE (CRITICAL FIX)
@@ -1458,7 +1458,7 @@ async def generate_project_snapshot(project_id: str, prompt: str, user_api_key: 
         
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                "https://walter-yarest-theodore.ngrok-free.dev/api/v1/images/generations", 
+                "https://slaw-carefully-cried.ngrok-free.dev/api/v1/images/generations", 
                 json=payload, 
                 headers=headers, 
                 timeout=60.0
@@ -2050,10 +2050,10 @@ import re
 import asyncio
 from typing import List, Dict
 
-# Import both Agent classes for conditional usage
+# Import all 3 Agent classes for dynamic routing
 from backend.ai.agent import Agent as RegularAgent, _render_token_limit_message
-from backend.ai.Xagent import XAgent
 from backend.ai.supabase_agent import SupabaseAgentSwarm
+from backend.ai.deep_agent import Agent as DeepAgent
 import backend.ai.scope_guard
 import backend.ai.json_arnour        
 
@@ -2086,11 +2086,19 @@ async def agent_start(request: Request, project_id: str):
     # Use multi-part parsing to safely handle Base64 strings
     form_data = await request.form()
     prompt = str(form_data.get("prompt", ""))
-    xmode = str(form_data.get("xmode", "false")).lower() == "true"
     image_base64 = form_data.get("image_base64")
     
-    # 🛑 CATCH THE DB REQUEST FLAG FROM HTML
+    # 👇 GRAB THE AGENT TYPE FROM THE HTML DROPDOWN 👇
+    agent_type = str(form_data.get("agent_type", "fast")).lower()
+    
+    # Fallback/override for legacy xmode or hardcoded db requests
+    xmode = str(form_data.get("xmode", "false")).lower() == "true"
     is_db_request = str(form_data.get("is_db_request", "false")).lower() == "true"
+    
+    if xmode and agent_type == "fast":
+        agent_type = "deep"
+    if is_db_request:
+        agent_type = "supabase"
 
     # 🛑 Guarantee the old image is overwritten
     if image_base64:
@@ -2104,11 +2112,20 @@ async def agent_start(request: Request, project_id: str):
     emit_log(project_id, "user", prompt)
 
     asyncio.create_task(
-        run_agent_loop(project_id, prompt, user["id"], xmode, None, False, is_db_request)
+        run_agent_loop(
+            project_id=project_id, 
+            prompt=prompt, 
+            user_id=user["id"], 
+            agent_type=agent_type, 
+            history=None, 
+            skip_planner=False, 
+            is_system_task=False
+        )
     )
     return {"started": True}
 
-async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: bool = False, history: List[Dict] = None, skip_planner: bool = False, is_db_request: bool = False, is_system_task: bool = False):
+
+async def run_agent_loop(project_id: str, prompt: str, user_id: str, agent_type: str = "fast", history: List[Dict] = None, skip_planner: bool = False, is_system_task: bool = False):
     try:
         await asyncio.sleep(0.5)
         file_tree = await _fetch_file_tree(project_id)
@@ -2137,6 +2154,9 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             past_msgs = db_history[-7:-1]
             history_text = "\n".join([f"{m.get('role', 'user').upper()}: {m.get('content', '')}" for m in past_msgs])
             contextual_prompt = f"--- PREVIOUS CONVERSATION CONTEXT ---\n{history_text}\n\n--- CURRENT USER REQUEST ---\n{prompt}"
+
+        # Determine if this is a DB routing path
+        is_db_request = (agent_type == "supabase")
 
         # ==========================================================================
         # ⚡ MID-CHAT SUPABASE PROVISIONING ENGINE ⚡
@@ -2177,12 +2197,11 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                         supa_anon_key = "PROVISIONING_IN_PROGRESS"                        
                         db_is_active = False
                         
-                        # 🛑 THE STATUS FIX: Phase A - Wait for the project status to be ACTIVE
+                        # Phase A - Wait for the project status to be ACTIVE
                         for attempt in range(45): # Up to 3 minutes
                             status_res = await client.get(f"https://api.supabase.com/v1/projects/{project_ref}", headers=headers)
                             if status_res.status_code == 200:
                                 proj_status_data = status_res.json()
-                                # Check for active statuses
                                 if proj_status_data.get("status") in ["ACTIVE_HEALTHY", "ACTIVE"]:
                                     db_is_active = True
                                     break
@@ -2195,15 +2214,13 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                         raise Exception("Timed out waiting for database compute instance to become active.")
 
                     # Phase B: Now that it's active, fetch the keys
-                    for attempt in range(15): # Bumped to 15 just in case
+                    for attempt in range(15):
                         keys_res = await client.get(f"https://api.supabase.com/v1/projects/{project_ref}/api-keys", headers=headers)
                         
                         if keys_res.status_code == 200:
                             keys_list = keys_res.json()
                             
-                            # 🔍 X-RAY LOGGING: What is Supabase actually handing us?                                
                             if isinstance(keys_list, list) and len(keys_list) > 0:
-                                # 🛑 THE FIX: Look for 'anon' OR 'publishable'
                                 anon_obj = next((k for k in keys_list if k.get("name") in ["anon", "publishable"]), None)
                                 
                                 if anon_obj and anon_obj.get("api_key"):
@@ -2214,7 +2231,6 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                             else:
                                 emit_log(project_id, "debugger", "Payload was not a list or was empty.")
                         else:
-                            # 🔍 X-RAY LOGGING: Why did it fail?
                             emit_log(project_id, "debugger", f"Keys API Error ({keys_res.status_code}): {keys_res.text}")
                             
                         await asyncio.sleep(3)
@@ -2228,19 +2244,16 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
         # ==========================================================================
         # PATH A: SUPABASE FULL-STACK MODE
         # ==========================================================================
-        if project_ref and supa_token:
+        if is_db_request and project_ref and supa_token:
             emit_status(project_id, "Initializing Full-Stack DB Architect...")
             emit_phase(project_id, "planner")
             emit_progress(project_id, "Designing Architecture...", 20)
 
             swarm = SupabaseAgentSwarm(project_id)
             
-            # Pass the contextual_prompt so it remembers the conversation
             result = await swarm.solve(user_request=contextual_prompt, file_tree=file_tree)
             
             if result.get("status") == "needs_clarification":
-                # 🛑 THE ORGANIC FIX: Stop appending manual questions. 
-                # Also strip the robotic "Plan created." text
                 assistant_msg = result.get("assistant_message", "I need a bit more clarification.")
                 assistant_msg = assistant_msg.replace("Plan created.\n", "").replace("Plan created.", "").strip()
                 
@@ -2255,7 +2268,6 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             operations = result.get("operations", [])
             assistant_msg = result.get("assistant_message", "Applying Schema and Code updates.")
             
-            # 🛑 AMNESIA FIX: Instantly save Assistant Message before operations start
             db_history.append({"role": "assistant", "content": assistant_msg})
             supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
             emit_log(project_id, "assistant", assistant_msg)
@@ -2272,7 +2284,6 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                     emit_phase(project_id, "coder")
                     emit_progress(project_id, f"Running Remote Migration: {path}", 70)
 
-                    # 🛑 THE FIX: Wait on 404s, use correct database URL
                     for attempt in range(3):
                         try:
                             headers = {"Authorization": f"Bearer {supa_token}", "Content-Type": "application/json"}
@@ -2312,9 +2323,15 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
             return
 
         # ==========================================================================
-        # PATH B: STANDARD MODE
+        # PATH B: STANDARD MODE (FAST OR DEEP)
         # ==========================================================================
-        agent = XAgent() if is_xmode else RegularAgent()
+        # 👇 DYNAMIC AGENT ROUTING 👇
+        if agent_type == "deep":
+            emit_log(project_id, "system", "Initializing Deep Architect Agent...")
+            agent = DeepAgent()
+        else:
+            emit_log(project_id, "system", "Initializing Fast Execution Agent...")
+            agent = RegularAgent()
         
         if not skip_planner:
             emit_phase(project_id, "planner")
@@ -2376,7 +2393,6 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, is_xmode: b
                         return
                 except Exception as e:
                     emit_log(project_id, "debugger", f"⚠️ Token check skipped due to network timeout.")
-                    # Do NOT return here! Just let it keep building if it's a network flutter.
 
             pct = 30 + (60 * (i / total))
             emit_progress(project_id, f"Building...", pct)

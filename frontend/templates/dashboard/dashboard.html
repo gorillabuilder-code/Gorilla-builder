@@ -785,6 +785,68 @@
       content: ''; display: block; height: 1px; margin-top: 8px;
       background: linear-gradient(90deg, var(--border), transparent);
     }
+    /* --- AGENT SELECTOR --- */
+    .agent-select-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+      margin-right: 6px;
+      transition: all 0.3s var(--ease-out);
+    }
+    .agent-select {
+      appearance: none;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 10px 32px 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      outline: none;
+      transition: all 0.2s var(--ease-out);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.2) inset;
+    }
+    .agent-select:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+    .agent-select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent-glow);
+      color: #fff;
+    }
+    .agent-select-wrapper::after {
+      content: '';
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      border-left: 4px solid transparent;
+      border-right: 4px solid transparent;
+      border-top: 4px solid var(--text-muted);
+      pointer-events: none;
+      transition: border-top-color 0.2s;
+    }
+    .agent-select-wrapper:hover::after { border-top-color: #fff; }
+    .agent-select option {
+      background: #111116;
+      color: #fff;
+      font-weight: 500;
+    }
+    
+    /* The Forced State */
+    .agent-select-wrapper.forced-mode {
+      opacity: 0.5;
+      filter: blur(0.8px) grayscale(50%);
+      pointer-events: none;
+      transform: scale(0.98);
+    }
+    .agent-select-wrapper.forced-mode .agent-select {
+      border-color: #3ECF8E; /* Supabase Green */
+      color: #3ECF8E;
+    }
   </style>
 
   <div class="noise-overlay"></div>
@@ -910,20 +972,17 @@
         {% else %}
           <input type="text" id="mainPromptInput" name="prompt" required placeholder="e.g. 'An app that shows 67 is the meaning of life'" autocomplete="off" autofocus>
           <input type="hidden" id="figmaUrlInput" name="figma_url">
+          
+          <div class="agent-select-wrapper" id="agentSelectWrapper" title="Select AI Engine">
+            <select name="agent_type" id="agentTypeSelect" class="agent-select">
+              <option value="fast">Fast</option>
+              <option value="deep">Deep</option>
+              <option value="supabase" hidden>Supabase</option>
+            </select>
+          </div>
           <button type="submit" class="action-btn" id="submitPromptBtn" title="Create App">
-            <i class="ph-bold ph-arrow-right"></i>
-          </button>
         {% endif %}
       </form>
-
-      {% if not is_locked %}
-      <div class="suggestions" id="ideas">
-        <div class="chip"><i class="ph ph-storefront"></i> E-commerce Store</div>
-        <div class="chip"><i class="ph ph-chart-bar"></i> Analytics Dashboard</div>
-        <div class="chip"><i class="ph ph-robot"></i> AI Chat Bot</div>
-        <div class="chip"><i class="ph ph-article"></i> Blog Platform</div>
-      </div>
-      {% endif %}
 
       {% if error %}
       <div class="error-msg">
@@ -1250,6 +1309,46 @@
         if(submitBtn) { submitBtn.innerHTML = '<i class="ph ph-spinner" style="animation: spin 1s linear infinite;"></i>'; submitBtn.style.opacity = '0.7'; submitBtn.style.pointerEvents = 'none'; }
       });
     }
+    // --- Agent Selector Logic ---
+    const agentWrapper = document.getElementById('agentSelectWrapper');
+    const agentSelect = document.getElementById('agentTypeSelect');
+
+    function updateAgentSelection() {
+      if (!agentWrapper || !agentSelect) return;
+
+      const promptText = promptInput.value.toLowerCase();
+      const isSupabaseActive = supabaseBtn && supabaseBtn.classList.contains('active');
+      
+      // Regex detects standalone words so "db" matches but "feedback" doesn't
+      const mentionsDb = /\b(db|database|supabase|postgres|sql)\b/.test(promptText);
+
+      if (isSupabaseActive || mentionsDb) {
+        // Force the hidden Supabase option and lock the UI
+        agentSelect.value = 'supabase';
+        agentWrapper.classList.add('forced-mode');
+      } else {
+        // Unlock and revert to Fast if it was previously forced to Supabase
+        if (agentSelect.value === 'supabase') {
+           agentSelect.value = 'fast'; 
+        }
+        agentWrapper.classList.remove('forced-mode');
+      }
+    }
+
+    // Listen to typing in real-time
+    if (promptInput) {
+      promptInput.addEventListener('input', updateAgentSelection);
+    }
+
+    // Override your existing toggleSupabaseMode to trigger the check when clicked
+    const originalToggleSupabaseMode = toggleSupabaseMode;
+    toggleSupabaseMode = function() {
+      originalToggleSupabaseMode();
+      updateAgentSelection();
+    };
+    
+    // Run once on load just in case
+    updateAgentSelection();
 
     // --- Delete ---
     const deleteModal = document.getElementById('deleteModal');
