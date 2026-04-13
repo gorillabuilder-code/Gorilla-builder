@@ -39,7 +39,7 @@ import httpx
 
 # --- Configuration for OpenRouter ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("MODEL", "z-ai/glm-5")
+MODEL = os.getenv("MODEL", "qwen/qwen3-coder-next")
 VISION_MODEL = os.getenv("MODEL", "arcee-ai/trinity-large-thinking")
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions").strip()
 SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev").strip()
@@ -1630,7 +1630,7 @@ class BaseAgent:
             "temperature": temperature,
             "max_tokens": 20000,
             "provider": { 
-                "order": ["deepinfra/fp4"], 
+                "order": ["parasail/bf16"], 
                 "allow_fallbacks": False 
             }
         }
@@ -1654,7 +1654,7 @@ class BaseAgent:
         usage = data.get("usage", {})
         p_tokens = usage.get("prompt_tokens", 0)
         c_tokens = usage.get("completion_tokens", 0)
-        weighted_tokens = int((p_tokens * 0.8) + (c_tokens * 2.5))
+        weighted_tokens = int((p_tokens * 0.2) + (c_tokens * 0.8))
         
         self.total_tokens_used += weighted_tokens
         
@@ -1694,7 +1694,7 @@ class BaseAgent:
         usage = data.get("usage", {})
         p_tokens = usage.get("prompt_tokens", 0)
         c_tokens = usage.get("completion_tokens", 0)
-        weighted_tokens = int((p_tokens * 0.5) + (c_tokens * 2))
+        weighted_tokens = int((p_tokens * 0.5) + (c_tokens * 0.8))
         
         self.total_tokens_used += weighted_tokens
         

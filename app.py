@@ -2050,8 +2050,8 @@ import re
 import asyncio
 from typing import List, Dict
 
-# Import all 3 Agent classes for dynamic routing
-from backend.ai.agent import Agent as RegularAgent, _render_token_limit_message
+# Import all 3 Agent classes for dynamic routing + AgentSwarm for the Debugger
+from backend.ai.agent import Agent as RegularAgent, AgentSwarm, _render_token_limit_message
 from backend.ai.supabase_agent import SupabaseAgentSwarm
 from backend.ai.deep_agent import Agent as DeepAgent
 import backend.ai.scope_guard
@@ -2091,6 +2091,9 @@ async def agent_start(request: Request, project_id: str):
     # 👇 GRAB THE AGENT TYPE FROM THE HTML DROPDOWN 👇
     agent_type = str(form_data.get("agent_type", "fast")).lower()
     
+    # 👇 GRAB THE DEBUGGER FLAG 👇
+    skip_planner = str(form_data.get("skip_planner", "false")).lower() == "true"
+    
     # Fallback/override for legacy xmode or hardcoded db requests
     xmode = str(form_data.get("xmode", "false")).lower() == "true"
     is_db_request = str(form_data.get("is_db_request", "false")).lower() == "true"
@@ -2108,8 +2111,10 @@ async def agent_start(request: Request, project_id: str):
         except Exception as err:
             print(f"⚠️ Failed to save mid-chat image: {err}")
 
-    emit_status(project_id, "Agent received prompt")
-    emit_log(project_id, "user", prompt)
+    # Hide debug requests from chat UI
+    if not skip_planner:
+        emit_status(project_id, "Agent received prompt")
+        emit_log(project_id, "user", prompt)
 
     asyncio.create_task(
         run_agent_loop(
@@ -2118,7 +2123,7 @@ async def agent_start(request: Request, project_id: str):
             user_id=user["id"], 
             agent_type=agent_type, 
             history=None, 
-            skip_planner=False, 
+            skip_planner=skip_planner, 
             is_system_task=False
         )
     )
@@ -2136,11 +2141,14 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, agent_type:
         
         # 🛑 AMNESIA FIX: Instantly save the user's prompt to the DB so it's never lost
         db_history = proj_data.get("chat_history", []) if proj_data and proj_data.get("chat_history") else []
-        if is_system_task:
-            db_history.append({"role": "system", "content": f"SYSTEM AUTOMATION TASK: {prompt}"})
-        else:
-            db_history.append({"role": "user", "content": prompt})
-        supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
+        
+        # Don't save stack traces into chat history
+        if not skip_planner:
+            if is_system_task:
+                db_history.append({"role": "system", "content": f"SYSTEM AUTOMATION TASK: {prompt}"})
+            else:
+                db_history.append({"role": "user", "content": prompt})
+            supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
         
         user_api_data = db_select_one("users", {"id": user_id}, "gorilla_api_key, supabase_access_token")
         api_key = user_api_data.get("gorilla_api_key", "") if user_api_data else ""
@@ -2149,7 +2157,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, agent_type:
         # 🛑 THE AMNESIA FIX: Memory Injector
         # We weave the recent conversation directly into the prompt so the Swarm never loses context
         contextual_prompt = prompt
-        if len(db_history) > 1:
+        if len(db_history) > 1 and not skip_planner:
             # Grab the last 6 messages (excluding the one we just added)
             past_msgs = db_history[-7:-1]
             history_text = "\n".join([f"{m.get('role', 'user').upper()}: {m.get('content', '')}" for m in past_msgs])
@@ -2197,11 +2205,12 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, agent_type:
                         supa_anon_key = "PROVISIONING_IN_PROGRESS"                        
                         db_is_active = False
                         
-                        # Phase A - Wait for the project status to be ACTIVE
+                        # 🛑 THE STATUS FIX: Phase A - Wait for the project status to be ACTIVE
                         for attempt in range(45): # Up to 3 minutes
                             status_res = await client.get(f"https://api.supabase.com/v1/projects/{project_ref}", headers=headers)
                             if status_res.status_code == 200:
                                 proj_status_data = status_res.json()
+                                # Check for active statuses
                                 if proj_status_data.get("status") in ["ACTIVE_HEALTHY", "ACTIVE"]:
                                     db_is_active = True
                                     break
@@ -2214,13 +2223,15 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, agent_type:
                         raise Exception("Timed out waiting for database compute instance to become active.")
 
                     # Phase B: Now that it's active, fetch the keys
-                    for attempt in range(15):
+                    for attempt in range(15): # Bumped to 15 just in case
                         keys_res = await client.get(f"https://api.supabase.com/v1/projects/{project_ref}/api-keys", headers=headers)
                         
                         if keys_res.status_code == 200:
                             keys_list = keys_res.json()
                             
+                            # 🔍 X-RAY LOGGING: What is Supabase actually handing us?                                
                             if isinstance(keys_list, list) and len(keys_list) > 0:
+                                # 🛑 THE FIX: Look for 'anon' OR 'publishable'
                                 anon_obj = next((k for k in keys_list if k.get("name") in ["anon", "publishable"]), None)
                                 
                                 if anon_obj and anon_obj.get("api_key"):
@@ -2231,6 +2242,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, agent_type:
                             else:
                                 emit_log(project_id, "debugger", "Payload was not a list or was empty.")
                         else:
+                            # 🔍 X-RAY LOGGING: Why did it fail?
                             emit_log(project_id, "debugger", f"Keys API Error ({keys_res.status_code}): {keys_res.text}")
                             
                         await asyncio.sleep(3)
@@ -2251,9 +2263,12 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, agent_type:
 
             swarm = SupabaseAgentSwarm(project_id)
             
+            # Pass the contextual_prompt so it remembers the conversation
             result = await swarm.solve(user_request=contextual_prompt, file_tree=file_tree)
             
             if result.get("status") == "needs_clarification":
+                # 🛑 THE ORGANIC FIX: Stop appending manual questions. 
+                # Also strip the robotic "Plan created." text
                 assistant_msg = result.get("assistant_message", "I need a bit more clarification.")
                 assistant_msg = assistant_msg.replace("Plan created.\n", "").replace("Plan created.", "").strip()
                 
@@ -2268,6 +2283,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, agent_type:
             operations = result.get("operations", [])
             assistant_msg = result.get("assistant_message", "Applying Schema and Code updates.")
             
+            # 🛑 AMNESIA FIX: Instantly save Assistant Message before operations start
             db_history.append({"role": "assistant", "content": assistant_msg})
             supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
             emit_log(project_id, "assistant", assistant_msg)
@@ -2284,6 +2300,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, agent_type:
                     emit_phase(project_id, "coder")
                     emit_progress(project_id, f"Running Remote Migration: {path}", 70)
 
+                    # 🛑 THE FIX: Wait on 404s, use correct database URL
                     for attempt in range(3):
                         try:
                             headers = {"Authorization": f"Bearer {supa_token}", "Content-Type": "application/json"}
@@ -2369,15 +2386,39 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, agent_type:
                 emit_progress(project_id, "Ready", 100)
                 return
         else:
+            # ==========================================================================
+            # 🐛 THE DEBUGGER FIX IS RESTORED HERE! 🐛
+            # ==========================================================================
             emit_phase(project_id, "coder")
             emit_log(project_id, "assistant", "Error intercepted! I've analyzed the stack trace and I'm weaving a surgical patch directly into your codebase. Hang tight while I auto-heal the application.")
-            assistant_msg = "Error intercepted! I've analyzed the stack trace and I'm weaving a surgical patch directly into your codebase. Hang tight while I auto-heal the application."
-        
+            emit_progress(project_id, "Auto-Healing...", 30)
+            
+            # Instantiate the Swarm JUST for debugging so it gets the High-Context DebuggerAgent
+            swarm = AgentSwarm(project_id)
+            debug_result = await swarm.debug(error_message=prompt, file_tree=file_tree)
+            ops = debug_result.get("operations", [])
+            
+            emit_phase(project_id, "files")
+            emit_progress(project_id, "Saving Patch...", 90)
+            
+            for op in ops:
+                path = op.get("path")
+                content = op.get("content")
+                if path and content is not None:
+                    db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
+                    emit_file_changed(project_id, path)
+            
+            emit_status(project_id, "Done")
+            emit_progress(project_id, "Ready", 100)
+            return # End early, do not run the loop below!
+
+        # ==========================================================================
+        # THE STEP-BY-STEP CODER LOOP (Restored to keep UI events working)
+        # ==========================================================================
         emit_phase(project_id, "coder")
         emit_progress(project_id, "Building...", 30)
         
         batch_files = {}
-        tasks = plan_res.get("plan", {}).get("todo", []) if not skip_planner else [prompt]
         total = len(tasks)
         figma_context = next((msg["content"] for msg in db_history if msg.get("role") == "system" and "Figma design was imported" in msg.get("content", "")), None)
 
@@ -2402,7 +2443,7 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, agent_type:
                 final_task_text = f"CRITICAL SYSTEM CONTEXT: {figma_context}\n\nUSER REQUEST: {task}"
 
             code_res = await agent.code(
-                plan_section="" if skip_planner else f"Step {i}",
+                plan_section=f"Step {i}",
                 plan_text=final_task_text,
                 file_tree=file_tree,
                 project_name=project_id,
@@ -2414,12 +2455,11 @@ async def run_agent_loop(project_id: str, prompt: str, user_id: str, agent_type:
 
             ops = code_res.get("operations", [])
 
-            # 🛑 THE FATAL ERROR CATCHER
-            if not ops and i == 1 and not skip_planner:
+            if not ops and i == 1:
                 emit_log(project_id, "system", "❌ Agent workflow aborted due to unrecoverable formatting errors.")
                 emit_status(project_id, "Fatal Error")
                 emit_progress(project_id, "Failed", 100)
-                return # Stop the loop so it doesn't hang!
+                return 
 
             for op in ops:
                 path = op.get("path")

@@ -1694,7 +1694,7 @@ class BaseAgent:
         usage = data.get("usage", {})
         p_tokens = usage.get("prompt_tokens", 0)
         c_tokens = usage.get("completion_tokens", 0)
-        weighted_tokens = int((p_tokens * 0.5) + (c_tokens * 2))
+        weighted_tokens = int((p_tokens * 0.5) + (c_tokens * 0.8))
         
         self.total_tokens_used += weighted_tokens
         
