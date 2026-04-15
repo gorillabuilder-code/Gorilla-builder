@@ -1541,7 +1541,8 @@ async def create_project(
     xmode: Optional[str] = Form(None),
     image_base64: Optional[str] = Form(None),
     figma_url: Optional[str] = Form(None),
-    use_supabase: Optional[str] = Form(None)  # <-- INTERCEPTING THE DB FLAG
+    use_supabase: Optional[str] = Form(None),
+    agent_type: Optional[str] = Form("fast")  # 👈 ADD THIS LINE
 ):
     user = get_current_user(request)
 
@@ -1767,7 +1768,7 @@ async def create_project(
             files_to_insert.append({
                 "project_id": pid,
                 "path": ".env",
-                "content": f"VITE_GORILLA_AUTH_ID={gorilla_auth_id}\n{supabase_env_content}"
+                "content": f"VITE_GORILLA_AUTH_ID={gorilla_auth_id}\nGORILLA_API_KEY={api_key}\n{supabase_env_content}"
             })
 
             for root, dirs, files in os.walk(bp_dir):
@@ -1844,9 +1845,10 @@ async def create_project(
         else:
             target_url = f"/projects/{pid}/editor"
             
-        if final_prompt: 
-            target_url += f"?prompt={urllib.parse.quote(final_prompt)}"
-            
+        if final_prompt:
+                query_params.append(f"prompt={urllib.parse.quote(final_prompt)}")
+            if agent_type:
+                query_params.append(f"agent_type={agent_type}")
         return RedirectResponse(target_url, status_code=303)
         
     except Exception as e:
@@ -2542,7 +2544,7 @@ async def log_browser_event(project_id: str, request: Request, background_tasks:
                 prompt=message,
                 user_id=owner_id,
                 history=chat_history,
-                is_xmode=False, 
+                agent_type="fast", 
                 skip_planner=True,
                 is_system_task=True
             )
@@ -2676,7 +2678,7 @@ async def optimize_for_vercel(request: Request, project_id: str):
             project_id=project_id,
             prompt=optimization_prompt,
             user_id=user["id"],
-            is_xmode=False,
+            agent_type="fast",
             skip_planner=True,
             is_system_task=True
         )
