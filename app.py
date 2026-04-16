@@ -1097,7 +1097,6 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 @app.get("/pricing", response_class=HTMLResponse)
 async def pricing_page(request: Request):
-    \"\"\"Renders pricing page with dynamic Monke discount if negotiated.\"\"\"
     user = get_current_user_safe(request)
     db_user = None
     if user:
@@ -1855,14 +1854,15 @@ async def project_settings(request: Request, project_id: str):
         "projects/project-settings.html",
         {"request": request, "project_id": project_id, "project": project, "project_name": project.get("name", "Untitled Project") if project else "Untitled Project", "user": user}
     )
-
+from fastapi import FastAPI, UploadFile, File # <-- Added File here
+from typing import Optional
 @app.post("/projects/{project_id}/settings")
 async def project_settings_save(
     request: Request, 
     project_id: str, 
     name: str = Form(...), 
     description: str = Form(""),
-    snapshot: Optional[UploadFile] = File(None)  # Added the file catcher
+    snapshot: Optional[UploadFile] = File(None) # Added the file catcher
 ):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
@@ -2187,7 +2187,7 @@ async def run_agent_loop(
         if len(db_history) > 1 and not skip_planner:
             past = db_history[-7:-1]
             history_text = "\\n".join([
-                f"{m.get(\'role\',\'user\').upper()}: {m.get(\'content\',\'\')[:300]}"
+                f"{m.get('role', 'user').upper()}: {m.get('content', '')[:300]}"
                 for m in past
             ])
             contextual_prompt = (
