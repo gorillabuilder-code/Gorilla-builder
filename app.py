@@ -38,14 +38,6 @@ from supabase import create_client, Client
 # Load Environment Variables
 load_dotenv()
 
-# --------------------------------------------------------------------------
-# IMPORTS: Backend Modules
-# --------------------------------------------------------------------------
-# Ensure these files exist in your backend/ directory
-from backend.run_manager import ProjectRunManager
-# from backend.ai.Xcoder import XCoder # Uncomment if you have this file
-from backend.deployer import Deployer
-
 # ==========================================================================
 # CONSTANTS & PATHS
 # ==========================================================================
@@ -87,7 +79,7 @@ DEFAULT_TOKEN_LIMIT = int(os.getenv("MONTHLY_TOKEN_LIMIT", "500000"))
 # 4. Google Auth Keys
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://slaw-carefully-cried.ngrok-free.dev/auth/google/callback")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://corrinne-turbid-illustratively.ngrok-free.dev/auth/google/callback")
 
 # ==========================================================================
 # CONFIGURATION: RESEND & SUPABASE (CRITICAL FIX)
@@ -142,13 +134,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    # 🌍 Now any deployed app, on any custom domain, can hit your AI Gateway
-    allow_origins=["*"], 
-    
-    # 🔐 Set to False! We use API Keys for cross-origin, not cookies.
-    # This magically makes the "*" wildcard legal again.
-    allow_credentials=False, 
-    
+    allow_origins=["*"],
+    allow_credentials=False,   # Must be False for wildcard to be valid
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -157,47 +144,6 @@ if os.path.isdir(FRONTEND_STYLES_DIR):
     app.mount("/styles", StaticFiles(directory=FRONTEND_STYLES_DIR), name="styles")
 
 templates = Jinja2Templates(directory=FRONTEND_TEMPLATES_DIR)
-
-@app.exception_handler(403)
-async def custom_403_handler(request: Request, __):
-    # If the user isn't authorized, just send them home
-    return RedirectResponse(url="/", status_code=303)
-
-# --- BACKGROUND TASK: CLEANUP INACTIVE SANDBOXES ---
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(_monitor_inactivity())
-
-async def _monitor_inactivity():
-    """Runs every 60s to kill sandboxes unused for >10 mins."""
-    while True:
-        try:
-            now = time.time()
-            # Copy keys to avoid modification during iteration
-            active_projects = list(_LAST_ACCESS.keys())
-            
-            for pid in active_projects:
-                last_active = _LAST_ACCESS.get(pid, 0)
-                
-                # If idle for too long
-                if (now - last_active) > SHUTDOWN_TIMEOUT_SECONDS:
-                    # Check if actually running before stopping
-                    # Note: We reference run_manager later, ensuring it's initialized
-                    try:
-                        if "run_manager" in globals():
-                            is_running, _ = run_manager.is_running(pid)
-                            if is_running:
-                                print(f"💤 Idle Cleanup: Stopping project {pid} (Inactive > 10m)")
-                                await run_manager.stop(pid)
-                    except: pass
-                    
-                    # Stop tracking it
-                    _LAST_ACCESS.pop(pid, None) 
-                    
-            await asyncio.sleep(60) # Check every minute
-        except Exception as e:
-            print(f"Inactivity Monitor Error: {e}")
-            await asyncio.sleep(60)
 
 
 # ==========================================================================
@@ -214,7 +160,9 @@ async def custom_http_exception_handler(request: Request, exc):
     # For other errors, return JSON
     return JSONResponse({"detail": str(exc.detail)}, status_code=exc.status_code)
 
-
+@app.exception_handler(403)
+async def custom_403_handler(request: Request, __):
+    return RedirectResponse(url="/", status_code=303)
 # ==========================================================================
 # DATABASE HELPERS (Safe Access)
 # ==========================================================================
@@ -229,7 +177,7 @@ def db_select_one(table: str, match: dict, select="*"):
     except Exception: return None
 
 # ==========================================================================
-# DB UPSERT (Integrity Guard)
+# DB HELPERS (Integrity Guard)
 # ==========================================================================
 def db_upsert(table: str, data: Dict[str, Any], on_conflict: str = "id"):
     """
@@ -261,6 +209,49 @@ def db_upsert(table: str, data: Dict[str, Any], on_conflict: str = "id"):
         print(f"❌ DB Upsert Error for {path}: {e}")
         return None
 
+def db_delete(table: str, filters: dict) -> None:
+    """Delete rows matching filters. Used by the sandbox manager to remove
+    files that the agent deleted in the sandbox (rm commands)."""
+    try:
+        q = supabase.table(table).delete()
+        for k, v in filters.items():
+            q = q.eq(k, v)
+        q.execute()
+    except Exception as e:
+        print(f"⚠️ db_delete({table}) failed: {e}")
+ 
+ 
+def db_upsert_batch(table: str, rows: list, on_conflict: str = "") -> None:
+    """Batch upsert — one HTTP request for many rows (loophole 21)."""
+    if not rows:
+        return
+    try:
+        q = supabase.table(table).upsert(rows, on_conflict=on_conflict)
+        q.execute()
+    except Exception as e:
+        # Fallback to per-row if the batch fails (e.g. one bad row)
+        print(f"⚠️ batch upsert failed, falling back to per-row: {e}")
+        for row in rows:
+            try:
+                supabase.table(table).upsert(row, on_conflict=on_conflict).execute()
+            except Exception as e2:
+                print(f"⚠️ per-row upsert failed for {row.get('path')}: {e2}")
+ 
+ 
+def db_list_file_paths(project_id: str) -> set:
+    """Return every file path the DB currently has for this project.
+    Used to detect which files the agent deleted."""
+    try:
+        res = supabase.table("files").select("path").eq("project_id", project_id).execute()
+        return {row["path"] for row in (res.data or []) if row.get("path")}
+    except Exception as e:
+        print(f"⚠️ db_list_file_paths failed: {e}")
+        return set()
+ 
+ 
+def emit_file_deleted(project_id: str, path: str) -> None:
+    """SSE event so the frontend file tree can remove the node."""
+    progress_bus.emit(project_id, {"type": "file_deleted", "path": path})
 
 # ==========================================================================
 # TOKEN MANAGEMENT LOGIC
@@ -366,29 +357,19 @@ def ensure_public_user(user_id: str, email: str) -> None:
     except Exception:
         pass
 
-from fastapi import Request, HTTPException, status
-from typing import Dict, Any
-
 def get_current_user(request: Request) -> Dict[str, Any]:
-    """Retrieves user from session. Strictly enforces authentication and blocks dev accounts."""
     user = request.session.get("user")
-    
-    # 1. No user in session? Boot them to the homepage/login.
+ 
+    # 1. No user in session? 403 — the exception handler will redirect home.
     if not user or not user.get("id"):
-        raise HTTPException(
-            status_code=403,
-            detail="Invalid user session."
-        )
-
-    # 2. THE KILLSWITCH: Catch old dev@local cookies and destroy them
+        raise HTTPException(status_code=403, detail="Invalid user session.")
+ 
+    # 2. KILLSWITCH: catch old dev@local cookies and destroy them
     if user.get("email") == "dev@local":
-        request.session.clear() # Completely wipe the ghost session from their browser
-        raise HTTPException(
-            status_code=403,
-            detail="Invalid user session."
-        )
-
-    # 3. Valid, real user found. Ensure public record exists.
+        request.session.clear()
+        raise HTTPException(status_code=403, detail="Invalid user session.")
+ 
+    # 3. Valid, real user — ensure public record exists
     ensure_public_user(user["id"], user.get("email") or "unknown@local")
     return user
 
@@ -413,9 +394,9 @@ def send_otp_email(to_email: str, code: str):
     try:
         # 1. Send the Verification Email
         params = {
-            "from": "Gor://a OAuth Verification <auth@gorillabuilder.dev>", # Use your verified domain
+            "from": "Gor://a Auth Verification <auth@gorillabuilder.dev>", # Use your verified domain
             "to": [to_email],
-            "subject": f"{code} - Your Verification Code for Gor://a Builder",
+            "subject": "Your Verification Code for Gor://a Builder",
             "html": f"""
             <!DOCTYPE html>
             <html>
@@ -424,7 +405,7 @@ def send_otp_email(to_email: str, code: str):
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Verification Email</title>
             </head>
-            <body style="margin: 0; padding: 0; background-color: #0b1020; font-family: 'Google Sans','Calibri','Roboto', Monospace, sans-serif;">
+            <body style="margin: 0; padding: 0; background-color: #0b1020; font-family: Monospace, sans-serif;">
                 <div style="width: 100%; padding: 40px 0; background-color: #0b1020;">
                     <div style="max-width: 420px; margin: 0 auto; background-color: #0f1530; padding: 40px; border-radius: 18px; color: #ffffff;">
                         <h1 style="margin: 0 0 10px; font-size: 24px; font-weight: 400; letter-spacing: -0.3px;">Welcome to Gor://a</h1>
@@ -447,7 +428,6 @@ def send_otp_email(to_email: str, code: str):
         # 2. Create/Update Resend Contact (Fixed: No Audience ID needed)
         try:
             contact_params = {
-                "audience_id": "638e2a6b-cf64-4efc-bece-1973216a2825",
                 "email": to_email,
                 "unsubscribed": False
             }
@@ -543,7 +523,6 @@ PUBLIC_PAGES = {
     "/privacy-policy": "legal/privacy-policy.html",
     "/terms-of-service": "legal/terms-of-service.html"
 }
-
 # In app.py
 from fastapi.staticfiles import StaticFiles # Make sure this is imported
 
@@ -565,9 +544,6 @@ async def add_security_headers(request: Request, call_next):
 
 app.mount("/assets", StaticFiles(directory="frontend/templates/landing/assets"), name="assets")
 
-from fastapi.responses import HTMLResponse, RedirectResponse
-
-
 # 1. ROOT ROUTE REDIRECT LOGIC
 @app.get("/")
 async def root_redirect(request: Request):
@@ -577,14 +553,16 @@ async def root_redirect(request: Request):
     - Not logged in (or dev/local) -> /signup
     """
     user = get_current_user_safe(request) # Helper function to get user without raising error
+    
     if user:
         return RedirectResponse("/dashboard", status_code=303)
-
+    
+    # Default landing is now the signup page
     return RedirectResponse("/signup", status_code=303)
 
 # 2. GENERATE HANDLERS FOR OTHER PUBLIC PAGES
 for route, template_name in PUBLIC_PAGES.items():
-# Skip creating a handler for root since we defined it manually above
+    # Skip creating a handler for root since we defined it manually above
     if route == "/": continue
 
     def make_handler(t_name):
@@ -592,28 +570,16 @@ for route, template_name in PUBLIC_PAGES.items():
             # Pass common variables like 'step' for signup flow
             return templates.TemplateResponse(t_name, {"request": request, "step": "initial"})
         return handler
- 
+        
     app.get(route, response_class=HTMLResponse)(make_handler(template_name))
-
-from fastapi.responses import Response
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
-    # The raw Gorilla SVG from your frontend, colored with the accent blue
-    svg_content = """<svg version="1.0" xmlns="http://www.w3.org/2000/svg" width="800" height="803" viewBox="0 0 600 550" preserveAspectRatio="xMidYMid meet">
-        <g transform="translate(0.000000,603.000000) scale(0.100000,-0.100000)" fill="#3b6cff" stroke="none"> 
-            <path d="M1497 6023 c827 -2 2179 -2 3005 0 827 1 151 2 -1502 2 -1653 0 -2329 -1 -1503 -2z"/> 
-            <path d="M2802 5273 c-43 -24 -131 -143 -182 -246 -99 -202 -106 -410 -19 -598 59 -128 153 -189 246 -158 56 18 81 37 108 84 34 57 32 112 -6 216 -54 145 -51 327 7 490 41 113 27 176 -46 214 -38 20 -68 19 -108 -2z"/> 
-            <path d="M3290 5268 c-74 -50 -185 -230 -228 -369 -44 -142 -37 -293 19 -440 52 -134 141 -208 234 -195 131 20 194 151 136 281 -67 150 -67 316 0 522 26 80 29 98 20 126 -28 83 -116 119 -181 75z"/> 
-            <path d="M685 4560 c-171 -34 -283 -139 -331 -306 -15 -50 -18 -129 -23 -519 -4 -321 -10 -466 -18 -480 -32 -56 -64 -70 -205 -90 -26 -4 -46 -17 -72 -45 -33 -36 -36 -45 -36 -99 0 -98 62 -161 157 -161 59 0 119 -26 146 -64 22 -31 22 -35 28 -496 5 -424 8 -471 26 -531 11 -37 31 -87 46 -111 72 -124 228 -198 418 -198 125 0 200 111 151 223 -26 59 -64 82 -148 90 -73 7 -116 27 -148 70 -20 28 -21 41 -27 490 -6 505 -8 526 -68 632 l-28 50 28 50 c60 106 62 128 68 630 6 427 7 462 25 491 26 44 68 65 139 71 81 7 131 35 157 88 26 53 25 91 -2 145 -32 61 -73 80 -168 79 -41 -1 -93 -5 -115 -9z"/> 
-            <path d="M5102 4550 c-68 -42 -92 -135 -54 -209 26 -52 60 -72 140 -81 83 -9 128 -32 157 -80 19 -33 20 -56 26 -500 6 -505 6 -513 66 -621 l26 -45 -26 -45 c-59 -103 -61 -113 -67 -619 -5 -461 -5 -465 -28 -501 -28 -45 -72 -67 -156 -77 -111 -14 -160 -66 -153 -165 4 -66 26 -103 78 -130 28 -15 50 -18 124 -13 218 12 351 101 416 278 22 61 23 74 28 533 6 503 6 500 58 547 19 18 78 34 155 43 33 4 56 15 78 35 29 27 30 31 30 118 0 88 -1 91 -31 116 -33 28 -45 32 -127 40 -66 7 -110 31 -137 76 -19 33 -20 56 -26 505 -6 496 -6 500 -55 598 -70 138 -221 217 -414 217 -57 0 -83 -5 -108 -20z"/> 
-            <path d="M1965 3849 c-113 -9 -166 -24 -280 -79 -312 -150 -493 -462 -471 -810 13 -209 89 -379 238 -529 161 -163 321 -236 545 -248 269 -14 478 70 667 267 61 65 95 111 130 179 70 136 89 217 89 386 0 124 -3 151 -27 230 -53 176 -145 314 -282 425 -174 139 -372 197 -609 179z m214 -324 c173 -46 319 -185 372 -354 23 -76 28 -212 9 -282 -50 -186 -208 -340 -391 -384 -181 -42 -372 15 -499 152 -100 106 -144 218 -143 363 1 290 228 517 518 519 44 0 104 -6 134 -14z"/> 
-            <path d="M3880 3849 c-190 -17 -341 -86 -488 -224 -112 -104 -200 -249 -239 -395 -25 -92 -25 -339 0 -430 78 -281 316 -519 597 -597 101 -28 339 -25 443 5 152 44 285 128 397 250 146 158 211 332 212 557 0 244 -82 436 -259 606 -181 175 -402 251 -663 228z m213 -324 c282 -73 454 -362 382 -640 -45 -171 -179 -312 -355 -371 -80 -27 -243 -25 -324 5 -202 73 -337 252 -353 466 -17 243 150 475 388 539 71 19 191 20 262 1z"/> 
-        </g> 
-    </svg>"""
-    
-    # Return it explicitly as an SVG image
-    return Response(content=svg_content, media_type="image/svg+xml")
+    p = os.path.join(FRONTEND_DIR, "assets", "favicon.png")
+    if os.path.exists(p): 
+        return FileResponse(p)
+    raise HTTPException(status_code=404)
+
 
 # ==========================================================================
 # 📚 DOCUMENTATION ROUTES
@@ -667,6 +633,7 @@ async def docs_page(request: Request, page: str):
 @app.get("/docs", response_class=HTMLResponse)
 async def docs_root():
     return RedirectResponse("/docs/intro")
+
 
 # ==========================================================================
 # AUTHENTICATION ROUTES (Consolidated & Secured)
@@ -1102,22 +1069,6 @@ async def auth_github_callback(request: Request, code: str):
         request.session["user"] = {"id": user_id, "email": email}
         
         return RedirectResponse("/dashboard", status_code=303)
-
-@app.get("/pricing", response_class=HTMLResponse)
-async def pricing_page(request: Request):
-    """Renders the pricing page, dynamically applying Monke's negotiated discount if it exists."""
-    user = get_current_user_safe(request)
-    db_user = None
-    
-    if user:
-        # Fetch their plan and any negotiated first_month_price
-        db_user = db_select_one("users", {"id": user["id"]}, "plan, first_month_price")
-        
-    return templates.TemplateResponse("freemium/pricing.html", {
-        "request": request,
-        "user": user,
-        "db_user": db_user
-    })
         
 # ==========================================================================
 # BILLING ROUTES (Mock Payment Processing)
@@ -1144,6 +1095,18 @@ async def process_tokens(request: Request, amount: int = Form(...)):
     return RedirectResponse("/dashboard", status_code=303)
 from fastapi.responses import HTMLResponse, JSONResponse
 
+@app.get("/pricing", response_class=HTMLResponse)
+async def pricing_page(request: Request):
+    \"\"\"Renders pricing page with dynamic Monke discount if negotiated.\"\"\"
+    user = get_current_user_safe(request)
+    db_user = None
+    if user:
+        db_user = db_select_one("users", {"id": user["id"]}, "plan, first_month_price")
+    return templates.TemplateResponse("freemium/pricing.html", {
+        "request": request,
+        "user": user,
+        "db_user": db_user,
+    })
 # ==========================================================================
 # SUPABASE MANAGEMENT OAUTH (Phase 1)
 # ==========================================================================
@@ -1328,6 +1291,9 @@ async def spin_wheel(request: Request):
 # ==========================================================================
 # SETTINGS & AGENT SKILLS ROUTES
 # ==========================================================================
+# ==========================================================================
+# SETTINGS & AGENT SKILLS ROUTES
+# ==========================================================================
 import secrets
 from fastapi import Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -1447,55 +1413,42 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse,
 # --- NEW: BACKGROUND TASK FOR SNAPSHOTS ---
 async def generate_project_snapshot(project_id: str, prompt: str, user_api_key: str):
     try:
-        print(f"📸 Snapshot generation started for project {project_id}...")
-        
+        proxy_base = os.getenv("FILE_API_BASE_URL", "").rstrip("/")
+        if not proxy_base:
+            print(f"FILE_API_BASE_URL not set; skipping snapshot for {project_id}")
+            return
         payload = {"prompt": f"Professional web UI dashboard preview: {prompt}", "samples": 1}
         headers = {
             "Authorization": f"Bearer {user_api_key}",
             "Content-Type": "application/json",
-            "ngrok-skip-browser-warning": "true" # Bypass Ngrok landing page
+            "ngrok-skip-browser-warning": "true",
         }
-        
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                "https://slaw-carefully-cried.ngrok-free.dev/api/v1/images/generations", 
-                json=payload, 
-                headers=headers, 
-                timeout=60.0
+                f"{proxy_base}/api/v1/images/generations",
+                json=payload, headers=headers, timeout=60.0,
             )
-            
             if resp.status_code != 200:
-                print(f"⚠️ Proxy Error ({resp.status_code}): {resp.text}")
+                print(f"Proxy Error ({resp.status_code}): {resp.text}")
                 return
-
             data = resp.json()
             snapshot_b64_data = None
-            
-            # --- ROBUST PARSING LOGIC ---
-            # 1. Check if it's a list (Fireworks Native Format: [{"base64": "..."}])
-            if isinstance(data, list) and len(data) > 0:
+            if isinstance(data, list) and data:
                 snapshot_b64_data = data[0].get("base64")
-            
-            # 2. Check if it's a dict with 'data' (OpenAI Format: {"data": [{"b64_json": "..."}]})
             elif isinstance(data, dict):
-                if "data" in data and len(data["data"]) > 0:
+                if "data" in data and data["data"]:
                     snapshot_b64_data = data["data"][0].get("b64_json") or data["data"][0].get("url")
                 elif "base64" in data:
                     snapshot_b64_data = data["base64"]
-
-            # 3. Save to Database
             if snapshot_b64_data:
-                # Add prefix if missing
                 if not snapshot_b64_data.startswith("data:image"):
                     snapshot_b64_data = f"data:image/jpeg;base64,{snapshot_b64_data}"
-
-                supabase.table("projects").update({"snapshot_b64": snapshot_b64_data}).eq("id", project_id).execute()
-                print(f"✅ Snapshot saved to Supabase for {project_id}!")
-            else:
-                print(f"⚠️ PARSE FAIL. Raw response was: {str(data)[:200]}")
-                
+                supabase.table("projects").update(
+                    {"snapshot_b64": snapshot_b64_data}
+                ).eq("id", project_id).execute()
+                print(f"Snapshot saved for {project_id}")
     except Exception as e:
-        print(f"⚠️ Task crashed: {e}")
+        print(f"Snapshot task crashed: {e}")
 
 # 1. CREATE PAGE (Stash prompt in session & detect Figma)
 @app.get("/projects/createit", response_class=HTMLResponse)
@@ -1526,334 +1479,290 @@ import re
 import urllib.parse
 import asyncio
 import os
-import time
-import uuid
-import secrets
-import httpx
 
 @app.post("/projects/create")
 async def create_project(
     request: Request,
     background_tasks: BackgroundTasks,
-    prompt: Optional[str] = Form(None), 
-    name: Optional[str] = Form(None), 
+    prompt: Optional[str] = Form(None),
+    name: Optional[str] = Form(None),
     description: str = Form(""),
     xmode: Optional[str] = Form(None),
     image_base64: Optional[str] = Form(None),
     figma_url: Optional[str] = Form(None),
     use_supabase: Optional[str] = Form(None),
-    agent_type: Optional[str] = Form("fast")  # 👈 ADD THIS LINE
 ):
     user = get_current_user(request)
-
+ 
     def check_project_limit():
         res = supabase.table("projects").select("id", count="exact").eq("owner_id", user["id"]).execute()
-        count = res.count if hasattr(res, 'count') and res.count is not None else len(res.data)
+        count = res.count if hasattr(res, "count") and res.count is not None else len(res.data)
         if count >= 3:
             return supabase.table("projects").select("*").eq("owner_id", user["id"]).order("created_at", desc=True).execute().data
         return None
-
-    # --- 1. FREE TIER LIMIT CHECK ---
+ 
+    # --- 1. FREE TIER LIMIT ---
     if user.get("plan") != "premium":
         try:
             projects_data = await asyncio.to_thread(check_project_limit)
             if projects_data is not None:
                 return templates.TemplateResponse("dashboard.html", {
-                    "request": request, 
-                    "user": user,
-                    "projects": projects_data,
-                    "error": "Free Limit Reached (3/3). Upgrade to Pro to create unlimited projects."
+                    "request": request, "user": user, "projects": projects_data,
+                    "error": "Free Limit Reached (3/3). Upgrade to Pro.",
                 })
         except Exception as e:
-            print(f"⚠️ Project limit check failed: {e}")
-            pass
-
-    # --- 2. PROMPT & IMAGE STASHING ---
+            print(f"Project limit check failed: {e}")
+ 
+    # --- 2. PROMPT STASHING ---
     if prompt and not name:
         if figma_url:
             request.session["stashed_figma_url"] = figma_url
-            
-        # Re-detect figma status here just in case they arrived via POST instead of GET
-        is_figma_link = False
-        if figma_url or (prompt and "figma.com" in prompt):
-            is_figma_link = True
-            
-        return templates.TemplateResponse(
-            "projects/project-create.html", 
-            {
-                "request": request, 
-                "user": user, 
-                "initial_prompt": prompt,
-                "stashed_image": image_base64,
-                "is_figma_link": is_figma_link
-            }
-        )
-    
+        is_figma_link = bool(figma_url or (prompt and "figma.com" in prompt))
+        return templates.TemplateResponse("projects/project-create.html", {
+            "request": request, "user": user,
+            "initial_prompt": prompt, "stashed_image": image_base64,
+            "is_figma_link": is_figma_link,
+        })
+ 
     final_prompt = prompt or request.session.pop("stashed_prompt", None)
     final_figma_url = figma_url or request.session.pop("stashed_figma_url", None)
-    
     project_name = name or "Untitled Project"
     final_image = image_base64
-    final_figma_json = None 
-    
-    # ====================================================================
-    # 🎨 3. FIGMA INTERCEPTOR (PRODUCTION MODE)
-    # ====================================================================
+    final_figma_json = None
+ 
+    # --- 3. FIGMA INTERCEPTOR ---
     potential_url = final_figma_url or ""
     if not potential_url and final_prompt and "figma.com/" in final_prompt:
-        match = re.search(r'(https://[^\s^?]*figma\.com/[^\s]*)', final_prompt)
+        match = re.search(r"(https://[^\\s^?]*figma\\.com/[^\\s]*)", final_prompt)
         if match:
             potential_url = match.group(0)
-
+ 
     if potential_url:
         try:
-            print(f"🎯 Figma Link Detected: {potential_url}")
-            
             def get_figma_token():
                 return supabase.table("users").select("figma_access_token").eq("id", user["id"]).single().execute()
-            
             user_data = await asyncio.to_thread(get_figma_token)
             figma_token = user_data.data.get("figma_access_token") if user_data.data else None
-            
             if not figma_token:
                 return RedirectResponse("/dashboard?error=figma_not_linked", status_code=303)
-                
             final_figma_json, figma_img_b64 = await fetch_and_compress_figma(potential_url, figma_token)
-            print(f"✅ Figma extraction successful ({len(final_figma_json)} characters)")
-            
             if figma_img_b64:
                 final_image = figma_img_b64
-            
             if "figma.com" in final_prompt:
-                final_prompt = "Build a pixel-perfect React and Tailwind replica of the design structure. I have provided the exact layout rules, spacing, typography, and hex colors in the `.gorilla/figma.json` file. Read that file and implement it exactly."
-
+                final_prompt = (
+                    "Build a pixel-perfect React and Tailwind replica of the design structure. "
+                    "I have provided the exact layout rules, spacing, typography, and hex colors "
+                    "in the `.gorilla/figma.json` file. Read that file and implement it exactly."
+                )
         except Exception as e:
-            print(f"⚠️ Figma Import Failed: {e}")
             return RedirectResponse(f"/dashboard?error={urllib.parse.quote(str(e))}", status_code=303)
-
-    # --- 4. HEAVY LIFTING (DB & Files) ---
+ 
+    # BUG 5 FIX: fetch api_key + supabase token OUTSIDE the closure so they\'re captured
+    user_keys_for_env = db_select_one(
+        "users", {"id": user["id"]},
+        "gorilla_api_key, supabase_access_token",
+    ) or {}
+    gorilla_api_key_for_env = user_keys_for_env.get("gorilla_api_key", "") or ""
+    supa_mgmt_token = user_keys_for_env.get("supabase_access_token", "") or ""
+ 
+    # --- 4. HEAVY LIFT ---
     def _heavy_lift_create():
         compiled_react_code = None
-        figma_tokens_used = 0 
-        
-        # ⚡ 4A. SUPABASE PROVISIONING ENGINE ⚡
+        figma_tokens_used = 0
+ 
+        # 4A. SUPABASE PROVISIONING
         supabase_env_content = ""
         project_ref_to_save = None
-
-        if use_supabase == "true":
-            print(f"🗄️ Provisioning remote Supabase DB for {project_name}...")
-            user_keys = supabase.table("users").select("supabase_access_token").eq("id", user["id"]).single().execute()
-            supa_token = user_keys.data.get("supabase_access_token") if user_keys.data else None
-
-            if supa_token:
-                try:
-                    headers = {"Authorization": f"Bearer {supa_token}", "Content-Type": "application/json"}
-                    with httpx.Client() as client:
-                        # 1. Get or Create Organization
-                        orgs_res = client.get("https://api.supabase.com/v1/organizations", headers=headers)
-                        orgs = orgs_res.json() if orgs_res.status_code == 200 else []
-                        org_id = orgs[0]["id"] if orgs else None
-
-                        if not org_id:
-                            new_org = client.post("https://api.supabase.com/v1/organizations", headers=headers, json={"name": "Gorilla Apps"}).json()
-                            org_id = new_org.get("id")
-
-                        # 2. Spin up the Database
-                        if org_id:
-                            db_pass = secrets.token_urlsafe(16)
-                            # Supabase restricts names to 32 chars
-                            safe_db_name = re.sub(r'[^a-zA-Z0-9 ]', '', project_name)[:32].strip() or "Gorilla App"
-                            
-                            proj_payload = {
-                                "organization_id": org_id,
-                                "name": safe_db_name,
-                                "db_pass": db_pass,
-                                "region": "us-east-1",
-                                "plan": "free"
-                            }
-                            proj_res = client.post("https://api.supabase.com/v1/projects", headers=headers, json=proj_payload)
-                            
-                            if proj_res.status_code == 201:
-                                proj_data = proj_res.json()
-                                project_ref_to_save = proj_data.get("id")
-                                supa_url = f"https://{project_ref_to_save}.supabase.co"
-                                
-                                # 3. Poll for the Anon Key (Takes a few seconds during provisioning)
-                                supa_anon_key = "PROVISIONING_IN_PROGRESS"
-                                for _ in range(5):
-                                    keys_res = client.get(f"https://api.supabase.com/v1/projects/{project_ref_to_save}/api-keys", headers=headers)
-                                    if keys_res.status_code == 200:
-                                        keys = keys_res.json()
-                                        anon_obj = next((k for k in keys if k.get("name") == "anon"), None)
-                                        if anon_obj:
+        if use_supabase == "true" and supa_mgmt_token:
+            try:
+                headers = {"Authorization": f"Bearer {supa_mgmt_token}", "Content-Type": "application/json"}
+                with httpx.Client(timeout=20.0) as client:
+                    orgs_res = client.get("https://api.supabase.com/v1/organizations", headers=headers)
+                    orgs = orgs_res.json() if orgs_res.status_code == 200 else []
+                    org_id = orgs[0]["id"] if isinstance(orgs, list) and orgs else None
+                    if not org_id:
+                        new_org = client.post(
+                            "https://api.supabase.com/v1/organizations",
+                            headers=headers, json={"name": "Gorilla Apps"},
+                        ).json()
+                        org_id = new_org.get("id")
+                    if org_id:
+                        db_pass = secrets.token_urlsafe(16)
+                        safe_db_name = re.sub(r"[^a-zA-Z0-9 ]", "", project_name)[:32].strip() or "Gorilla App"
+                        proj_res = client.post(
+                            "https://api.supabase.com/v1/projects", headers=headers,
+                            json={
+                                "organization_id": org_id, "name": safe_db_name,
+                                "db_pass": db_pass, "region": "us-east-1", "plan": "free",
+                            },
+                        )
+                        if proj_res.status_code == 201:
+                            project_ref_to_save = proj_res.json().get("id")
+                            supa_url = f"https://{project_ref_to_save}.supabase.co"
+                            supa_anon_key = ""
+                            for _ in range(10):
+                                keys_res = client.get(
+                                    f"https://api.supabase.com/v1/projects/{project_ref_to_save}/api-keys",
+                                    headers=headers,
+                                )
+                                if keys_res.status_code == 200:
+                                    keys = keys_res.json()
+                                    if isinstance(keys, list):
+                                        anon_obj = next(
+                                            (k for k in keys if k.get("name") in ["anon", "publishable"]),
+                                            None,
+                                        )
+                                        if anon_obj and anon_obj.get("api_key"):
                                             supa_anon_key = anon_obj.get("api_key")
                                             break
-                                    time.sleep(1.5)
-
-                                supabase_env_content = f"\nVITE_SUPABASE_URL={supa_url}\nVITE_SUPABASE_ANON_KEY={supa_anon_key}\n"
-                                print(f"✅ Supabase Project Provisioned! Ref: {project_ref_to_save}")
-                            else:
-                                print(f"⚠️ Supabase Provisioning Failed: {proj_res.text}")
-                except Exception as e:
-                    print(f"⚠️ Supabase Mgmt API Error: {e}")
-
-        # ⚡ 4B. THE GEMINI COMPILER STEP ⚡
+                                time.sleep(1.5)
+                            # REAL newlines, not escaped
+                            supabase_env_content = (
+                                f"\\nVITE_SUPABASE_URL={supa_url}\\n"
+                                f"VITE_SUPABASE_ANON_KEY={supa_anon_key}\\n"
+                            )
+            except Exception as e:
+                print(f"Supabase provisioning failed: {e}")
+ 
+        # 4B. GEMINI FIGMA COMPILER
         if final_figma_json:
             or_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("GORILLA_API_KEY")
             if or_key:
                 try:
-                    compiled_react_code, figma_tokens_used = asyncio.run(compile_figma_to_react(final_figma_json, or_key))
-                    if figma_tokens_used and figma_tokens_used > 0:
-                        try:
-                            add_monthly_tokens(user["id"], figma_tokens_used)
-                            print(f"💰 Deducted {figma_tokens_used} tokens for Gemini Figma Compiler")
-                        except Exception as tk_err:
-                            print(f"⚠️ Failed to deduct tokens: {tk_err}")
+                    compiled_react_code, figma_tokens_used = asyncio.run(
+                        compile_figma_to_react(final_figma_json, or_key)
+                    )
+                    if figma_tokens_used:
+                        add_monthly_tokens(user["id"], figma_tokens_used)
                 except Exception as e:
-                    print(f"❌ Gemini Compiler thread failed: {e}")
-
-        # 🛑 CHAT HISTORY HACK
+                    print(f"Gemini Compiler failed: {e}")
+ 
+        # CHAT HISTORY SEED
         initial_history = []
         if compiled_react_code:
             initial_history.append({
                 "role": "system",
-                "content": "A Figma design was imported. A pre-compiler has already converted the design into the starting React code located in src/App.tsx. Your job is to help the user refine it, add state/interactivity, or split it into components as requested."
+                "content": "A Figma design was imported. A pre-compiler has already converted the design into the starting React code located in src/App.tsx.",
             })
             initial_history.append({
                 "role": "assistant",
-                "content": "✨ I have successfully compiled your Figma design into React! The preview is loading. What functionality or state would you like to add?"
+                "content": "✨ I compiled your Figma design into React. What state would you like to add?",
             })
             if final_prompt and "figma.com" not in final_prompt:
                 initial_history.append({"role": "user", "content": final_prompt})
         elif final_figma_json:
             initial_history.append({
                 "role": "system",
-                "content": f"FIGMA DESIGN DATA: You MUST use this exact structural JSON to build the React/Tailwind UI. Do not hallucinate classes. Rely on the 'layoutMode', 'itemSpacing', and hex 'fills'. Data:\n{final_figma_json}"
+                "content": f"FIGMA DESIGN DATA:\\n{final_figma_json}",
             })
-
-        # --- Generate Unique Auth ID for the App ---
+ 
         gorilla_auth_id = str(uuid.uuid4())
-
-        # --- UPDATE DB: Save the supabase_project_ref ---
+ 
         res = supabase.table("projects").insert({
-            "owner_id": user["id"], 
-            "name": project_name, 
-            "gorilla_auth_id": gorilla_auth_id, 
-            "supabase_project_ref": project_ref_to_save,  # <-- SAVED SO EDITOR KNOWS TO OPEN AGENT
+            "owner_id": user["id"],
+            "name": project_name,
+            "gorilla_auth_id": gorilla_auth_id,
+            "supabase_project_ref": project_ref_to_save,
             "description": description or (final_prompt[:200] if final_prompt else ""),
             "prompt_image": final_image,
-            "snapshot_b64": final_image, 
-            "chat_history": initial_history 
+            "snapshot_b64": final_image,
+            "chat_history": initial_history,
         }).execute()
-        
-        if not res.data: 
+ 
+        if not res.data:
             raise Exception("DB Insert Failed - Check Service Role Key")
-            
-        pid = res.data[0]['id']
-        
-        clean_name = re.sub(r'[^a-z0-9-]', '-', project_name.lower()).strip('-') or "app"
-        final_subdomain = f"{clean_name}-{pid}" 
-        supabase.table("projects").update({"subdomain": final_subdomain}).eq("id", pid).execute()
-        
+        pid = res.data[0]["id"]
+ 
+        clean_name = re.sub(r"[^a-z0-9-]", "-", project_name.lower()).strip("-") or "app"
+        supabase.table("projects").update({"subdomain": f"{clean_name}-{pid}"}).eq("id", pid).execute()
+ 
         bp_dir = globals().get("BOILERPLATE_DIR")
         if not bp_dir or not os.path.isdir(bp_dir):
             bp_dir = os.path.join(ROOT_DIR, "backend", "boilerplate")
-            if not os.path.isdir(bp_dir):
-                bp_dir = os.path.join(ROOT_DIR, "boilerplate")
-
+ 
         if os.path.isdir(bp_dir):
             files_to_insert = []
-            
-            # --- INJECT .ENV WITH BOTH AUTH ID AND SUPABASE KEYS ---
+            # BUG 5 FIX: api_key is the captured var, real newlines in .env
             files_to_insert.append({
                 "project_id": pid,
                 "path": ".env",
-                "content": f"VITE_GORILLA_AUTH_ID={gorilla_auth_id}\nGORILLA_API_KEY={api_key}\n{supabase_env_content}"
+                "content": (
+                    f"VITE_GORILLA_AUTH_ID={gorilla_auth_id}\\n"
+                    f"GORILLA_API_KEY={gorilla_api_key_for_env}"
+                    f"{supabase_env_content}"
+                ),
             })
-
+ 
             for root, dirs, files in os.walk(bp_dir):
                 dirs[:] = [d for d in dirs if d not in ["node_modules", ".git", "dist", "build"]]
                 for file in files:
-                    if file.startswith('.'): continue
+                    if file.startswith("."):
+                        continue
                     abs_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(abs_path, bp_dir).replace("\\", "/")
+                    rel_path = os.path.relpath(abs_path, bp_dir).replace("\\\\", "/")
                     try:
                         with open(abs_path, "r", encoding="utf-8") as f:
                             files_to_insert.append({
-                                "project_id": pid,
-                                "path": rel_path,
-                                "content": f.read()
+                                "project_id": pid, "path": rel_path, "content": f.read(),
                             })
-                    except: continue 
-
+                    except Exception:
+                        continue
+ 
             if files_to_insert and compiled_react_code:
                 for f in files_to_insert:
                     if f["path"] in ["src/App.tsx", "src/App.jsx"]:
                         f["content"] = compiled_react_code
-                        print(f"💉 Injected Gemini React code perfectly into {f['path']}")
                         break
-
+ 
             if files_to_insert:
                 try:
                     supabase.table("files").insert(files_to_insert).execute()
-                except Exception as e:
+                except Exception:
                     for f in files_to_insert:
-                        try: supabase.table("files").upsert(f, on_conflict="project_id,path").execute()
-                        except: pass
-
+                        try:
+                            supabase.table("files").upsert(f, on_conflict="project_id,path").execute()
+                        except Exception:
+                            pass
+ 
         if final_image:
             try:
                 supabase.table("files").insert({
-                    "project_id": pid,
-                    "path": ".gorilla/prompt_image.b64",
-                    "content": final_image
+                    "project_id": pid, "path": ".gorilla/prompt_image.b64", "content": final_image,
                 }).execute()
-            except Exception as e:
-                print(f"⚠️ Failed to save image to virtual FS: {e}")
-                
+            except Exception:
+                pass
+ 
         if final_figma_json:
             try:
                 supabase.table("files").insert({
-                    "project_id": pid,
-                    "path": ".gorilla/figma.json",
-                    "content": final_figma_json
+                    "project_id": pid, "path": ".gorilla/figma.json", "content": final_figma_json,
                 }).execute()
-            except Exception as e:
-                print(f"⚠️ Failed to save figma.json to virtual FS: {e}")
-        
+            except Exception:
+                pass
+ 
         return pid
-
+ 
     # --- 5. EXECUTION ---
     try:
         pid = await asyncio.to_thread(_heavy_lift_create)
-        
+ 
         if final_prompt and not final_figma_json and not final_image:
-            try:
-                def get_api_key():
-                    return supabase.table("users").select("gorilla_api_key").eq("id", user["id"]).single().execute()
-                
-                user_api_data = await asyncio.to_thread(get_api_key)
-                api_key = user_api_data.data.get("gorilla_api_key", "") if user_api_data and user_api_data.data else ""
-                
-                if api_key.startswith("gb_live_"):
-                    background_tasks.add_task(generate_project_snapshot, pid, final_prompt, api_key)
-            except Exception as e:
-                pass
-        
-        if xmode == "true":
-            target_url = f"/projects/{pid}/editor/xmode"
-        else:
-            target_url = f"/projects/{pid}/editor"
-            
+            if gorilla_api_key_for_env.startswith("gb_live_"):
+                background_tasks.add_task(
+                    generate_project_snapshot, pid, final_prompt, gorilla_api_key_for_env,
+                )
+ 
+        # BUG 4 FIX: build URL directly. No query_params list.
+        # Also: xmode dropped from target URL (no xmode route in e2b arch)
+        target_url = f"/projects/{pid}/editor"
         if final_prompt:
-                query_params.append(f"prompt={urllib.parse.quote(final_prompt)}")
-            if agent_type:
-                query_params.append(f"agent_type={agent_type}")
+            target_url += f"?prompt={urllib.parse.quote(final_prompt)}"
         return RedirectResponse(target_url, status_code=303)
-        
+ 
     except Exception as e:
         print(f"Create Error: {e}")
-        return RedirectResponse("/dashboard?error=creation_failed_rls", status_code=303)
+        return RedirectResponse("/dashboard?error=creation_failed", status_code=303)
+
 
 # 3. EDITOR PAGE
 @app.get("/projects/{project_id}/editor", response_class=HTMLResponse)
@@ -1910,19 +1819,27 @@ async def project_editor(request: Request, project_id: str, file: str = "index.h
 async def project_preview(request: Request, project_id: str):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
+ 
+    # BUG 7 FIX: actually fetch the project
+    try:
+        res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
+        project = res.data if res else None
+    except Exception:
+        project = None
+ 
+    project_name = project.get("name", "Untitled Project") if project else "Untitled Project"
+ 
     return templates.TemplateResponse(
         "projects/project-preview.html",
-        {"request": request, "project_id": project_id, "project_name": project.get("name", "Untitled Project") if project else "Untitled Project", "user": user}
+        {
+            "request": request,
+            "project_id": project_id,
+            "project_name": project_name,
+            "user": user,
+        },
     )
 
 # 6. SETTINGS PAGE
-import base64
-import mimetypes
-from typing import Optional
-from fastapi import Request, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse
-
-# 6. SETTINGS PAGE (GET Route remains exactly the same)
 @app.get("/projects/{project_id}/settings", response_class=HTMLResponse)
 async def project_settings(request: Request, project_id: str):
     user = get_current_user(request)
@@ -1936,16 +1853,9 @@ async def project_settings(request: Request, project_id: str):
         
     return templates.TemplateResponse(
         "projects/project-settings.html",
-        {
-            "request": request, 
-            "project_id": project_id, 
-            "project": project, 
-            "project_name": project.get("name", "Untitled Project") if project else "Untitled Project", 
-            "user": user
-        }
+        {"request": request, "project_id": project_id, "project": project, "project_name": project.get("name", "Untitled Project") if project else "Untitled Project", "user": user}
     )
 
-# UPGRADED: Save Route with Base64 Image Processing
 @app.post("/projects/{project_id}/settings")
 async def project_settings_save(
     request: Request, 
@@ -1974,6 +1884,7 @@ async def project_settings_save(
     supabase.table("projects").update(update_data).eq("id", project_id).execute()
     
     return RedirectResponse(f"/projects/{project_id}/settings", status_code=303)
+
 
 # 7. EXPORT TO ZIP
 @app.get("/api/project/{project_id}/export")
@@ -2020,544 +1931,398 @@ async def project_export(request: Request, project_id: str):
         }
     )
 # ==========================================================================
-# PROJECT DELETION
+# SANDBOX ROUTES AND HELPERS
 # ==========================================================================
-@app.post("/api/project/{project_id}/delete")
-async def delete_project(request: Request, project_id: str):
-    """Completely wipes a project and its associated files from the DB."""
+
+def _build_sandbox_env(project_id: str, user_id: str) -> dict:
+    user_data = db_select_one(
+        "users", {"id": user_id},
+        "gorilla_api_key, supabase_access_token",
+    ) or {}
+    api_key = user_data.get("gorilla_api_key", "")
+    supa_mgmt = user_data.get("supabase_access_token", "")
+ 
+    proj = db_select_one(
+        "projects", {"id": project_id},
+        "gorilla_auth_id, supabase_project_ref",
+    ) or {}
+    auth_id = proj.get("gorilla_auth_id", "")
+    project_ref = proj.get("supabase_project_ref") or ""
+ 
+    supa_url, supa_anon = "", ""
+    env_file = db_select_one("files", {"project_id": project_id, "path": ".env"})
+    if env_file and env_file.get("content"):
+        # Real newline character — \\n in Python source = newline at runtime
+        for line in env_file["content"].split("\\n"):
+            line = line.strip()
+            if line.startswith("VITE_SUPABASE_URL="):
+                supa_url = line.split("=", 1)[1].strip()
+            elif line.startswith("VITE_SUPABASE_ANON_KEY="):
+                supa_anon = line.split("=", 1)[1].strip()
+ 
+    return {
+        "GORILLA_API_KEY":        api_key,
+        "VITE_GORILLA_AUTH_ID":   auth_id,
+        "VITE_SUPABASE_URL":      supa_url,
+        "VITE_SUPABASE_ANON_KEY": supa_anon,
+        "SUPABASE_MGMT_TOKEN":    supa_mgmt,
+        "SUPABASE_PROJECT_REF":   project_ref,
+    }
+ 
+def _init_sandbox_manager():
+    global _sandbox_manager
+    _sandbox_manager = E2BSandboxManager(
+        db_upsert_fn=db_upsert,
+        db_delete_fn=db_delete,
+        db_upsert_batch_fn=db_upsert_batch,
+        add_tokens_fn=add_monthly_tokens,
+        emit_log_fn=emit_log,
+        emit_status_fn=emit_status,
+        emit_file_changed_fn=emit_file_changed,
+        emit_file_deleted_fn=emit_file_deleted,
+        fetch_files_fn=_fetch_file_tree,
+        list_db_paths_fn=db_list_file_paths,
+        progress_bus=progress_bus,
+    )
+ 
+# At the very bottom of app.py (replacing the old set_log_callback calls):
+# lineage_set_log(filtered_log_callback)
+# _init_sandbox_manager()
+
+@app.post("/api/project/{project_id}/sandbox/start")
+async def start_sandbox(request: Request, project_id: str):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
-
-    try:
-        # 1. Delete all virtual files associated with the project
-        supabase.table("files").delete().eq("project_id", project_id).execute()
-        
-        # 2. Delete the project record itself
-        supabase.table("projects").delete().eq("id", project_id).execute()
-        
-        # Note: If a remote Supabase DB was provisioned for this project, 
-        # we leave it active on the user's Supabase account for safety, 
-        # but the Gorilla linkage is destroyed.
-        
-        return JSONResponse({"status": "success", "detail": "Project annihilated."})
-    except Exception as e:
-        print(f"❌ Project Deletion Error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to delete project.")
-
-# ==========================================================================
-# REUSABLE AGENT LOOP - Streamlined Version (Unified Full-Stack & DB)
-# ==========================================================================
-import httpx
-import re
-import asyncio
-from typing import List, Dict
-
-# Import all 3 Agent classes for dynamic routing + AgentSwarm for the Debugger
-from backend.ai.agent import Agent as RegularAgent, AgentSwarm, _render_token_limit_message
-from backend.ai.supabase_agent import SupabaseAgentSwarm
-from backend.ai.deep_agent import Agent as DeepAgent
-import backend.ai.scope_guard
-import backend.ai.json_arnour        
-
-# Global tracking for active AI fixes
-active_ai_fixes = set()
-
-@app.post("/api/project/{project_id}/agent/start")
-async def agent_start(request: Request, project_id: str):
-    user = get_current_user(request)
-    _require_project_owner(user, project_id)
-    
+ 
+    if _sandbox_manager.is_running(project_id):
+        url = _sandbox_manager.get_preview_url(project_id)
+        if url:
+            progress_bus.emit(project_id, {"type": "sandbox_url", "url": url})
+        return JSONResponse({"status": "running", "url": url or ""})
+ 
     try:
         enforce_token_limit_or_raise(user["id"])
     except HTTPException as e:
         if e.status_code == 402:
-            alert_html = (
-                f'<div style="background:#0f172a; border:1px solid rgba(239,68,68,0.2); border-left:3px solid #ef4444; border-radius:12px; padding:24px; margin-top:20px; font-family:system-ui,-apple-system,sans-serif; box-shadow:0 10px 30px rgba(0,0,0,0.4);">'
-                f'  <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; padding-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.05);">'
-                f'    <div style="width:24px; height:24px; display:flex; align-items:center; justify-content:center; background:rgba(239,68,68,0.1); color:#ef4444; border-radius:50%; font-size:14px; font-weight:bold;">!</div>'
-                f'    <div style="color:#e2e8f0; font-size:16px; font-weight:400; letter-spacing:0.5px; text-transform:uppercase;">Usage Limit Reached</div>'
-                f'  </div>'
-                f'  <div style="color:#cbd5e1; font-size:14px; line-height:1.6; margin-bottom:20px;">You have reached your monthly token limit. Upgrade to Pro to continue generating code and accessing advanced features.</div>'
-                f'  <a href="/pricing" target="_blank" style="display:inline-block; background:#ef4444; color:#ffffff; padding:10px 20px; border-radius:6px; font-size:13px; font-weight:500; text-decoration:none; letter-spacing:0.5px; box-shadow:0 4px 6px rgba(239,68,68,0.2);">Upgrade Plan</a>'
-                f'</div>'
-            )
-            emit_log(project_id, "assistant", alert_html)
-            return {"started": False}
-        raise e
-
-    # Use multi-part parsing to safely handle Base64 strings
-    form_data = await request.form()
-    prompt = str(form_data.get("prompt", ""))
-    image_base64 = form_data.get("image_base64")
-    
-    # 👇 GRAB THE AGENT TYPE FROM THE HTML DROPDOWN 👇
-    agent_type = str(form_data.get("agent_type", "fast")).lower()
-    
-    # 👇 GRAB THE DEBUGGER FLAG 👇
-    skip_planner = str(form_data.get("skip_planner", "false")).lower() == "true"
-    
-    # Fallback/override for legacy xmode or hardcoded db requests
-    xmode = str(form_data.get("xmode", "false")).lower() == "true"
-    is_db_request = str(form_data.get("is_db_request", "false")).lower() == "true"
-    
-    if xmode and agent_type == "fast":
-        agent_type = "deep"
-    if is_db_request:
-        agent_type = "supabase"
-
-    # 🛑 Guarantee the old image is overwritten
-    if image_base64:
-        try:
-            db_upsert("files", {"project_id": project_id, "path": ".gorilla/prompt_image.b64", "content": image_base64}, on_conflict="project_id,path")
-            print(f"📸 Mid-chat image successfully overwritten in DB for project {project_id}")
-        except Exception as err:
-            print(f"⚠️ Failed to save mid-chat image: {err}")
-
-    # Hide debug requests from chat UI
-    if not skip_planner:
-        emit_status(project_id, "Agent received prompt")
-        emit_log(project_id, "user", prompt)
-
-    asyncio.create_task(
-        run_agent_loop(
-            project_id=project_id, 
-            prompt=prompt, 
-            user_id=user["id"], 
-            agent_type=agent_type, 
-            history=None, 
-            skip_planner=skip_planner, 
-            is_system_task=False
-        )
-    )
-    return {"started": True}
-
-
-async def run_agent_loop(project_id: str, prompt: str, user_id: str, agent_type: str = "fast", history: List[Dict] = None, skip_planner: bool = False, is_system_task: bool = False):
+            return JSONResponse({"detail": "Token limit reached"}, status_code=402)
+        raise
+ 
+    env_vars = _build_sandbox_env(project_id, user["id"])
     try:
-        await asyncio.sleep(0.5)
-        file_tree = await _fetch_file_tree(project_id)
-        
-        proj_data = db_select_one("projects", {"id": project_id}, "name, chat_history, supabase_project_ref")
-        project_ref = proj_data.get("supabase_project_ref") if proj_data else None
-        project_name = proj_data.get("name", "Gorilla App") if proj_data else "Gorilla App"
-        
-        # 🛑 AMNESIA FIX: Instantly save the user's prompt to the DB so it's never lost
-        db_history = proj_data.get("chat_history", []) if proj_data and proj_data.get("chat_history") else []
-        
-        # Don't save stack traces into chat history
+        await _sandbox_manager.ensure_running(project_id, env_vars, user["id"])
+        url = await _sandbox_manager.start_dev_server(project_id)
+        return JSONResponse({"status": "ok", "url": url or ""})
+    except Exception as e:
+        print(f"Sandbox boot error: {e}")
+        return JSONResponse({"detail": str(e)}, status_code=500)
+ 
+ 
+@app.post("/api/project/{project_id}/sandbox/stop")
+async def stop_sandbox(request: Request, project_id: str):
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+    await _sandbox_manager.kill(project_id)
+    return JSONResponse({"status": "stopped"})
+
+# ==========================================================================
+# REUSABLE AGENT LOOP - Streamlined Version
+# ==========================================================================
+#
+# No plan rendering - agents work freely
+# Only assistant message shown to user
+# All activity logged to terminal
+# Minimal, clean UI experience
+#
+
+import httpx
+import re
+import asyncio
+from typing import List, Dict
+from backend.ai.lineage_agent import (
+    set_log_callback as lineage_set_log,
+    _render_token_limit_message,
+    _append_history,
+    _get_history,
+    clear_history,
+)
+from backend.e2b_sandbox import E2BSandboxManager
+
+
+
+# Global tracking for active AI fixes
+active_ai_fixes = set()
+
+
+async def run_agent_loop(
+    project_id: str,
+    prompt: str,
+    user_id: str,
+    agent_type: str = "fast",
+    history: list = None,
+    skip_planner: bool = False,
+    is_system_task: bool = False,
+):
+    try:
+        await asyncio.sleep(0.2)
+ 
+        # ---- Load project state ----
+        proj = db_select_one(
+            "projects", {"id": project_id},
+            "name, chat_history, supabase_project_ref, gorilla_auth_id",
+        ) or {}
+        project_name = proj.get("name", "Gorilla App")
+        project_ref = proj.get("supabase_project_ref")
+        db_history = proj.get("chat_history") or []
+ 
+        # Append user message to chat history and persist
         if not skip_planner:
             if is_system_task:
-                db_history.append({"role": "system", "content": f"SYSTEM AUTOMATION TASK: {prompt}"})
+                db_history.append({"role": "system", "content": f"SYSTEM: {prompt[:500]}"})
             else:
                 db_history.append({"role": "user", "content": prompt})
-            supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
-        
-        user_api_data = db_select_one("users", {"id": user_id}, "gorilla_api_key, supabase_access_token")
-        api_key = user_api_data.get("gorilla_api_key", "") if user_api_data else ""
-        supa_token = user_api_data.get("supabase_access_token") if user_api_data else None
-        
-        # 🛑 THE AMNESIA FIX: Memory Injector
-        # We weave the recent conversation directly into the prompt so the Swarm never loses context
-        contextual_prompt = prompt
-        if len(db_history) > 1 and not skip_planner:
-            # Grab the last 6 messages (excluding the one we just added)
-            past_msgs = db_history[-7:-1]
-            history_text = "\n".join([f"{m.get('role', 'user').upper()}: {m.get('content', '')}" for m in past_msgs])
-            contextual_prompt = f"--- PREVIOUS CONVERSATION CONTEXT ---\n{history_text}\n\n--- CURRENT USER REQUEST ---\n{prompt}"
-
-        # Determine if this is a DB routing path
+            # Cap history at 100 messages (loophole 25)
+            if len(db_history) > 100:
+                db_history = db_history[-100:]
+            supabase.table("projects").update(
+                {"chat_history": db_history}
+            ).eq("id", project_id).execute()
+ 
+        user_data = db_select_one(
+            "users", {"id": user_id},
+            "gorilla_api_key, supabase_access_token",
+        ) or {}
+        supa_token = user_data.get("supabase_access_token")
         is_db_request = (agent_type == "supabase")
-
-        # ==========================================================================
-        # ⚡ MID-CHAT SUPABASE PROVISIONING ENGINE ⚡
-        # ==========================================================================
+        has_supabase = bool(project_ref)
+ 
+        # ---- MID-CHAT SUPABASE PROVISIONING (unchanged from old code) ----
         if is_db_request and not project_ref and supa_token:
             emit_status(project_id, "Provisioning Remote Database...")
-            emit_log(project_id, "system", "Spinning up dedicated PostgreSQL instance...")
+            emit_log(project_id, "system", "Spinning up PostgreSQL instance...")
             try:
-                import secrets
-                import re
+                import secrets as _secrets
                 headers = {"Authorization": f"Bearer {supa_token}", "Content-Type": "application/json"}
                 async with httpx.AsyncClient() as client:
-                    orgs = (await client.get("https://api.supabase.com/v1/organizations", headers=headers)).json()
-                
-                    # 🛑 THE FIX: If Supabase returns an error dictionary instead of a list, catch it cleanly!
+                    orgs = (await client.get(
+                        "https://api.supabase.com/v1/organizations", headers=headers
+                    )).json()
                     if isinstance(orgs, dict) and "message" in orgs:
-                        raise Exception(f"Supabase Error: {orgs.get('message')}. Please re-link your Supabase account in the Dashboard.")
-                
-                    # Safely grab the first org, or create one if the user has an empty list
-                    if isinstance(orgs, list) and len(orgs) > 0:
-                        org_id = orgs[0].get("id")
-                    else:
-                        new_org = (await client.post("https://api.supabase.com/v1/organizations", headers=headers, json={"name": "Gorilla Apps"})).json()
-                        org_id = new_org.get("id")
-
+                        raise Exception(f"Supabase: {orgs.get('message')}")
+                    org_id = orgs[0]["id"] if isinstance(orgs, list) and orgs else None
                     if not org_id:
-                        raise Exception("Could not find or create a Supabase organization.")
-
-                    # Proceed with provisioning now that we safely have an org_id
-                    db_pass = secrets.token_urlsafe(16)
-                    safe_db_name = re.sub(r'[^a-zA-Z0-9 ]', '', project_name)[:32].strip() or "Gorilla App"
-                    proj_res = await client.post("https://api.supabase.com/v1/projects", headers=headers, json={"organization_id": org_id, "name": safe_db_name, "db_pass": db_pass, "region": "us-east-1", "plan": "free"})
-                
+                        new_org = (await client.post(
+                            "https://api.supabase.com/v1/organizations",
+                            headers=headers, json={"name": "Gorilla Apps"},
+                        )).json()
+                        org_id = new_org.get("id")
+                    if not org_id:
+                        raise Exception("No Supabase organization")
+                    db_pass = _secrets.token_urlsafe(16)
+                    safe_name = re.sub(r"[^a-zA-Z0-9 ]", "", project_name)[:32].strip() or "Gorilla App"
+                    proj_res = await client.post(
+                        "https://api.supabase.com/v1/projects",
+                        headers=headers,
+                        json={
+                            "organization_id": org_id, "name": safe_name,
+                            "db_pass": db_pass, "region": "us-east-1", "plan": "free",
+                        },
+                    )
                     if proj_res.status_code == 201:
                         project_ref = proj_res.json().get("id")
-                        supabase.table("projects").update({"supabase_project_ref": project_ref}).eq("id", project_id).execute()
-                    
-                        supa_anon_key = "PROVISIONING_IN_PROGRESS"                        
-                        db_is_active = False
-                        
-                        # 🛑 THE STATUS FIX: Phase A - Wait for the project status to be ACTIVE
-                        for attempt in range(45): # Up to 3 minutes
-                            status_res = await client.get(f"https://api.supabase.com/v1/projects/{project_ref}", headers=headers)
-                            if status_res.status_code == 200:
-                                proj_status_data = status_res.json()
-                                # Check for active statuses
-                                if proj_status_data.get("status") in ["ACTIVE_HEALTHY", "ACTIVE"]:
-                                    db_is_active = True
-                                    break
-                            
-                            if attempt % 3 == 0:
-                                emit_log(project_id, "debugger", f"Instance still booting... (Attempt {attempt+1}/45)")
+                        supabase.table("projects").update(
+                            {"supabase_project_ref": project_ref}
+                        ).eq("id", project_id).execute()
+                        has_supabase = True
+ 
+                        supa_anon_key = ""
+                        for _ in range(45):
+                            s = await client.get(
+                                f"https://api.supabase.com/v1/projects/{project_ref}",
+                                headers=headers,
+                            )
+                            if s.status_code == 200 and s.json().get("status") in ["ACTIVE_HEALTHY", "ACTIVE"]:
+                                break
                             await asyncio.sleep(4)
-
-                    if not db_is_active:
-                        raise Exception("Timed out waiting for database compute instance to become active.")
-
-                    # Phase B: Now that it's active, fetch the keys
-                    for attempt in range(15): # Bumped to 15 just in case
-                        keys_res = await client.get(f"https://api.supabase.com/v1/projects/{project_ref}/api-keys", headers=headers)
-                        
-                        if keys_res.status_code == 200:
-                            keys_list = keys_res.json()
-                            
-                            # 🔍 X-RAY LOGGING: What is Supabase actually handing us?                                
-                            if isinstance(keys_list, list) and len(keys_list) > 0:
-                                # 🛑 THE FIX: Look for 'anon' OR 'publishable'
-                                anon_obj = next((k for k in keys_list if k.get("name") in ["anon", "publishable"]), None)
-                                
-                                if anon_obj and anon_obj.get("api_key"):
-                                    supa_anon_key = anon_obj.get("api_key")
-                                    break
-                                else:
-                                    emit_log(project_id, "debugger", "List returned, but no 'anon' or 'publishable' key found inside.")
-                            else:
-                                emit_log(project_id, "debugger", "Payload was not a list or was empty.")
-                        else:
-                            # 🔍 X-RAY LOGGING: Why did it fail?
-                            emit_log(project_id, "debugger", f"Keys API Error ({keys_res.status_code}): {keys_res.text}")
-                            
-                        await asyncio.sleep(3)
-                        
-                    if supa_anon_key == "PROVISIONING_IN_PROGRESS":
-                        raise Exception("Database became active, but could not retrieve the anon/publishable key. Check debugger logs.")
-                
-            except Exception as e:
-                emit_log(project_id, "system", f"Failed to provision database: {e}")
-
-        # ==========================================================================
-        # PATH A: SUPABASE FULL-STACK MODE
-        # ==========================================================================
-        if is_db_request and project_ref and supa_token:
-            emit_status(project_id, "Initializing Full-Stack DB Architect...")
-            emit_phase(project_id, "planner")
-            emit_progress(project_id, "Designing Architecture...", 20)
-
-            swarm = SupabaseAgentSwarm(project_id)
-            
-            # Pass the contextual_prompt so it remembers the conversation
-            result = await swarm.solve(user_request=contextual_prompt, file_tree=file_tree)
-            
-            if result.get("status") == "needs_clarification":
-                # 🛑 THE ORGANIC FIX: Stop appending manual questions. 
-                # Also strip the robotic "Plan created." text
-                assistant_msg = result.get("assistant_message", "I need a bit more clarification.")
-                assistant_msg = assistant_msg.replace("Plan created.\n", "").replace("Plan created.", "").strip()
-                
-                db_history.append({"role": "assistant", "content": assistant_msg})
-                supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
-                
-                emit_log(project_id, "assistant", assistant_msg)
-                emit_status(project_id, "Waiting for User") 
-                emit_progress(project_id, "Input Required", 100)
-                return
-
-            operations = result.get("operations", [])
-            assistant_msg = result.get("assistant_message", "Applying Schema and Code updates.")
-            
-            # 🛑 AMNESIA FIX: Instantly save Assistant Message before operations start
-            db_history.append({"role": "assistant", "content": assistant_msg})
-            supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
-            emit_log(project_id, "assistant", assistant_msg)
-
-            for op in operations:
-                path = op.get("path", "")
-                content = op.get("content", "")
-                if not path or not content: continue
-
-                db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
-                emit_file_changed(project_id, path)
-
-                if path.endswith(".sql") and path.startswith("migrations/"):
-                    emit_phase(project_id, "coder")
-                    emit_progress(project_id, f"Running Remote Migration: {path}", 70)
-
-                    # 🛑 THE FIX: Wait on 404s, use correct database URL
-                    for attempt in range(3):
-                        try:
-                            headers = {"Authorization": f"Bearer {supa_token}", "Content-Type": "application/json"}
-                            async with httpx.AsyncClient(timeout=30.0) as client:
-                                res = await client.post(f"https://api.supabase.com/v1/projects/{project_ref}/database/query", headers=headers, json={"query": content})
-                                
-                                if res.status_code == 404:
-                                    if attempt == 2:
-                                        emit_log(project_id, "system", "❌ Fatal Error: Supabase project not found. It may have been deleted manually.")
-                                        emit_log(project_id, "assistant", "I couldn't connect to the database. Did you delete it from your Supabase dashboard? I've unlinked it so we can provision a new one on your next request.")
-                                        supabase.table("projects").update({"supabase_project_ref": None}).eq("id", project_id).execute()
+                        for _ in range(10):
+                            k = await client.get(
+                                f"https://api.supabase.com/v1/projects/{project_ref}/api-keys",
+                                headers=headers,
+                            )
+                            if k.status_code == 200:
+                                kl = k.json()
+                                if isinstance(kl, list):
+                                    anon = next(
+                                        (x for x in kl if x.get("name") in ["anon", "publishable"]),
+                                        None,
+                                    )
+                                    if anon and anon.get("api_key"):
+                                        supa_anon_key = anon["api_key"]
                                         break
-                                    else:
-                                        emit_log(project_id, "debugger", f"Database booting up (404). Waiting 5s... (Attempt {attempt+1}/3)")
-                                        await asyncio.sleep(5)
-                                        continue
-                                
-                                if res.status_code in [200, 201]:
-                                    emit_log(project_id, "system", f"✅ Postgres Migration Successful: {path}")
-                                    break 
-                                else:
-                                    err_text = res.text
-                                    emit_log(project_id, "debugger", f"⚠️ SQL Error: {err_text}. Auto-healing... (Attempt {attempt+1}/3)")
-                                    debug_result = await swarm.debug(err_text, {path: content})
-                                    debug_ops = debug_result.get("operations", [])
-                                    
-                                    if debug_ops:
-                                        content = debug_ops[0].get("content", content)
-                                        db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
-                                        emit_file_changed(project_id, path)
-                        except Exception as e:
-                            emit_log(project_id, "debugger", f"Network Error hitting Remote DB: {e}. Retrying...")
                             await asyncio.sleep(3)
-
-            emit_status(project_id, "Done")
-            emit_progress(project_id, "Ready", 100)
-            return
-
-        # ==========================================================================
-        # PATH B: STANDARD MODE (FAST OR DEEP)
-        # ==========================================================================
-        # 👇 DYNAMIC AGENT ROUTING 👇
-        if agent_type == "deep":
-            emit_log(project_id, "system", "Initializing Deep Architect Agent...")
-            agent = DeepAgent()
-        else:
-            emit_log(project_id, "system", "Initializing Fast Execution Agent...")
-            agent = RegularAgent()
-        
-        if not skip_planner:
-            emit_phase(project_id, "planner")
-            emit_progress(project_id, "Thinking...", 10)
-            
-            plan_context = {"project_id": project_id, "files": list(file_tree.keys()), "api_key": api_key, "history": db_history}
-            if ".gorilla/prompt_image.b64" in file_tree:
-                plan_context["image_context"] = file_tree[".gorilla/prompt_image.b64"]
-                plan_context["image_filename"] = ".gorilla/prompt_image.b64"
-
-            # Pass the contextual_prompt
-            plan_res = await asyncio.to_thread(agent.plan, user_request=contextual_prompt, project_context=plan_context)
-            
-            tk = plan_res.get("usage", {}).get("total_tokens", 0)
-            if tk and user_id: add_monthly_tokens(user_id, tk)
-            
-            base_msg = plan_res.get("assistant_message", "I'm working on that...")
-            
-            # 🛑 THE ORGANIC FIX FOR STANDARD MODE
-            assistant_msg = base_msg.replace("Plan created.\n", "").replace("Plan created.", "").strip()
-
-            # 🛑 AMNESIA FIX: Instantly save Assistant Message for standard mode too
-            db_history.append({"role": "assistant", "content": assistant_msg})
-            supabase.table("projects").update({"chat_history": db_history}).eq("id", project_id).execute()
-            emit_log(project_id, "assistant", assistant_msg)
-            
-            if plan_res.get("needs_clarification"):
-                emit_status(project_id, "Waiting for User")
-                emit_progress(project_id, "Input Required", 100)
-                return
-
-            tasks = plan_res.get("plan", {}).get("todo", [])
-            if not tasks:
-                emit_status(project_id, "Done")
-                emit_progress(project_id, "Ready", 100)
-                return
-        else:
-            # ==========================================================================
-            # 🐛 THE DEBUGGER FIX IS RESTORED HERE! 🐛
-            # ==========================================================================
-            emit_phase(project_id, "coder")
-            emit_log(project_id, "assistant", "Error intercepted! I've analyzed the stack trace and I'm weaving a surgical patch directly into your codebase. Hang tight while I auto-heal the application.")
-            emit_progress(project_id, "Auto-Healing...", 30)
-            
-            # Instantiate the Swarm JUST for debugging so it gets the High-Context DebuggerAgent
-            swarm = AgentSwarm(project_id)
-            debug_result = await swarm.debug(error_message=prompt, file_tree=file_tree)
-            ops = debug_result.get("operations", [])
-            
-            emit_phase(project_id, "files")
-            emit_progress(project_id, "Saving Patch...", 90)
-            
-            for op in ops:
-                path = op.get("path")
-                content = op.get("content")
-                if path and content is not None:
-                    db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
-                    emit_file_changed(project_id, path)
-            
-            emit_status(project_id, "Done")
-            emit_progress(project_id, "Ready", 100)
-            return # End early, do not run the loop below!
-
-        # ==========================================================================
-        # THE STEP-BY-STEP CODER LOOP (Restored to keep UI events working)
-        # ==========================================================================
-        emit_phase(project_id, "coder")
-        emit_progress(project_id, "Building...", 30)
-        
-        batch_files = {}
-        total = len(tasks)
-        figma_context = next((msg["content"] for msg in db_history if msg.get("role") == "system" and "Figma design was imported" in msg.get("content", "")), None)
-
-        for i, task in enumerate(tasks, 1):
-            if user_id:
-                from fastapi import HTTPException
-                try: 
-                    enforce_token_limit_or_raise(user_id)
-                except HTTPException as e:
-                    if e.status_code == 402:
-                        emit_log(project_id, "system", "❌ Token limit reached mid-build.")
-                        emit_status(project_id, "Out of Credits")
-                        return
-                except Exception as e:
-                    emit_log(project_id, "debugger", f"⚠️ Token check skipped due to network timeout.")
-
-            pct = 30 + (60 * (i / total))
-            emit_progress(project_id, f"Building...", pct)
-            
-            final_task_text = task
-            if figma_context and i == 1:
-                final_task_text = f"CRITICAL SYSTEM CONTEXT: {figma_context}\n\nUSER REQUEST: {task}"
-
-            code_res = await agent.code(
-                plan_section=f"Step {i}",
-                plan_text=final_task_text,
-                file_tree=file_tree,
-                project_name=project_id,
-                history=db_history
+ 
+                        if supa_anon_key:
+                            supa_url = f"https://{project_ref}.supabase.co"
+                            env_content = (
+                                f"VITE_GORILLA_AUTH_ID={proj.get('gorilla_auth_id','')}\n"
+                                f"GORILLA_API_KEY={user_data.get('gorilla_api_key','')}\n"
+                                f"VITE_SUPABASE_URL={supa_url}\n"
+                                f"VITE_SUPABASE_ANON_KEY={supa_anon_key}"
+                            )
+                            db_upsert(
+                                "files",
+                                {"project_id": project_id, "path": ".env", "content": env_content},
+                                on_conflict="project_id,path",
+                            )
+                            emit_log(project_id, "system", f"Database ready: {project_ref}")
+                    else:
+                        emit_log(project_id, "system", f"Provisioning failed: {proj_res.text[:200]}")
+            except Exception as e:
+                emit_log(project_id, "system", f"DB provisioning error: {e}")
+ 
+        # ---- Build env + contextual prompt ----
+        env_vars = _build_sandbox_env(project_id, user_id)
+        gorilla_proxy = os.getenv("FILE_API_BASE_URL", "https://your-proxy.ngrok-free.dev")
+ 
+        contextual_prompt = prompt
+        if len(db_history) > 1 and not skip_planner:
+            past = db_history[-7:-1]
+            history_text = "\\n".join([
+                f"{m.get(\'role\',\'user\').upper()}: {m.get(\'content\',\'\')[:300]}"
+                for m in past
+            ])
+            contextual_prompt = (
+                f"--- PREVIOUS CONVERSATION ---\\n{history_text}\\n"
+                f"\\n--- CURRENT REQUEST ---\\n{prompt}"
             )
-            
-            tk = code_res.get("usage", {}).get("total_tokens", 0)
-            if tk and user_id: add_monthly_tokens(user_id, tk)
+ 
+        # Image attachment (first-turn only, read from Supabase files)
+        file_tree = await _fetch_file_tree(project_id)
+        image_b64 = file_tree.get(".gorilla/prompt_image.b64")
+ 
+        # ---- Callback to persist each assistant message as it arrives ----
+        def on_assistant_message(msg: str):
+            # DO NOT emit_log here. The sandbox manager emits a \'narration\'
+            # SSE event already. Doing both causes a doubled message bubble.
+            # This callback\'s only job is to persist to DB.
+            try:
+                db_history.append({"role": "assistant", "content": msg})
+                if len(db_history) > 100:
+                    db_history[:] = db_history[-100:]
+                supabase.table("projects").update(
+                    {"chat_history": db_history}
+                ).eq("id", project_id).execute()
+            except Exception as e:
+                print(f"Persist assistant message failed: {e}")
 
-            ops = code_res.get("operations", [])
-
-            if not ops and i == 1:
-                emit_log(project_id, "system", "❌ Agent workflow aborted due to unrecoverable formatting errors.")
-                emit_status(project_id, "Fatal Error")
-                emit_progress(project_id, "Failed", 100)
-                return 
-
-            for op in ops:
-                path = op.get("path")
-                content = op.get("content")
-                if path and content is not None:
-                    batch_files[path] = content
-                    file_tree[path] = content
-
-        emit_phase(project_id, "files")
-        emit_progress(project_id, "Saving...", 95)
-        
-        for path, content in batch_files.items():
-            if path.startswith("static/") and path.endswith(".js"):
-                try:
-                    lint_err = await asyncio.to_thread(lint_code_with_esbuild, content, path)
-                    if lint_err: emit_log(project_id, "system", f"Syntax Error in {path}:\n{lint_err}")
-                except Exception: pass
-
-            db_upsert("files", {"project_id": project_id, "path": path, "content": content}, on_conflict="project_id,path")
-            emit_file_changed(project_id, path)
-
+        # ---- Hand off EVERYTHING to the sandbox manager ----
+        # It handles: boot → multi-turn agent loop → single end-of-turn sync
+        #             → delete detection → dev server restart → URL emit
+        emit_status(project_id, "Preparing Sandbox...")
+        emit_progress(project_id, "Preparing Environment...", 5)
+ 
+        result = await _sandbox_manager.run_agent_turn(
+            project_id=project_id,
+            user_request=contextual_prompt,
+            user_id=user_id,
+            env_vars=env_vars,
+            chat_history=db_history,
+            gorilla_proxy_url=gorilla_proxy,
+            has_supabase=has_supabase,
+            is_debug=skip_planner,
+            error_context=prompt if skip_planner else "",
+            image_b64=image_b64 if not skip_planner else None,
+            on_assistant_message=on_assistant_message,
+        )
+ 
+        # Charge tokens
+        total_tokens = result.get("tokens", 0)
+        if total_tokens and user_id:
+            add_monthly_tokens(user_id, total_tokens)
+ 
+        if not result.get("ok"):
+            emit_status(project_id, "Fatal Error")
+            return
+ 
         emit_status(project_id, "Done")
         emit_progress(project_id, "Ready", 100)
-        
+ 
     except Exception as e:
         emit_status(project_id, "Fatal Error")
         emit_log(project_id, "system", f"Workflow failed: {e}")
         import traceback
         print(traceback.format_exc())
 
+
 # ==========================================================================
 # AUTO-FIXING LOG ENDPOINT
 # ==========================================================================
 
 @app.post("/api/project/{project_id}/log")
-async def log_browser_event(project_id: str, request: Request, background_tasks: BackgroundTasks):
+async def log_browser_event(
+    project_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
     global active_ai_fixes
     try:
         form = await request.form()
         message = form.get("message", "")
         level = form.get("level", "INFO")
         print(f"[{level}] Browser Event: {message[:100]}...")
-
-        if "error" in message.lower() or "failed" in message.lower() or "syntax error" in message.lower():
-            
-            # THE BACKEND MUTEX: Block duplicate AI agents
-            if project_id in active_ai_fixes:
-                print(f"[{project_id}] AI is already fixing this. Ignoring duplicate request.")
-                return JSONResponse({"status": "ignored", "detail": "Fix already in progress"})
-            
-            active_ai_fixes.add(project_id)
-            
-            emit_log(project_id, "system", f"Browser Error Detected. Analyzing...")
-            
-            chat_history = []
-            owner_id = None
-            try:
-                proj = db_select_one("projects", {"id": project_id}, "chat_history, owner_id")
-                if proj: 
-                    owner_id = proj.get("owner_id")
-                    chat_history = proj.get("chat_history", [])
-            except Exception as db_err:
-                print(f"DB Fetch Error in Log Route: {db_err}")
-
-            if not owner_id:
-                active_ai_fixes.remove(project_id)
-                return JSONResponse({"status": "error", "detail": "Owner not found"}, status_code=404)
-
-            # Wrapper to ensure the lock is always removed
-            async def run_and_unlock(*args, **kwargs):
-                try:
-                    await run_agent_loop(*args, **kwargs)
-                finally:
-                    if project_id in active_ai_fixes:
-                        active_ai_fixes.remove(project_id)
-
-            background_tasks.add_task(
-                run_and_unlock, 
-                project_id=project_id, 
-                prompt=message,
-                user_id=owner_id,
-                history=chat_history,
-                agent_type="fast", 
-                skip_planner=True,
-                is_system_task=True
-            )
-            
-    except Exception as e:
-        print(f"Logging Error: {e}")
+ 
+        msg_lc = message.lower()
+        if not ("error" in msg_lc or "failed" in msg_lc or "syntax error" in msg_lc):
+            return JSONResponse({"status": "ok"})
+ 
+        # Backend mutex
         if project_id in active_ai_fixes:
-            active_ai_fixes.remove(project_id)
+            print(f"[{project_id}] AI already fixing — ignoring duplicate")
+            return JSONResponse({"status": "ignored"})
+ 
+        # BUG 9 FIX: don't burn tokens if sandbox is gone — preview won't update anyway
+        if not (_sandbox_manager and _sandbox_manager.is_running(project_id)):
+            print(f"[{project_id}] Sandbox not running — skipping auto-fix")
+            return JSONResponse({"status": "skipped_no_sandbox"})
+ 
+        active_ai_fixes.add(project_id)
+        emit_log(project_id, "system", "Browser error detected. Analyzing...")
+ 
+        owner_id = None
+        try:
+            proj = db_select_one("projects", {"id": project_id}, "owner_id")
+            if proj:
+                owner_id = proj.get("owner_id")
+        except Exception as db_err:
+            print(f"DB fetch error in /log: {db_err}")
+ 
+        if not owner_id:
+            active_ai_fixes.discard(project_id)
+            return JSONResponse(
+                {"status": "error", "detail": "Owner not found"}, status_code=404
+            )
+ 
+        async def run_and_unlock(*args, **kwargs):
+            try:
+                await run_agent_loop(*args, **kwargs)
+            finally:
+                active_ai_fixes.discard(project_id)
+ 
+        # BUG 6 FIX: is_xmode doesn't exist — use skip_planner
+        background_tasks.add_task(
+            run_and_unlock,
+            project_id=project_id,
+            prompt=message,
+            user_id=owner_id,
+            skip_planner=True,
+        )
+ 
+    except Exception as e:
+        print(f"Logging error: {e}")
+        active_ai_fixes.discard(project_id)
         import traceback
         traceback.print_exc()
-        
+ 
     return JSONResponse({"status": "ok"})
-
 # ==========================================================================
 # DEPLOYMENT ROUTES (VERCEL & GITHUB)
 # ==========================================================================
@@ -2607,14 +2372,8 @@ import json
 from fastapi import Request, HTTPException
 
 # ==========================================================================
-# DEPLOY OPTIMIZE FIX (With Supabase Vercel Injection)
+# DEPLOY OPTIMIZE FIX
 # ==========================================================================
-import json
-import urllib.parse
-import httpx
-from fastapi import Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-
 @app.post("/api/project/{project_id}/deploy-optimize")
 async def optimize_for_vercel(request: Request, project_id: str):
     user = get_current_user(request)
@@ -2932,9 +2691,9 @@ async def app_auth_github_callback(request: Request, code: str, state: str):
         "user_data": json.dumps(user_payload)
     })
 
-# ==========================================================================
-# GITHUB PUBLISH
-# ==========================================================================
+
+# 4. Push to GitHub
+
 @app.post("/projects/{project_id}/github/publish")
 async def publish_to_github(request: Request, project_id: str):
     try:
@@ -2993,7 +2752,6 @@ async def publish_to_github(request: Request, project_id: str):
                 # SAFETY NET: Check if the existing repo is completely empty!
                 branch_res = await client.get(f"https://api.github.com/repos/{full_name}/branches/main", headers=headers)
                 if branch_res.status_code == 404:
-                    import base64
                     # The repo exists but is empty! Initialize it manually via the Contents API
                     readme_content = base64.b64encode(b"# Init\n").decode("utf-8")
                     await client.put(
@@ -3111,53 +2869,64 @@ async def get_file_content(request: Request, project_id: str, path: str):
     except Exception as e:
         return JSONResponse({"content": f"// Error loading file: {e}"})
 
-import base64
-import mimetypes
-from fastapi import Request, Form, UploadFile, File
-
-import base64
-import mimetypes
-from fastapi import Request, HTTPException
-
 @app.post("/api/project/{project_id}/save")
 async def save_file(request: Request, project_id: str):
-    # user = get_current_user(request)
-    # _require_project_owner(user, project_id)
-    
-    # 1. Parse the raw form data to bypass strict FastAPI 422 type validation
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+ 
+    # Manual form parse — handles both string content and Blob/File content.
     form_data = await request.form()
     file_path = form_data.get("file")
     content_obj = form_data.get("content")
-    
+ 
     if not file_path or content_obj is None:
         raise HTTPException(status_code=400, detail="Missing file path or content")
-        
-    # 2. Dynamically handle the payload (File/Blob vs String)
+ 
     if hasattr(content_obj, "filename"):
-        # The frontend sent a physical File or Blob
+        # Blob / UploadFile
         file_bytes = await content_obj.read()
         try:
-            # Try to decode it as text (for code files disguised as Blobs)
-            final_content = file_bytes.decode('utf-8')
+            final_content = file_bytes.decode("utf-8")
         except UnicodeDecodeError:
-            # If decode fails, it's actual binary image data. Convert to base64!
             mime_type, _ = mimetypes.guess_type(str(file_path))
-            encoded_str = base64.b64encode(file_bytes).decode('utf-8')
+            encoded_str = base64.b64encode(file_bytes).decode("utf-8")
             final_content = f"data:{mime_type or 'application/octet-stream'};base64,{encoded_str}"
     else:
-        # The frontend sent a standard URL-encoded string
         final_content = str(content_obj)
-        
-    # 3. Save to database
+ 
     db_upsert(
-        "files", 
-        {"project_id": project_id, "path": str(file_path), "content": final_content}, 
-        on_conflict="project_id,path"
+        "files",
+        {"project_id": project_id, "path": str(file_path), "content": final_content},
+        on_conflict="project_id,path",
     )
-    
-    # supabase.table("projects").update({"updated_at": "now()"}).eq("id", project_id).execute()
-    
+ 
+    # Mirror to live sandbox if one is running (preserves your e2b bridge)
+    if _sandbox_manager and _sandbox_manager.is_running(project_id):
+        try:
+            await _sandbox_manager.write_file(project_id, str(file_path), final_content)
+        except Exception as e:
+            print(f"Sandbox write mirror failed: {e}")
+ 
+    supabase.table("projects").update({"updated_at": "now()"}).eq("id", project_id).execute()
     return {"success": True}
+
+@app.post("/api/project/{project_id}/delete")
+async def delete_project(request: Request, project_id: str):
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+    try:
+        # Kill any live sandbox first
+        if _sandbox_manager and _sandbox_manager.is_running(project_id):
+            try:
+                await _sandbox_manager.kill(project_id)
+            except Exception as e:
+                print(f"Sandbox kill during delete failed: {e}")
+        supabase.table("files").delete().eq("project_id", project_id).execute()
+        supabase.table("projects").delete().eq("id", project_id).execute()
+        return JSONResponse({"status": "success", "detail": "Project deleted."})
+    except Exception as e:
+        print(f"Project deletion error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete project.")
 
 
 @app.get("/api/project/{project_id}/tokens")
@@ -3215,7 +2984,6 @@ async def serve_project_file(request: Request, project_id: str, path: str):
 # EVENT BUS & UTILS
 # ==========================================================================
 import json
-import time
 
 class _ProgressBus:
     def __init__(self):
@@ -3235,26 +3003,30 @@ class _ProgressBus:
             try: q.put_nowait(event)
             except Exception: pass
 
-
 progress_bus = _ProgressBus()
 
 def emit_log(pid: str, role: str, text: str) -> None:
-    """Emits log to UI via SSE and saves to virtual file system."""
+    """Emits log to UI via SSE and archives non-UI roles to virtual FS."""
     progress_bus.emit(pid, {"type": "log", "role": role, "text": text})
-    
+ 
     if role not in ["user", "assistant", "system"] and pid:
         try:
             existing = db_select_one("files", {"project_id": pid, "path": ".gorilla/thoughts.json"})
             logs = []
             if existing and existing.get("content"):
-                try: logs = json.loads(existing.get("content"))
-                except: pass
-                
+                try:
+                    logs = json.loads(existing.get("content"))
+                except Exception:
+                    pass
             logs.append({"role": role, "text": text, "ts": time.time()})
-            if len(logs) > 100: logs = logs[-100:]
-            
-            db_upsert("files", {"project_id": pid, "path": ".gorilla/thoughts.json", "content": json.dumps(logs)}, on_conflict="project_id,path")
-        except Exception as e:
+            if len(logs) > 100:
+                logs = logs[-100:]
+            db_upsert(
+                "files",
+                {"project_id": pid, "path": ".gorilla/thoughts.json", "content": json.dumps(logs)},
+                on_conflict="project_id,path",
+            )
+        except Exception:
             pass
 
 def emit_status(pid: str, text: str) -> None:
@@ -3272,53 +3044,15 @@ def emit_file_changed(pid: str, path: str) -> None:
 def emit_token_update(pid: str, used: int) -> None:
     progress_bus.emit(pid, {"type": "token_usage", "used": used})
 
-# ⚡ THE TELEPHONE WIRE ⚡
-# This injects the emit_log function directly into the agents' brains!
-import backend.ai.agent as regular_agent_module
-import backend.ai.supabase_agent as supabase_agent_module
-import re
-
-def filtered_log_callback(pid: str, role: str, message: str):
-    """Filters out noisy/internal logs before they hit the UI."""
-    role = role.lower()
-    
-    # 1. Drop purely internal or overly noisy roles completely
-    if role in ["mcp", "llm"]:
+def filtered_log_callback(project_id: str, role: str, text: str) -> None:
+    """Bridge from lineage_agent\'s log_agent() to the SSE event bus."""
+    role_lc = (role or "").strip().lower()
+    if role_lc in ("llm", "internal"):
         return
-        
-    msg_lower = message.lower()
-    
-    # 2. Drop useless repetitive execution logs
-    if "single task execution" in msg_lower: return
-    if "executing 0 tasks" in msg_lower: return
-    if "solving" in msg_lower: return
-    if "Task" in msg_lower: return
-    if "Concerns" in msg_lower: return
-    if "�" in msg_lower: return
-    if "Conversational agent swarm initialized" in msg_lower: return
-    if "attempt" in msg_lower and "failed: model output" in msg_lower: return
-    if "attempt" in msg_lower and "failed: could not extract" in msg_lower: return
-    
-    # 3. Beautify specific technical logs
-    clean_msg = message
-    if "read file:" in msg_lower:
-        match = re.search(r'read file:\s*([^\s]+)', message, re.IGNORECASE)
-        if match: clean_msg = f"Analyzed {match.group(1)}"
-    elif "overwrite_file:" in msg_lower or "create_file:" in msg_lower:
-        match = re.search(r'(overwrite_file|create_file):\s*([^\s]+)', message, re.IGNORECASE)
-        if match: clean_msg = f"Updated {match.group(2)}"
-    elif "reading" in msg_lower and "file(s)..." in msg_lower:
-        clean_msg = "Gathering file context..."
-    
-    # 4. Clean up ugly AI prompt prefixes
-    # Turns "[1/4] Step 1: Step 1: [Project: AppName...] Build UI" into "Building: Build UI"
-    clean_msg = re.sub(r'\[Project:.*?\]\s*', '', clean_msg)
-    clean_msg = re.sub(r'\[\d+/\d+\]\s*(Step\s*\d+:)?\s*(Step\s*\d+:)?\s*', 'Building: ', clean_msg).strip()
-    
-    emit_log(pid, role, clean_msg)
-
-regular_agent_module.set_log_callback(filtered_log_callback)
-supabase_agent_module.set_log_callback(filtered_log_callback)
+    try:
+        emit_log(project_id, role_lc, text)
+    except Exception as e:
+        print(f"filtered_log_callback failed: {e}")
 
 
 # ==========================================================================
@@ -3392,6 +3126,59 @@ async def _fetch_file_tree(project_id: str) -> Dict[str, str]:
         print(f"⚠️ Fetch Error: {e}")
         return {}
 
+@app.post("/api/project/{project_id}/agent/start")
+async def agent_start(request: Request, project_id: str):
+    user = get_current_user(request)
+    _require_project_owner(user, project_id)
+ 
+    try:
+        enforce_token_limit_or_raise(user["id"])
+    except HTTPException as e:
+        if e.status_code == 402:
+            emit_log(project_id, "assistant", _render_token_limit_message())
+            return {"started": False}
+        raise
+ 
+    form_data = await request.form()
+    prompt = str(form_data.get("prompt", ""))
+    image_base64 = form_data.get("image_base64")
+    skip_planner = str(form_data.get("skip_planner", "false")).lower() == "true"
+ 
+    # is_db_request still matters — it routes to mid-chat Supabase
+    # provisioning when the project doesn\'t have supabase_project_ref yet.
+    is_db_request = str(form_data.get("is_db_request", "false")).lower() == "true"
+    agent_type = "supabase" if is_db_request else "fast"
+ 
+    if image_base64:
+        try:
+            db_upsert(
+                "files",
+                {
+                    "project_id": project_id,
+                    "path": ".gorilla/prompt_image.b64",
+                    "content": image_base64,
+                },
+                on_conflict="project_id,path",
+            )
+        except Exception as err:
+            print(f"Mid-chat image save failed: {err}")
+ 
+    if not skip_planner:
+        emit_status(project_id, "Agent received prompt")
+        emit_log(project_id, "user", prompt)
+ 
+    asyncio.create_task(
+        run_agent_loop(
+            project_id=project_id,
+            prompt=prompt,
+            user_id=user["id"],
+            agent_type=agent_type,
+            skip_planner=skip_planner,
+            is_system_task=False,
+        )
+    )
+    return {"started": True}
+
 
 @app.get("/api/project/{project_id}/events")
 async def agent_events(request: Request, project_id: str):
@@ -3440,6 +3227,9 @@ import time
 async def health():
     return {"ok": True, "ts": int(time.time()), "dev_mode": DEV_MODE}
 
+from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from pydantic import BaseModel
 
 from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -3509,7 +3299,7 @@ async def save_negotiation(request: Request, data: NegotiationResult):
         
         return JSONResponse({
             "status": "success", 
-            "checkout_url": f"/pricing" # Redirects to Stripe logic
+            "checkout_url": f"/checkout/premium" # Redirects to Stripe logic
         })
     except Exception as e:
         print(f"Error saving negotiated price: {e}")
@@ -3593,7 +3383,7 @@ async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_k
     payload = await request.json()
     
     # Force the model to OpenRouter's massive 120b model as requested
-    payload["model"] = "meta-llama/llama-3.2-11b-vision-instruct" # Replace with your exact OpenRouter model string
+    payload["model"] = "xiaomi/mimo-v2-flash" # Replace with your exact OpenRouter model string
     
     # Ask OpenRouter to send usage stats back even if it's a stream
     if "stream_options" not in payload:
@@ -3632,7 +3422,7 @@ async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_k
             
             # Bill the user after the stream closes (0.5 tokens per 1 API token)
             if total_tokens > 0:
-                _deduct_proxy_tokens(user_id, total_tokens * 0.051, "chat_stream")
+                _deduct_proxy_tokens(user_id, total_tokens * 0.3, "chat_stream")
                 
         return StreamingResponse(stream_generator(), media_type="text/event-stream")
     
@@ -3742,7 +3532,7 @@ async def proxy_remove_background(file: UploadFile = File(...), auth=Depends(ver
         return Response(content=resp.content, media_type="image/png")
 
 @app.post("/api/v1/chat/completions/bargain")
-async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_key)):
+async def proxy_chat_completions_bargain(request: Request, auth=Depends(verify_gorilla_key)):
     user_id = auth["user_id"]
     payload = await request.json()
     
@@ -3806,14 +3596,25 @@ async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_k
             return JSONResponse(data)
 
 
+
+# ==========================================================================
+# STARTUP WIRING — ORDER MATTERS
+# All of these must be defined ABOVE this block:
+#   - filtered_log_callback (PATCH 1)
+#   - emit_log, emit_status, emit_file_changed, emit_file_deleted
+#   - progress_bus, _fetch_file_tree
+#   - db_upsert, db_delete, db_upsert_batch, db_list_file_paths
+#   - add_monthly_tokens
+# ==========================================================================
+ 
+lineage_set_log(filtered_log_callback)
+_init_sandbox_manager()
+ 
+ 
 if __name__ == "__main__":
     import uvicorn
     from pyngrok import ngrok
-    import sys
-
-    # Open a tunnel to port 8000
-    # This URL bypasses GitHub's Proxy completely
+ 
     public_url = ngrok.connect(8000).public_url
-    print(f"\n🚀 \033[92mYOUR BYPASS URL: {public_url}\033[0m 🚀\n")
-
+    print(f"{public_url}")
     uvicorn.run(app, host="0.0.0.0", port=8000)
