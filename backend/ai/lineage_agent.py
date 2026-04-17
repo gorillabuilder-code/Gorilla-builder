@@ -27,7 +27,7 @@ import httpx
 # Config
 # ---------------------------------------------------------------------------
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("LINEAGE_MODEL", "kwaipilot/kat-coder-pro-v2")
+MODEL = os.getenv("LINEAGE_MODEL", "anthropic/claude-sonnet-4.6")
 VISION_MODEL = os.getenv("VISION_MODEL", "arcee-ai/trinity-large-thinking")
 OPENROUTER_URL = os.getenv(
     "OPENROUTER_URL",
@@ -411,7 +411,7 @@ async def _call_llm(
     usage = data.get("usage", {})
     p = usage.get("prompt_tokens", 0)
     c = usage.get("completion_tokens", 0)
-    weighted = int(p * 0.445 + c * 2.2)
+    weighted = int(p * 3 + c * 15)
     return content, weighted
 
 
