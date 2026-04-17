@@ -34,7 +34,7 @@ OPENROUTER_URL = os.getenv(
     "https://openrouter.ai/api/v1/chat/completions",
 ).strip()
 SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev").strip()
-SITE_NAME = os.getenv("SITE_NAME", "Gorilla Builder")
+SITE_NAME = os.getenv("SITE_NAME", "Gor://a Builder")
 
 MAX_CONTEXT_TOKENS = 140_000
 CHARS_PER_TOKEN = 4
@@ -400,11 +400,7 @@ async def _call_llm(
         "model": model,
         "messages": messages,
         "temperature": temperature,
-        "provider": {
-            "order": ["io-net/int4"],
-            "allow_fallbacks": False 
-            },
-        "max_tokens": 16000,
+        "max_tokens": 16000
     }
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -520,7 +516,7 @@ class LineageAgent:
 
         sys_prompt = SYSTEM_PROMPT_BASE.replace(
             "{GORILLA_PROXY}",
-            gorilla_proxy_url or "https://your-proxy.ngrok-free.dev",
+            gorilla_proxy_url or "https://slaw-carefully-cried.ngrok-free.dev",
         )
         if has_supabase:
             sys_prompt += "\n" + SUPABASE_PROMPT

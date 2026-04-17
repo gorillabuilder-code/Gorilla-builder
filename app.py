@@ -35,8 +35,18 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
+
 # Load Environment Variables
 load_dotenv()
+
+from backend.e2b_sandbox import E2BSandboxManager
+from backend.ai.lineage_agent import (
+    set_log_callback as lineage_set_log,
+    _render_token_limit_message,
+    _append_history,
+    _get_history,
+    clear_history,
+)
 
 # ==========================================================================
 # CONSTANTS & PATHS
@@ -112,6 +122,13 @@ PENDING_SIGNUPS = {}
 _BOOTING_PROJECTS: Set[str] = set()
 _LAST_ACCESS: Dict[str, float] = {} 
 SHUTDOWN_TIMEOUT_SECONDS = 600 # 10 Minutes
+
+# GLOBAL STATE
+PENDING_SIGNUPS = {}
+_BOOTING_PROJECTS: Set[str] = set()
+_LAST_ACCESS: Dict[str, float] = {}
+SHUTDOWN_TIMEOUT_SECONDS = 600
+_sandbox_manager = None  # ← ADD THIS LINE
 
 # ==========================================================================
 # APP INITIALIZATION & LIFECYCLE
@@ -1986,14 +2003,16 @@ def _init_sandbox_manager():
     )
  
 # At the very bottom of app.py (replacing the old set_log_callback calls):
-# lineage_set_log(filtered_log_callback)
-# _init_sandbox_manager()
 
 @app.post("/api/project/{project_id}/sandbox/start")
 async def start_sandbox(request: Request, project_id: str):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
- 
+
+    # ← ADD THIS GUARD
+    if not _sandbox_manager:
+        return JSONResponse({"detail": "Sandbox manager not initialized"}, status_code=503)
+
     if _sandbox_manager.is_running(project_id):
         url = _sandbox_manager.get_preview_url(project_id)
         if url:
@@ -2034,23 +2053,11 @@ async def stop_sandbox(request: Request, project_id: str):
 # Minimal, clean UI experience
 #
 
-import httpx
-import re
-import asyncio
-from typing import List, Dict
-from backend.ai.lineage_agent import (
-    set_log_callback as lineage_set_log,
-    _render_token_limit_message,
-    _append_history,
-    _get_history,
-    clear_history,
-)
-from backend.e2b_sandbox import E2BSandboxManager
-
 
 
 # Global tracking for active AI fixes
 active_ai_fixes = set()
+_AGENT_TASKS: Set[asyncio.Task] = set()
 
 
 async def run_agent_loop(
@@ -2080,12 +2087,16 @@ async def run_agent_loop(
                 db_history.append({"role": "system", "content": f"SYSTEM: {prompt[:500]}"})
             else:
                 db_history.append({"role": "user", "content": prompt})
-            # Cap history at 100 messages (loophole 25)
             if len(db_history) > 100:
                 db_history = db_history[-100:]
-            supabase.table("projects").update(
-                {"chat_history": db_history}
-            ).eq("id", project_id).execute()
+            # ★ FIX: off-load the sync supabase call to a thread so the
+            # event loop can keep emitting SSE events in the meantime.
+            await asyncio.to_thread(
+                lambda: supabase.table("projects").update(
+                    {"chat_history": db_history}
+                ).eq("id", project_id).execute()
+            )
+
  
         user_data = db_select_one(
             "users", {"id": user_id},
@@ -2201,9 +2212,9 @@ async def run_agent_loop(
  
         # ---- Callback to persist each assistant message as it arrives ----
         def on_assistant_message(msg: str):
-            # DO NOT emit_log here. The sandbox manager emits a \'narration\'
-            # SSE event already. Doing both causes a doubled message bubble.
-            # This callback\'s only job is to persist to DB.
+            # Note: this runs inside the sandbox manager which may already
+            # be on a worker thread, so a direct .execute() here is fine.
+            # Keeping it synchronous avoids awaiting from a sync callback.
             try:
                 db_history.append({"role": "assistant", "content": msg})
                 if len(db_history) > 100:
@@ -2213,6 +2224,7 @@ async def run_agent_loop(
                 ).eq("id", project_id).execute()
             except Exception as e:
                 print(f"Persist assistant message failed: {e}")
+
 
         # ---- Hand off EVERYTHING to the sandbox manager ----
         # It handles: boot → multi-turn agent loop → single end-of-turn sync
@@ -2247,12 +2259,17 @@ async def run_agent_loop(
         emit_progress(project_id, "Ready", 100)
  
     except Exception as e:
-        emit_status(project_id, "Fatal Error")
-        emit_log(project_id, "system", f"Workflow failed: {e}")
         import traceback
-        print(traceback.format_exc())
-
-
+        tb = traceback.format_exc()
+        print(f"⚠️ run_agent_loop EXCEPTION: {e}")
+        print(tb)
+        emit_status(project_id, "Fatal Error")
+        # Actually surface the error message AND traceback to the chat UI
+        # so you can see what broke without digging through terminal logs.
+        emit_log(project_id, "system", f"❌ {type(e).__name__}: {e}")
+        # Split traceback into last few lines so the UI doesn\'t choke
+        tb_short = "\\n".join(tb.strip().split("\\n")[-8:])
+        emit_log(project_id, "system", f"Traceback:\\n{tb_short}")
 # ==========================================================================
 # AUTO-FIXING LOG ENDPOINT
 # ==========================================================================
@@ -2986,22 +3003,57 @@ async def serve_project_file(request: Request, project_id: str, path: str):
 import json
 
 class _ProgressBus:
+    """Progress bus with a short replay buffer so new SSE subscribers catch
+    up on events that fired in the last few seconds. Fixes the race where
+    the backend starts emitting before the frontend (re)connects its SSE."""
+ 
+    REPLAY_WINDOW_S = 8.0       # replay events from last 8 seconds
+    BUFFER_CAP      = 200       # per-project cap
+ 
     def __init__(self):
         self._queues: Dict[str, List[asyncio.Queue]] = {}
-
+        # project_id -> list of (timestamp, event_dict)
+        self._buffer: Dict[str, List[tuple]] = {}
+ 
     def subscribe(self, project_id: str) -> asyncio.Queue:
         q = asyncio.Queue()
         self._queues.setdefault(project_id, []).append(q)
+ 
+        # Replay recent events so the new subscriber doesn\'t miss anything
+        now = time.time()
+        recent = [
+            (ts, ev) for (ts, ev) in self._buffer.get(project_id, [])
+            if (now - ts) <= self.REPLAY_WINDOW_S
+        ]
+        for _, ev in recent:
+            try:
+                q.put_nowait(ev)
+            except Exception:
+                pass
         return q
-
+ 
     def unsubscribe(self, project_id: str, q: asyncio.Queue) -> None:
         if project_id in self._queues and q in self._queues[project_id]:
             self._queues[project_id].remove(q)
-
+ 
     def emit(self, project_id: str, event: Dict[str, Any]) -> None:
+        # Push to all live subscribers
         for q in self._queues.get(project_id, []):
             try: q.put_nowait(event)
             except Exception: pass
+ 
+        # Also buffer for late subscribers
+        buf = self._buffer.setdefault(project_id, [])
+        buf.append((time.time(), event))
+ 
+        # Trim the buffer by size
+        if len(buf) > self.BUFFER_CAP:
+            del buf[: len(buf) - self.BUFFER_CAP]
+ 
+        # Also trim by age (cheap, runs every emit)
+        cutoff = time.time() - self.REPLAY_WINDOW_S
+        while buf and buf[0][0] < cutoff:
+            buf.pop(0)
 
 progress_bus = _ProgressBus()
 
@@ -3167,7 +3219,7 @@ async def agent_start(request: Request, project_id: str):
         emit_status(project_id, "Agent received prompt")
         emit_log(project_id, "user", prompt)
  
-    asyncio.create_task(
+    task = asyncio.create_task(
         run_agent_loop(
             project_id=project_id,
             prompt=prompt,
@@ -3177,8 +3229,23 @@ async def agent_start(request: Request, project_id: str):
             is_system_task=False,
         )
     )
+    _AGENT_TASKS.add(task)
+    task.add_done_callback(_AGENT_TASKS.discard)
+ 
+    # Also surface exceptions that the task raises — without this, any
+    # error inside run_agent_loop that isn\'t caught by its own try/except
+    # would be swallowed silently.
+    def _log_task_exception(t: asyncio.Task):
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc:
+            import traceback
+            print(f"⚠️ agent task crashed: {exc}")
+            traceback.print_exception(type(exc), exc, exc.__traceback__)
+    task.add_done_callback(_log_task_exception)
+ 
     return {"started": True}
-
 
 @app.get("/api/project/{project_id}/events")
 async def agent_events(request: Request, project_id: str):
