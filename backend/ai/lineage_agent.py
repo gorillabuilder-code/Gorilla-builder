@@ -27,7 +27,7 @@ import httpx
 # Config
 # ---------------------------------------------------------------------------
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("LINEAGE_MODEL", "moonshotai/kimi-k2.5")
+MODEL = os.getenv("LINEAGE_MODEL", "kwaipilot/kat-coder-pro-v2")
 VISION_MODEL = os.getenv("VISION_MODEL", "arcee-ai/trinity-large-thinking")
 OPENROUTER_URL = os.getenv(
     "OPENROUTER_URL",
@@ -221,7 +221,7 @@ One raw JSON object. No markdown fences, no prose around it.
     • you need to `cat` a file to see its current content
     • you need to inspect a `curl` response (e.g. a Supabase migration result)
     • you're unsure what version of a package is installed
-    • you ran an `npm install` and want to confirm it succeeded before importing
+    • you're sure all dependencies are installed (npm install has already been run, only run it if you have changed the package.json)
     • you're debugging and need to see what an error actually says
 
 You can run multiple `done: false` cycles per request. Use them freely when it saves you from guessing.
@@ -314,17 +314,12 @@ curl -sS -X POST "{GORILLA_PROXY}/api/v1/images/generations" \
   -d '{"prompt":"minimalist mountain landscape at dusk, vibrant blue sky","samples":1}' \
   | jq -r '.[0].base64 // .data[0].b64_json // .base64' \
   | base64 -d > public/generated/hero.jpg
-```
- 
+``` 
 Then reference it in your React code as `/generated/hero.jpg`.
- 
-Rules for image generation:
-- Always save to `public/generated/{descriptive_name}.jpg` — Vite serves /public at the root
-- Use the response format: `jq -r '.[0].base64 // .data[0].b64_json // .base64'` handles both Fireworks native and OpenAI-style responses
-- If a user uploads a reference image, use it as context in your code — don't regenerate it
-- Be tasteful with prompts: specific, stylistic, modern. NEVER say "photo-realistic"
 
-**CRITICAL:** NEVER EVER RUN MORE THAN COMMANDS PER TURN. AND ALWAYS ENSURE THE APP RUNS PERFECTLY ON NPM RUN DEV / BUILD BEFORE SAYING YOU'RE DONE. IF YOU'RE UNSURE, RUN ONE COMMAND AT A TIME AND USE "done": false TO SEE THE OUTPUT AS YOU GO. "done: True" should be a privellage reserved for when you're 100% sure the task is complete and the app is in a good state, THERE IS NO NEED TO HURRY, MAKE YOUR OWN TOOLS IF YOU NEED TO, ANE MAKE FULL USE OF THE SANDBOX, FOR EXAMPLE USING PYTHON SCRIPTS TO CHANGE BIG FILES...
+RIGHT BEFORE YOU START CODING, YOU MUST SEE THE ENTIRE FILE TREE FOR CONTEXT, AS THERE ARE MANY DEPENDENCIES ALREADY INSTALLED, ALONG WITH BOILERPLATE FILES.
+
+**CRITICAL:** NEVER EVER RUN MORE THAN 4 COMMANDS PER TURN, AND ALWAYS ENSURE THE APP RUNS PERFECTLY ON NPM RUN DEV / BUILD BEFORE SAYING YOU'RE DONE. IF YOU'RE UNSURE, RUN ONE COMMAND AT A TIME AND USE "done": false TO SEE THE OUTPUT AS YOU GO. "done: True" should be a privellage reserved for when you're 100% sure the task is complete and the app is in a good state, THERE IS NO NEED TO HURRY, MAKE YOUR OWN TOOLS IF YOU NEED TO, ANE MAKE FULL USE OF THE SANDBOX, FOR EXAMPLE USING PYTHON SCRIPTS TO CHANGE BIG FILES...
 
 """
 

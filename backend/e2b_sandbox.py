@@ -54,7 +54,7 @@ BILLING_TICK_S = 60
 APP_DIR = "/home/user/app"
 DEV_SERVER_WAIT_S = 15
 MAX_COMMANDS_PER_TURN = 40
-MAX_TURNS_PER_REQUEST = 100
+MAX_TURNS_PER_REQUEST = 40
 SYNC_MARKER = "/tmp/.gorilla_sync_marker"
 FILE_READ_SENTINEL = "═══GORILLA_FILE_BOUNDARY_9f8c═══"
 FILE_CONTENT_SENTINEL = "═══GORILLA_CONTENT_START_9f8c═══"
@@ -107,7 +107,7 @@ def classify_command(cmd: str) -> Dict[str, str]:
         pkgs = re.findall(r"\b([@a-z0-9][@a-z0-9/\-._]+)\b", c[len("npm install"):])
         pkgs = [p for p in pkgs if not p.startswith("-") and p not in {"install", "add"}]
         target = " ".join(pkgs[:3]) if pkgs else ""
-        short = f"Install {target}" if target else "Install dependencies"
+        short = f"Installing a few dependencies" if target else "Install dependencies"
         return {"verb": "install", "target": target, "short": short}
 
     if "npm run" in low or "pnpm run" in low:
@@ -394,7 +394,6 @@ class E2BSandboxManager:
         def _boot_sync():
             sbx = Sandbox(template=SANDBOX_TEMPLATE, api_key=E2B_API_KEY, timeout=3600)
             sid = sbx.sandbox_id
-            sbx.commands.run(f"mkdir -p {APP_DIR}", timeout=5)
             return sbx, sid
 
         try:
@@ -425,15 +424,6 @@ class E2BSandboxManager:
             except Exception as e:
                 self._emit_log(project_id, "sandbox", f"env write warning: {e}")
 
-        # Check dep cache
-        def _check_deps():
-            return sbx.commands.run(
-                f"test -d {APP_DIR}/node_modules && echo EXISTS || echo MISSING",
-                timeout=5,
-            )
-        check = await asyncio.to_thread(_check_deps)
-        deps_cached = "EXISTS" in (check.stdout or "")
-
         preview_port = self._detect_preview_port(file_tree)
 
         session = SandboxSession(
@@ -443,37 +433,10 @@ class E2BSandboxManager:
             owner_id=owner_id,
             preview_port=preview_port,
             url=self._sandbox_url_for_port(sandbox_id, preview_port),
-            deps_installed=deps_cached,
+            deps_installed=True,
             content_hashes=hashes,
         )
         self._sessions[project_id] = session
-
-        if not deps_cached:
-            self._emit_log(project_id, "sandbox", "Installing dependencies (this can take 1-2 min)...")
-            self._emit_status(project_id, "Installing Dependencies...")
-
-            # --no-fund --no-audit reduce memory pressure and extra network calls
-            # --prefer-offline speeds up if cache exists
-            def _npm_install():
-                return sbx.commands.run(
-                    f"cd {APP_DIR} && npm install --legacy-peer-deps "
-                    f"--no-fund --no-audit --prefer-offline",
-                    timeout=360,
-                )
-            try:
-                inst = await asyncio.to_thread(_npm_install)
-                if inst.exit_code == 0:
-                    session.deps_installed = True
-                    self._emit_log(project_id, "sandbox", "Dependencies installed")
-                else:
-                    self._emit_log(
-                        project_id, "sandbox",
-                        f"npm install warning: {(inst.stderr or '')[:200]}",
-                    )
-            except Exception as e:
-                self._emit_log(project_id, "sandbox", f"npm install error: {e}")
-        else:
-            self._emit_log(project_id, "sandbox", "Dependencies cached")
 
         session._billing_task = asyncio.create_task(self._billing_loop(project_id))
         if not self._idle_monitor_task or self._idle_monitor_task.done():
@@ -483,7 +446,7 @@ class E2BSandboxManager:
             project_id, "sandbox",
             f"Sandbox ready (preview port {preview_port}): {session.url}",
         )
-        self._emit_status(project_id, "Sandbox Ready")
+        self._emit_status(project_id, "Agent Started...")
         self._emit(project_id, {"type": "sandbox_url", "url": session.url})
         return session
 
