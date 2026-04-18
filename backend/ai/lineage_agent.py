@@ -1,15 +1,27 @@
 """
-Lineage Agent v4 — Gorilla Builder Single-Agent Brain
-=======================================================
+Lineage Agent v8 — Full Memory, Raw History, No Lobotomy
+==========================================================
 
-v4 changes:
-  - System prompt now teaches the agent to think in "command-by-command" flow
-  - Agent understands its output streams live to the user (frame by frame)
-  - Agent understands the boilerplate runs TWO servers via `concurrently`:
-      npm run client → Vite on port 8080 (the preview iframe)
-      npm run server → Express on port 3000 (the backend)
-  - Agent is explicitly told to ALWAYS `npm install` new imports before using them
-  - `done: false` is encouraged for tasks where the agent needs to see stdout
+Bugs fixed:
+
+  1. Assistant history lobotomy: run() was stripping every assistant turn
+     down to just the "message" field ("Working on it..."), so the model
+     had no memory of what it planned or did. Fix: assistant turns are
+     passed through RAW. The model sees its own JSON including plan,
+     calls, and done flag.
+
+  2. No session memory within a request: the agent had no internal turn
+     history. Each run() call rebuilt messages from scratch using only
+     external chat_history. Fix: LineageAgent now accumulates its own
+     _session_turns list. Every run() call appends the user message and
+     the raw LLM response as assistant. On subsequent calls within the
+     same request, the model sees its full conversation so far.
+
+  3. _get_history() never called: dead code. Fix: removed the pretense.
+     _append_history and _get_history kept only for legacy Agent shim.
+
+The agent is fully autonomous. It runs npm run dev, checks ports, fixes
+errors, and only says done when both :8080 and :3000 respond HTTP 200.
 """
 
 from __future__ import annotations
@@ -27,14 +39,14 @@ import httpx
 # Config
 # ---------------------------------------------------------------------------
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("LINEAGE_MODEL", "anthropic/claude-sonnet-4.6")
-VISION_MODEL = os.getenv("VISION_MODEL", "arcee-ai/trinity-large-thinking")
+MODEL = os.getenv("LINEAGE_MODEL", "z-ai/glm-5.1")
+VISION_MODEL = os.getenv("VISION_MODEL", "z-ai/glm-5.1")
 OPENROUTER_URL = os.getenv(
     "OPENROUTER_URL",
     "https://openrouter.ai/api/v1/chat/completions",
 ).strip()
 SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev").strip()
-SITE_NAME = os.getenv("SITE_NAME", "Gor://a Builder")
+SITE_NAME = os.getenv("SITE_NAME", "Gorilla Builder")
 
 MAX_CONTEXT_TOKENS = 140_000
 CHARS_PER_TOKEN = 4
@@ -42,25 +54,20 @@ CHARS_PER_TOKEN = 4
 if not OPENROUTER_API_KEY:
     raise RuntimeError("OPENROUTER_API_KEY must be set")
 
-
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 _external_log_callback = None
 
-
 def set_log_callback(cb):
     global _external_log_callback
     _external_log_callback = cb
 
-
 def log_agent(role: str, message: str, project_id: str = "") -> None:
     prefix = f"[{project_id[:8]}]" if project_id else "[AGENT]"
     ts = time.strftime("%H:%M:%S")
-    colors = {
-        "agent": "\033[94m", "llm": "\033[90m", "system": "\033[97m",
-        "debugger": "\033[91m",
-    }
+    colors = {"agent": "\033[94m", "llm": "\033[90m", "system": "\033[97m",
+              "debugger": "\033[91m"}
     c = colors.get(role.lower(), "\033[94m")
     r = "\033[0m"; d = "\033[90m"
     print(f"{d}{ts}{r} {prefix} {c}{role.upper()}{r}: "
@@ -70,7 +77,6 @@ def log_agent(role: str, message: str, project_id: str = "") -> None:
             _external_log_callback(project_id, role.lower(), message)
         except Exception:
             pass
-
 
 def _render_token_limit_message() -> str:
     return (
@@ -89,420 +95,413 @@ def _render_token_limit_message() -> str:
         'font-size:14px;font-weight:600;">Upgrade to Premium</a></div>'
     )
 
-
 # ---------------------------------------------------------------------------
-# History mirror
+# History (legacy shim only — LineageAgent uses its own _session_turns)
 # ---------------------------------------------------------------------------
 _HISTORY: Dict[str, list] = {}
 HISTORY_CAP = 100
 
-
 def _norm_role(r: str) -> str:
     return "user" if (r or "").strip().lower() in ("user", "you") else "assistant"
 
-
 def _append_history(project_id: str, role: str, content: str) -> None:
-    if not project_id or not content:
-        return
+    if not project_id or not content: return
     _HISTORY.setdefault(project_id, []).append(
-        {"role": _norm_role(role), "content": content.strip()}
-    )
+        {"role": _norm_role(role), "content": content.strip()})
     if len(_HISTORY[project_id]) > HISTORY_CAP:
         _HISTORY[project_id] = _HISTORY[project_id][-HISTORY_CAP:]
-
 
 def _get_history(project_id: str, max_items: int = 20) -> list:
     return list(_HISTORY.get(project_id, []))[-max_items:]
 
-
 def clear_history(project_id: str) -> None:
     _HISTORY.pop(project_id, None)
-
 
 # ---------------------------------------------------------------------------
 # Token substitution
 # ---------------------------------------------------------------------------
 class TokenSubstitution:
     THRESHOLD = 500
-
     def __init__(self):
         self._vault: Dict[str, str] = {}
         self._reverse: Dict[str, str] = {}
         self._n = 0
-
     def _mk(self) -> str:
-        self._n += 1
-        return f"__BLOB_{self._n:04d}__"
-
+        self._n += 1; return f"__BLOB_{self._n:04d}__"
     @staticmethod
     def _is_b64(s: str) -> bool:
-        if len(s) < 100:
-            return False
+        if len(s) < 100: return False
         sample = s[:200].strip()
-        ratio = sum(1 for c in sample if c.isalnum() or c in "+/=") / len(sample)
-        return ratio > 0.9 and "\n" not in sample[:100]
-
+        return (sum(1 for c in sample if c.isalnum() or c in "+/=") / len(sample)) > 0.9 and "\n" not in sample[:100]
     def compress_tree(self, tree: Dict[str, str]) -> Dict[str, str]:
         out: Dict[str, str] = {}
         for path, content in tree.items():
             if content and len(content) > self.THRESHOLD:
-                if (path.endswith(".b64")
-                        or self._is_b64(content)
+                if (path.endswith(".b64") or self._is_b64(content)
                         or (path.endswith(".json") and len(content) > 5000)
                         or (path.endswith(".svg") and len(content) > 3000)):
                     h = hashlib.md5(content[:200].encode()).hexdigest()
-                    if h in self._reverse:
-                        out[path] = self._reverse[h]
+                    if h in self._reverse: out[path] = self._reverse[h]
                     else:
-                        pid = self._mk()
-                        self._vault[pid] = content
-                        self._reverse[h] = pid
-                        out[path] = pid
+                        pid = self._mk(); self._vault[pid] = content; self._reverse[h] = pid; out[path] = pid
                     continue
             out[path] = content
         return out
-
     def expand(self, text: str) -> str:
         for ph, original in self._vault.items():
-            if ph in text:
-                text = text.replace(ph, original)
+            if ph in text: text = text.replace(ph, original)
         return text
-
 
 def _estimate_tokens(messages: list) -> int:
     total = 0
     for m in messages:
         c = m.get("content", "")
-        if isinstance(c, str):
-            total += len(c) // CHARS_PER_TOKEN
+        if isinstance(c, str): total += len(c) // CHARS_PER_TOKEN
         elif isinstance(c, list):
             for item in c:
                 if isinstance(item, dict):
-                    if item.get("type") == "text":
-                        total += len(item.get("text", "")) // CHARS_PER_TOKEN
-                    elif item.get("type") == "image_url":
-                        total += 1000
+                    if item.get("type") == "text": total += len(item.get("text", "")) // CHARS_PER_TOKEN
+                    elif item.get("type") == "image_url": total += 1000
     return total
 
-
 def _shorten(messages: list, max_tokens: int = MAX_CONTEXT_TOKENS) -> list:
-    if _estimate_tokens(messages) <= max_tokens:
-        return messages
+    if _estimate_tokens(messages) <= max_tokens: return messages
     sys_msg = messages[0] if messages and messages[0].get("role") == "system" else None
-    recent = messages[-4:]
-    return ([sys_msg] if sys_msg else []) + recent
+    return ([sys_msg] if sys_msg else []) + messages[-6:]
 
 
-# ---------------------------------------------------------------------------
-# SYSTEM PROMPT — v4 (streaming-aware)
-# ---------------------------------------------------------------------------
-SYSTEM_PROMPT_BASE = r"""You are the Gorilla Builder AI — a single autonomous full-stack engineer inside an E2B Ubuntu cloud sandbox with Node 20, npm, pnpm, curl, jq, and git.
+# ═══════════════════════════════════════════════════════════════════════════
+#  SYSTEM PROMPT v8
+# ═══════════════════════════════════════════════════════════════════════════
 
-You write files and run code by emitting shell commands. Every command you emit streams its output live to the user's chat UI — they watch each line scroll by as it happens. You never produce code blocks for the user to copy; you execute everything yourself.
+SYSTEM_PROMPT_BASE = r"""You are Gorilla — an autonomous full-stack engineer inside a live Ubuntu sandbox.
+You have FULL CONTROL. You write code, install packages, start servers, debug errors, and verify the app works. Nobody does anything for you. The user's prompt goes in, a working app comes out.
 
-## OUTPUT FORMAT — STRICT JSON, NO EXCEPTIONS
+## ENVIRONMENT
 
-One raw JSON object. No markdown fences, no prose around it.
+Ubuntu 22, Node 20, Python 3.11. CWD: `/home/user/app`
 
-{
-  "message": "One friendly sentence for the user describing what you're doing.",
-  "commands": [
-    "mkdir -p src/components",
-    "cat > src/components/Hero.tsx << 'GORILLA_EOF'\n...file content...\nGORILLA_EOF",
-    "npm install framer-motion"
-  ],
-  "done": true
-}
+**Binaries:** node, npm, npx, git, curl, jq, unzip, tar, find, grep, sed, awk, python3
+**npm deps already installed:** react, react-dom, react-router-dom, vite, @vitejs/plugin-react, typescript, tailwindcss, postcss, autoprefixer, clsx, tailwind-merge, class-variance-authority, @radix-ui/* (shadcn), lucide-react, @supabase/supabase-js, express, cors, body-parser, dotenv, concurrently
 
-## THE done FLAG
+**Dev server:** `npm run dev` starts Vite on `:8080` (frontend) and Express on `:3000` (API) via concurrently.
 
-- `"done": true`   → you're finished for this turn. The orchestrator restarts the dev server and shows the preview.
-- `"done": false`  → you need to SEE the output of your commands before continuing. The orchestrator executes everything, then calls you again with stdout/stderr attached. Use this when:
-    • you need to `cat` a file to see its current content
-    • you need to inspect a `curl` response (e.g. a Supabase migration result)
-    • you're unsure what version of a package is installed
-    • you're sure all dependencies are installed (npm install has already been run, only run it if you have changed the package.json)
-    • you're debugging and need to see what an error actually says
+**Env vars** (in `.gorilla_env`, sourced automatically):
+`$GORILLA_API_KEY`, `$VITE_GORILLA_AUTH_ID`, `$VITE_SUPABASE_URL`, `$VITE_SUPABASE_ANON_KEY`, `$SUPABASE_MGMT_TOKEN`, `$SUPABASE_PROJECT_REF`
 
-You can run multiple `done: false` cycles per request. Use them freely when it saves you from guessing.
+**Layout:** `src/` (React), `src/components/ui/` (shadcn), `src/utils/auth.ts` (auth gateway — import, don't rewrite), `routes/` (Express), `public/generated/` (AI images), `.gorilla/` (scratch)
 
-## THE STACK (THIS BOILERPLATE, EXACTLY)
+## RESPONSE FORMAT
 
-- Frontend: React 18 + TypeScript + Vite + Tailwind + Shadcn/UI in `src/components/ui/`
-- Backend:  Node.js + Express (ES modules, entry `server.js`, routes in `routes/`)
-- Dev runs BOTH servers in parallel via `concurrently`:
-    • `npm run client` → Vite on **port 8080** ← this is what the PREVIEW IFRAME shows
-    • `npm run server` → Express on **port 3000** (proxied by Vite)
-- `npm run dev` starts both
+```json
+{"plan": "...", "message": "...", "calls": [...], "done": false}
+```
 
-When you make a visual change, the user sees it at port 8080. Keep that in mind.
+`done: false` → you need to see output. `done: true` → app verified at :8080 and :3000.
 
-## COMMAND PATTERNS
+## TOOLS
 
-- **Create / overwrite file**:
-    ```
-    cat > src/App.tsx << 'GORILLA_EOF'
-    ...content...
-    GORILLA_EOF
-    ```
-    Delimiter MUST be exactly `GORILLA_EOF` (single-quoted so $vars don't expand).
+| Tool | Args | Purpose |
+|------|------|---------|
+| `view` | `path` | Read file. Do this before str_replace. |
+| `create_file` | `path`, `content` | New file or full rewrite. |
+| `str_replace` | `path`, `old`, `new` | Surgical edit. `old` must be unique. |
+| `todo_update` | `mark_done` / `add` | Manage .gorilla/todo.md checklist. |
+| `bash` | `cmd` | Anything: npm install, npm run dev, curl, kill, tail logs. |
+| `search` | `pattern`, `glob` | Grep before creating something that might exist. |
+| `delete` | `path` | Remove file. |
 
-- **Make dirs first**: `mkdir -p src/components/chat`
+## WORKFLOW
 
-- **Install dependencies**: `npm install framer-motion lucide-react` — **ALWAYS run this BEFORE importing a package for the first time.** Vite will fail with "could not be resolved" if you import without installing.
+1. **Plan** — Create `.gorilla/todo.md` with checkboxes. Last item: "verify app runs."
+2. **Explore** — `view` files you'll edit. `done: false`.
+3. **Build** — Write code, install deps, wire everything. Tick todo items.
+4. **Start** — `bash: cd /home/user/app && npm run dev > /tmp/dev.log 2>&1 &` then `done: false`.
+5. **Verify** — `bash: sleep 4 && curl -s -o /dev/null -w '%{http_code}' http://localhost:8080 && curl -s -o /dev/null -w '%{http_code}' http://localhost:3000`
+   Both 200 → `done: true`. Otherwise → read `/tmp/dev.log`, fix, restart, verify again.
 
-- **Delete**: `rm path/to/file`  or  `rm -rf some/dir`  (orchestrator syncs deletions to DB)
+**You cannot say `done: true` until both ports return HTTP 200.**
 
-- **Read a file**: `cat path/to/file` then `"done": false` so you see its content next turn
+## RULES
 
-- **List files**: `find . -type f -not -path '*/node_modules/*' -not -path '*/.git/*'`
+1. `npm install <pkg>` before any new import.
+2. `view` before `str_replace`.
+3. Wire everything: new component → import + render. New route → mount in server.js.
+4. Frontend: `@/components/ui/button`. Backend: `./routes/api.js` (with `.js`).
+5. Never touch: `package.json` directly, `vite.config.ts`, `.env`, `src/utils/auth.ts`.
+6. No Inter font. Dark defaults: `bg-zinc-950 text-zinc-100`.
 
-- **HTTP calls / SQL**: `curl -X POST ... -H "Authorization: Bearer $TOKEN" ...`
+## AUTH GATEWAY
 
-## ENVIRONMENT (sourced from .gorilla_env — available in every command)
-  $GORILLA_API_KEY         — backend key for the Gorilla AI proxy
-  $VITE_GORILLA_AUTH_ID    — unique auth gateway ID for this app
-  $VITE_SUPABASE_URL       — (if DB linked) Supabase project URL
-  $VITE_SUPABASE_ANON_KEY  — (if DB linked) Supabase anon key
-  $SUPABASE_MGMT_TOKEN     — (if DB linked) Management API bearer token
-  $SUPABASE_PROJECT_REF    — (if DB linked) Supabase project reference
-
-## SAFETY
-- NEVER `sudo`, `shutdown`, `reboot`, `mkfs`, or write to `/dev/sd*`
-- NEVER delete `package.json`, `vite.config.ts`, or the `dev`/`client`/`server` npm scripts
-- NEVER rewrite `.env` from scratch — it's already populated
-- NEVER rewrite `package.json` from scratch — use `npm install` to add deps
-
-## RULES OF PRACTICE
-1. Frontend imports use `@/` alias: `import { Button } from '@/components/ui/button'`
-2. Backend imports use relative paths + `.js` extension: `import router from './routes/api.js'`
-3. Icons: `lucide-react`. Animations: `framer-motion`. Both must be `npm install`ed if not in package.json.
-4. NEVER use Inter font. Pick distinctive typography each project.
-5. Design sleek, modern, non-bootstrappy UIs.
-6. async/await + try/catch in every backend route.
-7. **Be surgically lazy**: only touch files that actually need changes this turn. Don't rewrite App.tsx if you're only adding a new component.
-8. Wire every new component (import + render) and every new route (mount in server.js).
-9. **Check `package.json` before importing.** If you're unsure whether a dep exists, either `cat package.json` + `done: false`, or just `npm install` it — installs are idempotent.
-
-## AUTH (built-in gateway)
 ```tsx
-import { login, onAuthStateChanged, logout } from '@/utils/auth';
+import { login, logout, onAuthStateChanged } from '@/utils/auth';
 useEffect(() => onAuthStateChanged(setUser), []);
 <button onClick={() => login('google')}>Sign in</button>
+// user = { id, email, name, avatar, provider }
 ```
 
-## AI INTEGRATIONS via Gorilla Proxy ({GORILLA_PROXY}) — backend only
-All use `process.env.GORILLA_API_KEY`.
-- LLM:     POST {GORILLA_PROXY}/api/v1/chat/completions   (do NOT send model/temperature)
-- Images:  POST {GORILLA_PROXY}/api/v1/images/generations  (OpenAI payload)
-- STT:     POST {GORILLA_PROXY}/api/v1/audio/transcriptions (Whisper)
-- TTS:     Use `window.speechSynthesis` on the frontend
-- BG rm:   POST {GORILLA_PROXY}/api/v1/images/remove-background (FormData)
+## AI PROXY — backend only, `$GORILLA_API_KEY`
 
-### IMAGE GENERATION
-If the user wants AI-generated images (hero art, avatars, product mockups, etc.),
-you generate them YOURSELF using curl and the Gorilla proxy. Save to `public/`
-so they're served by Vite.
- 
+Base: `{GORILLA_PROXY}`
+
+**LLM** (don't send model/temperature):
+```js
+fetch(`{GORILLA_PROXY}/api/v1/chat/completions`, {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${process.env.GORILLA_API_KEY}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ messages: [{ role: 'user', content: prompt }] })
+})
 ```
-mkdir -p public/generated
- 
-# Generate a single image and save it to disk
-curl -sS -X POST "{GORILLA_PROXY}/api/v1/images/generations" \
-  -H "Authorization: Bearer $GORILLA_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"prompt":"minimalist mountain landscape at dusk, vibrant blue sky","samples":1}' \
-  | jq -r '.[0].base64 // .data[0].b64_json // .base64' \
-  | base64 -d > public/generated/hero.jpg
-``` 
-Then reference it in your React code as `/generated/hero.jpg`.
 
-RIGHT BEFORE YOU START CODING, YOU MUST SEE THE ENTIRE FILE TREE FOR CONTEXT, AS THERE ARE MANY DEPENDENCIES ALREADY INSTALLED, ALONG WITH BOILERPLATE FILES.
+**Images** → `public/generated/`:
+```bash
+curl -sS -X POST {GORILLA_PROXY}/api/v1/images/generations \
+  -H "Authorization: Bearer $GORILLA_API_KEY" -H "Content-Type: application/json" \
+  -d '{"prompt":"sleek dark geometric","samples":1}' \
+  | jq -r '.[0].base64 // .data[0].b64_json' | base64 -d > public/generated/hero.jpg
+```
 
-**CRITICAL:** NEVER EVER RUN MORE THAN 4 COMMANDS PER TURN, AND ALWAYS ENSURE THE APP RUNS PERFECTLY ON NPM RUN DEV / BUILD BEFORE SAYING YOU'RE DONE. IF YOU'RE UNSURE, RUN ONE COMMAND AT A TIME AND USE "done": false TO SEE THE OUTPUT AS YOU GO. "done: True" should be a privellage reserved for when you're 100% sure the task is complete and the app is in a good state, THERE IS NO NEED TO HURRY, MAKE YOUR OWN TOOLS IF YOU NEED TO, ANE MAKE FULL USE OF THE SANDBOX, FOR EXAMPLE USING PYTHON SCRIPTS TO CHANGE BIG FILES...
-
+**STT:** `POST {GORILLA_PROXY}/api/v1/audio/transcriptions` (FormData with `file`)
+**BG removal:** `POST {GORILLA_PROXY}/api/v1/images/remove-background` (FormData → PNG blob)
+**TTS:** `window.speechSynthesis` (browser-side)
 """
 
 
 SUPABASE_PROMPT = r"""
-## SUPABASE IS ACTIVE — YOU EXECUTE SQL YOURSELF
+## SUPABASE IS ACTIVE
 
-Run migrations from the shell with curl against the Management API.
+**Client:** `import { createClient } from '@supabase/supabase-js'; export const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);`
 
-### Client-side
-```ts
-import { createClient } from '@supabase/supabase-js';
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
-```
-
-### Write + execute a migration
-```
-mkdir -p migrations
-cat > migrations/001_profiles.sql << 'GORILLA_EOF'
-CREATE TABLE IF NOT EXISTS profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users ON DELETE CASCADE,
-  username TEXT UNIQUE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "profiles_read_own"   ON profiles FOR SELECT USING (auth.uid() = id);
-CREATE POLICY "profiles_update_own" ON profiles FOR UPDATE USING (auth.uid() = id);
-CREATE POLICY "profiles_insert_own" ON profiles FOR INSERT WITH CHECK (auth.uid() = id);
-GORILLA_EOF
-
-SQL_PAYLOAD=$(cat migrations/001_profiles.sql | jq -Rs '{query: .}')
+**Migrations** (bash tool):
+```bash
+mkdir -p migrations && cat > migrations/001.sql << 'MIG'
+CREATE TABLE IF NOT EXISTS items (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID REFERENCES auth.users ON DELETE CASCADE, title TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW());
+ALTER TABLE items ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "own" ON items USING (auth.uid() = user_id);
+MIG
 curl -sS -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
-  -H "Authorization: Bearer $SUPABASE_MGMT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "$SQL_PAYLOAD"
+  -H "Authorization: Bearer $SUPABASE_MGMT_TOKEN" -H "Content-Type: application/json" \
+  -d "$(cat migrations/001.sql | jq -Rs '{query: .}')"
 ```
-
-### SQL rules (non-negotiable)
-- `CREATE TABLE IF NOT EXISTS` — always idempotent
-- `ENABLE ROW LEVEL SECURITY` on every table
-- Explicit `CREATE POLICY` for every operation you need
-- Foreign keys: `REFERENCES other(id) ON DELETE CASCADE` where appropriate
-
-### On error
-If the curl response contains `"message":` with an error, the SQL failed. Set `"done": false`, inspect the output next turn, fix the SQL, and re-run. Never retry the same broken SQL.
+If response has `"message":` → failed. Fix SQL, retry. Always RLS + explicit policies.
 """
-
 
 DEBUG_PROMPT = r"""
-## DEBUG MODE
-The app errored. Your ONLY job is the minimal surgical fix.
-- Do NOT add features.
-- Read the error carefully; identify the single root cause file.
-- If unsure, `cat` the suspect file and set `"done": false` to examine it.
-- Overwrite the file with the fix.
-- If a dependency is missing (Vite "could not be resolved" error), `npm install` the missing package.
+## DEBUG MODE — surgical fix only
+Read the error. Find the ONE file. Smallest `str_replace`. No features, no refactoring.
+Missing import → `npm install`. Unsure → `view` with `done: false`.
+After fixing: restart dev server, verify ports, then `done: true`.
 """
 
 
-# ---------------------------------------------------------------------------
-# LLM call
-# ---------------------------------------------------------------------------
-async def _call_llm(
-    messages: list,
-    model: str = MODEL,
-    temperature: float = 0.6,
-) -> Tuple[str, int]:
+# ═══════════════════════════════════════════════════════════════════════════
+#  Tool translator
+# ═══════════════════════════════════════════════════════════════════════════
+
+_HEREDOC_DELIM = "GORILLA_EOF"
+_TODO_PATH = ".gorilla/todo.md"
+
+def _bash_escape_heredoc_content(content: str) -> str:
+    return content.replace(_HEREDOC_DELIM, "GORILLA__EOF")
+
+def _sh_quote(s: str) -> str:
+    return "'" + s.replace("'", "'\"'\"'") + "'"
+
+def _str_replace_shell(path: str, old: str, new: str) -> str:
+    script = (
+        "import sys\n"
+        f"p = {path!r}\n"
+        "try:\n"
+        "    with open(p, 'r', encoding='utf-8') as f: s = f.read()\n"
+        "except FileNotFoundError:\n"
+        "    sys.stderr.write(f'str_replace ERROR: file not found: {p}\\n'); sys.exit(4)\n"
+        f"old = {old!r}\n"
+        f"new = {new!r}\n"
+        "count = s.count(old)\n"
+        "if count == 0:\n"
+        "    sys.stderr.write(f'str_replace ERROR: old string not found in {p}\\n'); sys.exit(2)\n"
+        "if count > 1:\n"
+        "    sys.stderr.write(f'str_replace ERROR: old appears {count}x in {p} — must be unique\\n'); sys.exit(3)\n"
+        "with open(p, 'w', encoding='utf-8') as f: f.write(s.replace(old, new))\n"
+        "print(f'str_replace OK: {p}')\n"
+    )
+    return f"python3 << '{_HEREDOC_DELIM}'\n{_bash_escape_heredoc_content(script)}\n{_HEREDOC_DELIM}"
+
+def _todo_update_shell(mark_done: Optional[str], add: Optional[str]) -> Optional[str]:
+    if not mark_done and not add: return None
+    parts = [
+        "import os, sys",
+        f"p = {_TODO_PATH!r}",
+        "os.makedirs(os.path.dirname(p), exist_ok=True)",
+        "if not os.path.exists(p):",
+        "    with open(p, 'w') as f: f.write('# Task\\n\\n## Plan\\n\\n## Notes\\n')",
+        "with open(p, 'r') as f: s = f.read()",
+    ]
+    if mark_done:
+        parts.append(f"target = {mark_done!r}")
+        parts.append(
+            "replaced = False\n"
+            "for pfx in ['- [ ] ', '* [ ] ']:\n"
+            "    if pfx + target in s:\n"
+            "        s = s.replace(pfx + target, pfx.replace('[ ]','[x]') + target, 1); replaced = True; break\n"
+            "if not replaced:\n"
+            "    for i, ln in enumerate(s.splitlines()):\n"
+            "        if '[ ]' in ln and target.lower()[:30] in ln.lower():\n"
+            "            lines = s.splitlines(); lines[i] = ln.replace('[ ]','[x]',1); s = '\\n'.join(lines); replaced = True; break\n"
+            "if not replaced: sys.stderr.write(f'todo WARN: not found: {target[:60]}\\n')\n"
+        )
+    if add:
+        parts.append(f"to_add = {add!r}")
+        parts.append(
+            "item = f'- [ ] {to_add}\\n'\n"
+            "if '## Plan' in s:\n"
+            "    idx = s.find('## Plan'); nl = s.find('\\n', idx)\n"
+            "    end = s.find('\\n## ', nl+1)\n"
+            "    if end == -1: end = len(s)\n"
+            "    s = s[:end].rstrip() + '\\n' + item + s[end:]\n"
+            "else: s = s.rstrip() + '\\n' + item\n"
+        )
+    parts.append("with open(p, 'w') as f: f.write(s)")
+    parts.append("print('todo.md updated')")
+    script = "\n".join(parts) + "\n"
+    return f"python3 << '{_HEREDOC_DELIM}'\n{_bash_escape_heredoc_content(script)}\n{_HEREDOC_DELIM}"
+
+def _tool_call_to_shell(call: Dict[str, Any]) -> Optional[str]:
+    if not isinstance(call, dict): return None
+    tool = (call.get("tool") or "").lower().strip()
+    if tool == "bash": return (call.get("cmd") or "").strip() or None
+    if tool == "view":
+        p = (call.get("path") or "").strip(); return f"cat {_sh_quote(p)}" if p else None
+    if tool == "create_file":
+        p = (call.get("path") or "").strip(); c = call.get("content") or ""
+        if not p: return None
+        d = "/".join(p.split("/")[:-1]); mk = f"mkdir -p {_sh_quote(d)} && " if d else ""
+        return f"{mk}cat > {_sh_quote(p)} << '{_HEREDOC_DELIM}'\n{_bash_escape_heredoc_content(c)}\n{_HEREDOC_DELIM}"
+    if tool == "str_replace":
+        p = (call.get("path") or "").strip(); o = call.get("old") or ""; n = call.get("new") or ""
+        return _str_replace_shell(p, o, n) if (p and o) else None
+    if tool == "delete":
+        p = (call.get("path") or "").strip(); return f"rm -f {_sh_quote(p)}" if p else None
+    if tool == "search":
+        pat = (call.get("pattern") or "").strip(); g = (call.get("glob") or "").strip()
+        if not pat: return None
+        args = ["grep", "-RIn", "--color=never"]
+        if g: args += [f"--include={g.split('/')[-1] if '/' in g else g}"]
+        args += [_sh_quote(pat), "."]; return " ".join(args) + " | head -n 200"
+    if tool == "todo_update": return _todo_update_shell(call.get("mark_done"), call.get("add"))
+    if tool == "finish": return None
+    return None
+
+def _translate_calls(calls: List[Dict[str, Any]]) -> Tuple[List[str], bool]:
+    cmds: List[str] = []; finish = False
+    for c in calls:
+        if isinstance(c, dict) and (c.get("tool") or "").lower() == "finish": finish = True; continue
+        cmd = _tool_call_to_shell(c)
+        if cmd: cmds.append(cmd)
+    return cmds, finish
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  LLM call
+# ═══════════════════════════════════════════════════════════════════════════
+
+async def _call_llm(messages: list, model: str = MODEL, temperature: float = 0.6) -> Tuple[str, int]:
     messages = _shorten(messages)
     payload: Dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": 16000
+        "model": model, "messages": messages, "temperature": temperature, "max_tokens": 16000,
     }
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": SITE_URL,
-        "X-Title": SITE_NAME,
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json",
+        "HTTP-Referer": SITE_URL, "X-Title": SITE_NAME,
     }
     async with httpx.AsyncClient(timeout=180.0) as client:
         resp = await client.post(OPENROUTER_URL, json=payload, headers=headers)
         resp.raise_for_status()
         data = resp.json()
     content = data["choices"][0]["message"]["content"]
-    usage = data.get("usage", {})
-    p = usage.get("prompt_tokens", 0)
-    c = usage.get("completion_tokens", 0)
-    weighted = int(p * 3 + c * 15)
-    return content, weighted
+    u = data.get("usage", {}); p = u.get("prompt_tokens", 0); c = u.get("completion_tokens", 0)
+    return content, int(p * 0.445 + c * 2.2)
 
 
-# ---------------------------------------------------------------------------
-# JSON extraction
-# ---------------------------------------------------------------------------
+# ═══════════════════════════════════════════════════════════════════════════
+#  JSON extraction
+# ═══════════════════════════════════════════════════════════════════════════
+
 def _extract_json(text: str) -> Optional[Dict]:
     text = text.strip()
     for m in re.finditer(r"```(?:json)?\s*([\s\S]*?)\s*```", text):
-        try:
-            return json.loads(m.group(1).strip())
-        except json.JSONDecodeError:
-            pass
-    best = None
-    best_len = 0
+        try: return json.loads(m.group(1).strip())
+        except json.JSONDecodeError: pass
+    best = None; best_len = 0
     for i, ch in enumerate(text):
-        if ch != "{":
-            continue
-        depth = 0
-        in_str = False
-        esc = False
+        if ch != "{": continue
+        depth = 0; in_str = False; esc = False
         for j in range(i, len(text)):
             c = text[j]
-            if esc:
-                esc = False; continue
-            if c == "\\" and in_str:
-                esc = True; continue
-            if c == '"':
-                in_str = not in_str; continue
-            if in_str:
-                continue
-            if c == "{":
-                depth += 1
+            if esc: esc = False; continue
+            if c == "\\" and in_str: esc = True; continue
+            if c == '"': in_str = not in_str; continue
+            if in_str: continue
+            if c == "{": depth += 1
             elif c == "}":
                 depth -= 1
                 if depth == 0:
-                    candidate = text[i:j + 1]
-                    if len(candidate) > best_len:
-                        try:
-                            parsed = json.loads(candidate)
-                            best = parsed; best_len = len(candidate)
+                    cand = text[i:j+1]
+                    if len(cand) > best_len:
+                        try: parsed = json.loads(cand); best = parsed; best_len = len(cand)
                         except json.JSONDecodeError:
-                            fixed = re.sub(r",\s*([}\]])", r"\1", candidate)
-                            fixed = (fixed.replace("True", "true")
-                                          .replace("False", "false")
-                                          .replace("None", "null"))
-                            try:
-                                parsed = json.loads(fixed)
-                                best = parsed; best_len = len(candidate)
-                            except json.JSONDecodeError:
-                                pass
+                            fixed = re.sub(r",\s*([}\]])", r"\1", cand)
+                            fixed = fixed.replace("True","true").replace("False","false").replace("None","null")
+                            try: parsed = json.loads(fixed); best = parsed; best_len = len(cand)
+                            except json.JSONDecodeError: pass
                     break
     return best
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  Safety
+# ═══════════════════════════════════════════════════════════════════════════
 
-# ---------------------------------------------------------------------------
-# Shell safety
-# ---------------------------------------------------------------------------
 _DANGEROUS = [
     r"\brm\s+-rf\s+/($|\s)", r"\bsudo\b", r"\bshutdown\b", r"\breboot\b",
     r">\s*/dev/(sda|nvme|hda)", r"\bmkfs\b", r":\(\)\s*{\s*:\|:",
     r"\bdd\s+if=.*\s+of=/dev/",
 ]
 
-
 def _is_safe_command(cmd: str) -> bool:
-    for pattern in _DANGEROUS:
-        if re.search(pattern, cmd, re.IGNORECASE):
-            return False
-    return True
+    return not any(re.search(p, cmd, re.IGNORECASE) for p in _DANGEROUS)
 
 
-# ---------------------------------------------------------------------------
-# LineageAgent
-# ---------------------------------------------------------------------------
+# ═══════════════════════════════════════════════════════════════════════════
+#  LineageAgent v8 — full session memory
+# ═══════════════════════════════════════════════════════════════════════════
+
 class LineageAgent:
+    """
+    Persisted on SandboxSession.agent across user messages.
+    Maintains _session_turns: every user prompt + raw assistant JSON
+    response within the current multi-turn request, so the model sees
+    its own full history — plan, calls, and all — without lobotomy.
+    """
     def __init__(self, project_id: str):
         self.project_id = project_id
         self.total_tokens = 0
         self.token_sub = TokenSubstitution()
+        # Accumulated turns within the current multi-turn agent loop.
+        # Each entry: {"role": "user"|"assistant", "content": str}
+        # User content = the constructed prompt with file tree + tool output.
+        # Assistant content = the RAW LLM response (full JSON, not stripped).
+        self._session_turns: List[Dict[str, str]] = []
+
+    def reset_session(self) -> None:
+        """Called by the orchestrator at the start of a NEW user request
+        so that stale session turns from the previous request don't leak."""
+        self._session_turns = []
 
     async def run(
-        self,
-        user_request: str,
-        file_tree: Dict[str, str],
-        chat_history: Optional[list] = None,
-        gorilla_proxy_url: str = "",
-        has_supabase: bool = False,
-        is_debug: bool = False,
-        error_context: str = "",
-        image_b64: Optional[str] = None,
+        self, user_request: str, file_tree: Dict[str, str],
+        chat_history: Optional[list] = None, gorilla_proxy_url: str = "",
+        has_supabase: bool = False, is_debug: bool = False,
+        error_context: str = "", image_b64: Optional[str] = None,
         previous_command_output: Optional[str] = None,
     ) -> Dict[str, Any]:
         compressed = self.token_sub.compress_tree(file_tree)
@@ -510,146 +509,143 @@ class LineageAgent:
         tree_str = "\n".join(f"  {p}" for p in clean_paths)
 
         sys_prompt = SYSTEM_PROMPT_BASE.replace(
-            "{GORILLA_PROXY}",
-            gorilla_proxy_url or "https://slaw-carefully-cried.ngrok-free.dev",
-        )
-        if has_supabase:
-            sys_prompt += "\n" + SUPABASE_PROMPT
-        if is_debug:
-            sys_prompt += "\n" + DEBUG_PROMPT
+            "{GORILLA_PROXY}", gorilla_proxy_url or "https://your-proxy.ngrok-free.dev")
+        if has_supabase: sys_prompt += "\n" + SUPABASE_PROMPT
+        if is_debug: sys_prompt += "\n" + DEBUG_PROMPT
+
+        # Inject todo.md content
+        todo_snippet = ""
+        if _TODO_PATH in compressed:
+            todo = compressed[_TODO_PATH] or ""
+            if todo.strip(): todo_snippet = f"\n\n--- {_TODO_PATH} ---\n{todo[:2000]}"
 
         pkg_snippet = ""
         if "package.json" in compressed:
             pkg = compressed["package.json"]
-            if len(pkg) < 3000:
-                pkg_snippet = f"\n\n--- package.json ---\n{pkg}"
+            if len(pkg) < 3000: pkg_snippet = f"\n\n--- package.json ---\n{pkg}"
 
+        # ── Build the messages array ────────────────────────────────────
         messages: List[Dict[str, Any]] = [{"role": "system", "content": sys_prompt}]
 
+        # 1. Inject external chat_history (DB-persisted user/assistant turns
+        #    from previous requests). Pass through RAW — no stripping.
         if chat_history:
-            for h in chat_history[-12:]:
+            for h in chat_history[-10:]:
                 role = h.get("role", "user")
                 content = h.get("content", "")
-                if not content:
-                    continue
+                if not content: continue
+                # Cap system messages to avoid bloat from Figma data etc.
                 if role == "system" and len(content) > 2000:
-                    content = content[:2000] + "\n[...truncated...]"
-                if role == "assistant":
-                    try:
-                        parsed = json.loads(content)
-                        if isinstance(parsed, dict) and "assistant_message" in parsed:
-                            content = parsed["assistant_message"]
-                        elif isinstance(parsed, dict) and "message" in parsed:
-                            content = parsed["message"]
-                    except Exception:
-                        pass
+                    content = content[:2000] + "\n[truncated]"
+                # BUG 1 FIX: Do NOT strip assistant messages down to "message".
+                # Pass them through raw so the model sees its own prior JSON
+                # (plan, calls, done flag) and knows what it already did.
                 messages.append({"role": _norm_role(role), "content": content})
 
-        parts = [f"PROJECT FILES (in /home/user/app):\n{tree_str}{pkg_snippet}"]
+        # 2. Inject session turns (accumulated within THIS multi-turn request).
+        #    These are the turns from the current agent loop — not in DB yet.
+        #    This is how the model remembers what it did on turns 1 and 2
+        #    when it's now on turn 3.
+        for st in self._session_turns:
+            messages.append(st)
+
+        # 3. Build the current user message
+        parts = [f"PROJECT FILES:\n{tree_str}{todo_snippet}{pkg_snippet}"]
         if is_debug and error_context:
             parts.append(f"\nERROR TO FIX:\n{error_context}")
         elif user_request:
             parts.append(f"\nUSER REQUEST:\n{user_request}")
+
         if previous_command_output:
             parts.append(
-                f"\nOUTPUT FROM YOUR LAST COMMANDS:\n"
-                f"{previous_command_output[:6000]}\n"
-                f'\nContinue. Set "done": true when the task is finished.'
-            )
+                f"\nTOOL OUTPUT:\n{previous_command_output[:6000]}\n\n"
+                "Continue. Check ports if you started the dev server. "
+                "`done: true` ONLY when :8080 and :3000 both return 200.")
+        else:
+            parts.append(
+                "\nFirst turn. Create .gorilla/todo.md, then start working. "
+                "Final todo item: verify both ports respond 200.")
+
         parts.append(
-            "\nOutput ONLY a JSON object with keys: message, commands (array of shell strings), done (boolean). "
-            "Heredoc delimiter MUST be exactly GORILLA_EOF."
-        )
+            '\nONE JSON: {"plan":"...","message":"...","calls":[...],"done":bool}. '
+            "Tools: view, create_file, str_replace, todo_update, bash, search, delete.")
         text_content = "\n".join(parts)
 
         use_vision = bool(image_b64)
         if use_vision:
-            image_url = image_b64 if image_b64.startswith("data:") else f"data:image/jpeg;base64,{image_b64}"
-            messages.append({
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": text_content},
-                    {"type": "image_url", "image_url": {"url": image_url}},
-                ],
-            })
+            img_url = image_b64 if image_b64.startswith("data:") else f"data:image/jpeg;base64,{image_b64}"
+            user_msg: Dict[str, Any] = {"role": "user", "content": [
+                {"type": "text", "text": text_content},
+                {"type": "image_url", "image_url": {"url": img_url}},
+            ]}
         else:
-            messages.append({"role": "user", "content": text_content})
+            user_msg = {"role": "user", "content": text_content}
+
+        messages.append(user_msg)
 
         model_used = VISION_MODEL if use_vision else MODEL
-        log_agent(
-            "agent",
-            f"LLM ({model_used}, debug={is_debug}, supabase={has_supabase})",
-            self.project_id,
-        )
+        log_agent("agent", f"v8 ({model_used}, debug={is_debug}, session_turns={len(self._session_turns)})", self.project_id)
 
         try:
             raw, tokens = await _call_llm(messages, model=model_used, temperature=0.6)
             self.total_tokens += tokens
         except Exception as e:
-            log_agent("agent", f"LLM call failed: {e}", self.project_id)
-            return {
-                "message": f"The AI model returned an error: {str(e)[:150]}",
-                "commands": [], "done": True, "tokens": 0,
-            }
+            log_agent("agent", f"LLM error: {e}", self.project_id)
+            return {"message": f"AI error: {str(e)[:150]}", "commands": [], "done": True, "tokens": 0}
 
         parsed = _extract_json(raw)
         if not parsed:
-            log_agent("agent", "Malformed JSON, retrying with nudge", self.project_id)
-            messages.append({"role": "assistant", "content": raw})
-            messages.append({
-                "role": "user",
-                "content": (
-                    "Your last response was not valid JSON. Output ONLY a JSON "
-                    "object with keys 'message', 'commands' (array), 'done' (bool). No prose."
-                ),
-            })
+            log_agent("agent", "Bad JSON — retrying", self.project_id)
+            messages.extend([
+                {"role": "assistant", "content": raw},
+                {"role": "user", "content": 'Bad JSON. ONE object: {"plan":"...","message":"...","calls":[...],"done":bool}'},
+            ])
             try:
-                raw2, tokens2 = await _call_llm(messages, model=MODEL, temperature=0.4)
-                self.total_tokens += tokens2
+                raw2, t2 = await _call_llm(messages, model=MODEL, temperature=0.3)
+                self.total_tokens += t2
                 parsed = _extract_json(raw2)
-            except Exception:
-                pass
+                if parsed: raw = raw2  # use the fixed version for session memory
+            except Exception: pass
 
         if not parsed:
-            return {
-                "message": "I had trouble formatting my response. Please repeat the request.",
-                "commands": [], "done": True, "tokens": self.total_tokens,
-            }
+            return {"message": "Parse error. Try again.", "commands": [], "done": True, "tokens": self.total_tokens}
 
-        message = parsed.get("message") or "Working on it..."
-        raw_cmds = parsed.get("commands") or []
+        # ── BUG 2 FIX: Record this turn in session memory ────────────
+        # Store the user message (text only, no images — too big) and the
+        # RAW assistant response (full JSON with plan, calls, done).
+        self._session_turns.append({"role": "user", "content": text_content})
+        self._session_turns.append({"role": "assistant", "content": raw})
+
+        # Cap session turns to prevent context overflow on long loops
+        if len(self._session_turns) > 24:
+            self._session_turns = self._session_turns[-24:]
+
+        plan = parsed.get("plan") or ""
+        if plan: log_agent("agent", f"PLAN: {plan[:300]}", self.project_id)
+
+        message = parsed.get("message") or "On it."
         done = bool(parsed.get("done", True))
 
-        safe_cmds: List[str] = []
-        for cmd in raw_cmds:
-            if not isinstance(cmd, str) or not cmd.strip():
-                continue
-            expanded = self.token_sub.expand(cmd)
-            if not _is_safe_command(expanded):
-                log_agent("agent", f"Blocked dangerous command: {expanded[:60]}", self.project_id)
-                continue
-            safe_cmds.append(expanded)
+        raw_calls = parsed.get("calls") or []
+        legacy_cmds = parsed.get("commands") or []
+        if raw_calls and isinstance(raw_calls, list):
+            shell_cmds, finish = _translate_calls(raw_calls)
+            done = done or finish
+        elif legacy_cmds and isinstance(legacy_cmds, list):
+            shell_cmds = [c for c in legacy_cmds if isinstance(c, str) and c.strip()]
+        else:
+            shell_cmds = []
 
-        log_agent(
-            "agent",
-            f"{len(safe_cmds)} commands, done={done}, tokens={self.total_tokens}",
-            self.project_id,
-        )
-        return {
-            "message": message, "commands": safe_cmds,
-            "done": done, "tokens": self.total_tokens,
-        }
+        safe_cmds = [self.token_sub.expand(c) for c in shell_cmds if _is_safe_command(self.token_sub.expand(c))]
+
+        log_agent("agent", f"{len(safe_cmds)} cmds, done={done}, tok={self.total_tokens}", self.project_id)
+        return {"message": message, "commands": safe_cmds, "done": done, "tokens": self.total_tokens}
 
 
 class Agent:
     """Legacy shim."""
-
-    def __init__(self, timeout_s: float = 120.0):
-        self.timeout_s = timeout_s
-
-    def remember(self, project_id: str, role: str, text: str) -> None:
-        _append_history(project_id, role, text)
-
+    def __init__(self, timeout_s: float = 120.0): self.timeout_s = timeout_s
+    def remember(self, project_id: str, role: str, text: str) -> None: _append_history(project_id, role, text)
 
 __all__ = [
     "LineageAgent", "Agent", "set_log_callback", "log_agent",

@@ -54,7 +54,7 @@ BILLING_TICK_S = 60
 APP_DIR = "/home/user/app"
 DEV_SERVER_WAIT_S = 15
 MAX_COMMANDS_PER_TURN = 40
-MAX_TURNS_PER_REQUEST = 40
+MAX_TURNS_PER_REQUEST = 12
 SYNC_MARKER = "/tmp/.gorilla_sync_marker"
 FILE_READ_SENTINEL = "═══GORILLA_FILE_BOUNDARY_9f8c═══"
 FILE_CONTENT_SENTINEL = "═══GORILLA_CONTENT_START_9f8c═══"
@@ -107,7 +107,7 @@ def classify_command(cmd: str) -> Dict[str, str]:
         pkgs = re.findall(r"\b([@a-z0-9][@a-z0-9/\-._]+)\b", c[len("npm install"):])
         pkgs = [p for p in pkgs if not p.startswith("-") and p not in {"install", "add"}]
         target = " ".join(pkgs[:3]) if pkgs else ""
-        short = f"Installing a few dependencies" if target else "Install dependencies"
+        short = f"Install {target}" if target else "Install dependencies"
         return {"verb": "install", "target": target, "short": short}
 
     if "npm run" in low or "pnpm run" in low:
@@ -122,7 +122,7 @@ def classify_command(cmd: str) -> Dict[str, str]:
             host = m.group(0).split("/")[2] if len(m.group(0).split("/")) > 2 else m.group(0)
         if "supabase.com" in c and "database/query" in c:
             return {"verb": "database", "target": "migration", "short": "Run SQL migration"}
-        return {"verb": "fetch", "target": host, "short": f"Generate image from {host}" if host else "API call"}
+        return {"verb": "fetch", "target": host, "short": f"Fetch from {host}" if host else "API call"}
 
     if low.startswith("cat ") or low.startswith("tail ") or low.startswith("head "):
         m = re.match(r"\S+\s+(?:-\S+\s+)*['\"]?([^\s'\"]+)", c)
@@ -156,6 +156,9 @@ class SandboxSession:
     deps_installed: bool = False
     content_hashes: Dict[str, str] = field(default_factory=dict)
     _billing_task: Optional[asyncio.Task] = field(default=None, repr=False)
+    # Persisted agent — keeps session memory (files seen, todo state) across
+    # user messages so the agent doesn't re-read everything from scratch.
+    agent: Optional[Any] = field(default=None, repr=False)
 
 
 class E2BSandboxManager:
@@ -394,6 +397,7 @@ class E2BSandboxManager:
         def _boot_sync():
             sbx = Sandbox(template=SANDBOX_TEMPLATE, api_key=E2B_API_KEY, timeout=3600)
             sid = sbx.sandbox_id
+            sbx.commands.run(f"mkdir -p {APP_DIR}", timeout=5)
             return sbx, sid
 
         try:
@@ -424,6 +428,15 @@ class E2BSandboxManager:
             except Exception as e:
                 self._emit_log(project_id, "sandbox", f"env write warning: {e}")
 
+        # Check dep cache
+        def _check_deps():
+            return sbx.commands.run(
+                f"test -d {APP_DIR}/node_modules && echo EXISTS || echo MISSING",
+                timeout=5,
+            )
+        check = await asyncio.to_thread(_check_deps)
+        deps_cached = "EXISTS" in (check.stdout or "")
+
         preview_port = self._detect_preview_port(file_tree)
 
         session = SandboxSession(
@@ -433,10 +446,37 @@ class E2BSandboxManager:
             owner_id=owner_id,
             preview_port=preview_port,
             url=self._sandbox_url_for_port(sandbox_id, preview_port),
-            deps_installed=True,
+            deps_installed=deps_cached,
             content_hashes=hashes,
         )
         self._sessions[project_id] = session
+
+        if not deps_cached:
+            self._emit_log(project_id, "sandbox", "Installing dependencies (this can take 1-2 min)...")
+            self._emit_status(project_id, "Installing Dependencies...")
+
+            # --no-fund --no-audit reduce memory pressure and extra network calls
+            # --prefer-offline speeds up if cache exists
+            def _npm_install():
+                return sbx.commands.run(
+                    f"cd {APP_DIR} && npm install --legacy-peer-deps "
+                    f"--no-fund --no-audit --prefer-offline",
+                    timeout=360,
+                )
+            try:
+                inst = await asyncio.to_thread(_npm_install)
+                if inst.exit_code == 0:
+                    session.deps_installed = True
+                    self._emit_log(project_id, "sandbox", "Dependencies installed")
+                else:
+                    self._emit_log(
+                        project_id, "sandbox",
+                        f"npm install warning: {(inst.stderr or '')[:200]}",
+                    )
+            except Exception as e:
+                self._emit_log(project_id, "sandbox", f"npm install error: {e}")
+        else:
+            self._emit_log(project_id, "sandbox", "Dependencies cached")
 
         session._billing_task = asyncio.create_task(self._billing_loop(project_id))
         if not self._idle_monitor_task or self._idle_monitor_task.done():
@@ -446,7 +486,7 @@ class E2BSandboxManager:
             project_id, "sandbox",
             f"Sandbox ready (preview port {preview_port}): {session.url}",
         )
-        self._emit_status(project_id, "Agent Started...")
+        self._emit_status(project_id, "Sandbox Ready")
         self._emit(project_id, {"type": "sandbox_url", "url": session.url})
         return session
 
@@ -516,6 +556,11 @@ class E2BSandboxManager:
         chat_history, gorilla_proxy_url, has_supabase, is_debug,
         error_context, image_b64, on_assistant_message,
     ) -> Dict[str, Any]:
+        """
+        Stripped-down orchestrator. The AGENT is fully autonomous: it runs
+        npm run dev, checks ports, fixes errors, and verifies the app works.
+        This method only does infrastructure: boot, execute, sync, emit URL.
+        """
         try:
             session = await self.ensure_running(project_id, env_vars, user_id)
         except Exception as e:
@@ -531,11 +576,17 @@ class E2BSandboxManager:
         except Exception:
             pass
 
-        agent = LineageAgent(project_id)
+        # Persist agent across user messages — session memory survives
+        if session.agent is None or is_debug:
+            session.agent = LineageAgent(project_id)
+        agent = session.agent
+        # Reset intra-request session turns so stale context from the
+        # previous user message doesn't leak into this one.
+        agent.reset_session()
+
         all_commands: List[str] = []
-        all_errors: List[Dict] = []
         final_message = ""
-        previous_output: Optional[str] = None
+        accumulated_output: List[str] = []
         total_tokens = 0
         turn_count = 0
 
@@ -543,8 +594,14 @@ class E2BSandboxManager:
             turn_count = turn + 1
             log_agent("agent", f"Turn {turn_count}/{MAX_TURNS_PER_REQUEST}", project_id)
 
-            # LATENCY FIX 2: batched tree read
-            tree = await self._read_tree_from_sandbox(project_id)
+            # Turn 1: full tree. Turn 2+: only changed files merged in.
+            if turn == 0:
+                tree = await self._read_tree_from_sandbox(project_id)
+            else:
+                changed = await self._read_changed_files_from_sandbox(project_id)
+                tree.update(changed)
+
+            previous_output = "\n\n".join(accumulated_output)[-5000:] if accumulated_output else None
 
             result = await agent.run(
                 user_request=user_request, file_tree=tree,
@@ -573,54 +630,28 @@ class E2BSandboxManager:
             all_commands.extend(commands)
             cmd_results = await self._execute_commands_streaming(project_id, commands)
 
-            turn_errors = [
-                {"command": r["command"], "stderr": r["stderr"], "exit_code": r["exit_code"]}
-                for r in cmd_results
-                if r.get("exit_code", 0) != 0 and r.get("stderr")
-            ]
-            all_errors.extend(turn_errors)
-
             if result.get("done", True):
                 break
 
+            # Accumulate output for next turn
             parts = []
-            for r in cmd_results[-6:]:
-                cmd_short = r["command"][:100]
-                out = (r["stdout"] or "")[:500]
-                err = (r["stderr"] or "")[:300]
+            for r in cmd_results[-10:]:
+                cmd_short = r["command"][:150]
+                out = (r["stdout"] or "")[:800]
+                err = (r["stderr"] or "")[:500]
                 p = f"$ {cmd_short}\n"
                 if out:
-                    p += f"stdout: {out}\n"
+                    p += f"stdout:\n{out}\n"
                 if err:
-                    p += f"stderr: {err}\n"
-                p += f"exit: {r['exit_code']}"
+                    p += f"stderr:\n{err}\n"
+                p += f"exit_code: {r['exit_code']}"
                 parts.append(p)
-            previous_output = "\n---\n".join(parts)[:4000]
+            if parts:
+                accumulated_output.append(
+                    f"=== Turn {turn_count} ===\n" + "\n---\n".join(parts)
+                )
 
-        # Error self-correction
-        if all_errors and not is_debug:
-            error_summary = "\n\n".join([
-                f"Command: {e['command'][:120]}\nExit: {e['exit_code']}\nError: {e['stderr'][:300]}"
-                for e in all_errors[:3]
-            ])
-            self._emit_log(project_id, "debugger", "Errors detected, self-correcting...")
-            tree = await self._read_tree_from_sandbox(project_id)
-            fix_result = await agent.run(
-                user_request=f"Previous commands failed. Fix these errors:\n{error_summary}",
-                file_tree=tree, chat_history=chat_history,
-                gorilla_proxy_url=gorilla_proxy_url, has_supabase=has_supabase,
-                is_debug=True, error_context=error_summary,
-            )
-            total_tokens += fix_result.get("tokens", 0)
-            fix_msg = fix_result.get("message", "")
-            if fix_msg:
-                self._emit_narration(project_id, fix_msg)
-            fix_cmds = fix_result.get("commands", [])
-            if fix_cmds:
-                all_commands.extend(fix_cmds)
-                await self._execute_commands_streaming(project_id, fix_cmds)
-
-        # Single end-of-turn sync
+        # Sync to Supabase (permanent storage)
         self._emit_status(project_id, "Syncing to database...")
         synced, deleted = await self._sync_once(project_id)
         self._emit_log(
@@ -628,34 +659,14 @@ class E2BSandboxManager:
             f"Synced {synced} changed, removed {deleted} deleted",
         )
 
-        # Dev server
-        self._emit_status(project_id, "Starting dev server...")
-        url, vite_error = await self.start_dev_server(project_id)
-
-        if vite_error and not is_debug:
-            self._emit_log(project_id, "debugger", "Dev server has issues, fixing...")
-            tree = await self._read_tree_from_sandbox(project_id)
-            fix_result = await agent.run(
-                user_request=f"Dev server reports errors. Fix them:\n{vite_error}",
-                file_tree=tree, chat_history=chat_history,
-                gorilla_proxy_url=gorilla_proxy_url, has_supabase=has_supabase,
-                is_debug=True, error_context=vite_error,
-            )
-            total_tokens += fix_result.get("tokens", 0)
-            fix_msg = fix_result.get("message", "")
-            if fix_msg:
-                self._emit_narration(project_id, fix_msg)
-            vite_fix_cmds = fix_result.get("commands", [])
-            if vite_fix_cmds:
-                all_commands.extend(vite_fix_cmds)
-                await self._execute_commands_streaming(project_id, vite_fix_cmds)
-                await self._sync_once(project_id)
-                url, _ = await self.start_dev_server(project_id)
+        # Detect the preview URL from whatever port the agent started
+        url = session.url
+        self._emit(project_id, {"type": "sandbox_url", "url": url})
 
         return {
-            "ok": True, "commands": all_commands, "errors": all_errors,
+            "ok": True, "commands": all_commands,
             "tokens": total_tokens,
-            "final_message": final_message or "Working on it...",
+            "final_message": final_message or "Done.",
             "turns": turn_count, "synced_files": synced,
             "deleted_files": deleted, "preview_url": url,
         }
@@ -857,6 +868,61 @@ class E2BSandboxManager:
                 tree[rel] = content
             except Exception:
                 continue
+        return tree
+
+    async def _read_changed_files_from_sandbox(self, project_id: str) -> Dict[str, str]:
+        """
+        Fast diff-read: only files touched since the last SYNC_MARKER.
+        Used on turns 2+ inside a request so we don't re-read every file.
+        Returns only the files that changed; caller merges into existing tree.
+        """
+        session = self._sessions.get(project_id)
+        if not session:
+            return {}
+        sentinel = f"/tmp/.gorilla_turn_marker_{project_id[:8]}"
+        # Update the per-turn marker (not SYNC_MARKER which is for DB sync)
+        try:
+            await asyncio.to_thread(
+                session.sandbox.commands.run,
+                f"touch {sentinel} 2>/dev/null || true",
+            )
+        except Exception:
+            pass
+
+        dump_cmd = (
+            f"find {APP_DIR} -type f -newer {sentinel} "
+            f"-not -path '*/node_modules/*' -not -path '*/.git/*' "
+            f"-not -path '*/dist/*' -not -name 'package-lock.json' "
+            f"-not -name '*.lock' -size -500k -print0 2>/dev/null | "
+            f'xargs -0 -I {{}} sh -c \''
+            f'echo "═══GORILLA_FILE_BOUNDARY_9f8c═══{{}}"; '
+            f'echo "═══GORILLA_CONTENT_START_9f8c═══"; '
+            f'cat "{{}}" 2>/dev/null; echo ""\''
+        )
+        try:
+            result = await asyncio.to_thread(session.sandbox.commands.run, dump_cmd)
+            output = result.stdout or ""
+        except Exception:
+            return {}
+
+        if not output.strip():
+            return {}
+
+        tree: Dict[str, str] = {}
+        FILE_READ_SENTINEL = "═══GORILLA_FILE_BOUNDARY_9f8c═══"
+        FILE_CONTENT_SENTINEL = "═══GORILLA_CONTENT_START_9f8c═══"
+        for chunk in output.split(FILE_READ_SENTINEL)[1:]:
+            if FILE_CONTENT_SENTINEL not in chunk:
+                continue
+            header, _, body = chunk.partition(FILE_CONTENT_SENTINEL)
+            path = header.strip().replace(f"{APP_DIR}/", "", 1)
+            if not path:
+                continue
+            content = body[:-1] if body.endswith("\n") else body
+            if "\x00" in content[:1000]:
+                continue
+            tree[path] = content
+
         return tree
 
     # -----------------------------------------------------------
