@@ -442,19 +442,6 @@ def send_otp_email(to_email: str, code: str):
             </html>
             """,
         }
-        # 2. Create/Update Resend Contact (Fixed: No Audience ID needed)
-        try:
-            contact_params = {
-                "email": to_email,
-                "unsubscribed": False
-            }
-            resend.Contacts.create(contact_params)
-            print(f"✅ Added contact {to_email} to Resend")
-            resend.Emails.send(params)
-            print(f"✅ OTP sent to {to_email}")
-        except Exception as contact_error:
-            # We catch this separately so auth doesn't fail if contact creation fails
-            print(f"⚠️ Resend Contact Error: {contact_error}")
 
     except Exception as e:
         print(f"❌ Resend Error: {e}")

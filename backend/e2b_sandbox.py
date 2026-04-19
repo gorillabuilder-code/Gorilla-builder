@@ -1,22 +1,20 @@
 """
-E2B Sandbox Manager v6 — Latency-Killed Edition
-==================================================
+E2B Sandbox Manager — Final (matches Lineage Agent v9)
+========================================================
 
-What's new from v5:
-  - BOOT: single tar upload instead of N×3 round-trips per file.
-    30-file project boot goes from ~45s of I/O to ~3s.
-  - TREE READ: one-shot concatenated dump via find+sentinel delimiter.
-    Instead of N round-trips it's ONE round-trip and we parse client-side.
-  - SYNC: same pattern for changed files — one-shot batched read.
-  - Bigger E2B OOM guard rails: template swap via env, larger timeouts,
-    optional --no-fund --no-audit flags on npm install to reduce memory
-    spikes from npm's telemetry/lockfile fetching.
-  - Safer fallbacks: if a batched operation fails, falls back to the
-    old per-file method so nothing breaks.
+Architecture:
+  - Boot: tar.gz upload (v6 latency fix)
+  - Tree read: batched find+xargs with sentinel (v6 latency fix)
+  - Agent loop: mini-SWE-agent style — call run(), execute bash, feed
+    raw OBSERVATION back, loop until GORILLA_DONE
+  - Agent persisted on session across user messages
+  - Sync: batched, runs once after agent finishes
+  - No orchestrator error correction — agent handles everything
+  - URL: uses SDK's get_host() method
 
-All the v5 features stay: activity_start / activity_chunk / activity_end,
-narration, vite error detection, port auto-detection, content-hash cache,
-batch upserts, delete detection, billing, idle monitor, per-project locks.
+The agent is fully autonomous. It runs npm run dev, checks ports, fixes
+errors. The sandbox manager only does infrastructure: boot, execute,
+sync, emit URL.
 """
 
 from __future__ import annotations
@@ -39,26 +37,22 @@ except ImportError:
     Sandbox = None
     print("⚠️ e2b package not installed. Run: pip install e2b")
 
-from backend.ai.lineage_agent import LineageAgent, log_agent
+from backend.ai.lineage_agent import LineageAgent, log_agent, review_output
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 E2B_API_KEY = os.getenv("E2B_API_KEY", "")
-# Swap template via env. `base` is 512MB and OOMs on npm install + agent.
-# Use `node` (community template, 1GB+) or a custom higher-memory one.
 SANDBOX_TEMPLATE = os.getenv("E2B_TEMPLATE", "base")
 IDLE_TIMEOUT_S = 300
 BILLING_TOKENS_PER_HOUR = 50_000
 BILLING_TICK_S = 60
 APP_DIR = "/home/user/app"
-DEV_SERVER_WAIT_S = 15
 MAX_COMMANDS_PER_TURN = 40
-MAX_TURNS_PER_REQUEST = 12
+MAX_TURNS_PER_REQUEST = 20
 SYNC_MARKER = "/tmp/.gorilla_sync_marker"
 FILE_READ_SENTINEL = "═══GORILLA_FILE_BOUNDARY_9f8c═══"
 FILE_CONTENT_SENTINEL = "═══GORILLA_CONTENT_START_9f8c═══"
-BOOT_UPLOAD_TAR_MAX = 5 * 1024 * 1024     # 5 MB single upload cap
 
 DEFAULT_PREVIEW_PORT = 8080
 DEFAULT_SERVER_PORT = 3000
@@ -72,71 +66,38 @@ READY_PATTERNS = [
 
 
 # ---------------------------------------------------------------------------
-# Command classifier (unchanged from v5)
+# Command classifier — for UI activity cards
 # ---------------------------------------------------------------------------
 def classify_command(cmd: str) -> Dict[str, str]:
-    """Return {verb, target, short} for UI activity cards."""
     c = cmd.strip()
     low = c.lower()
-
     m = re.match(r"cat\s+>>?\s+['\"]?([^\s'\"<]+)['\"]?\s+<<", c)
     if m:
-        path = m.group(1)
-        return {"verb": "edit", "target": path, "short": f"Edit {path}"}
-
-    m = re.match(r"(?:echo|printf)\s+.+?>>?\s+['\"]?([^\s'\"&|]+)['\"]?", c)
-    if m:
         return {"verb": "edit", "target": m.group(1), "short": f"Edit {m.group(1)}"}
-
     if low.startswith("mkdir"):
         m = re.search(r"mkdir\s+(?:-p\s+)?['\"]?([^\s'\"]+)", c)
-        target = m.group(1) if m else ""
-        return {"verb": "create", "target": target, "short": f"Create dir {target}"}
-
+        return {"verb": "create", "target": m.group(1) if m else "", "short": f"Create dir {m.group(1) if m else ''}"}
     if low.startswith("rm"):
         m = re.search(r"rm\s+(?:-\S+\s+)*['\"]?([^\s'\"]+)", c)
-        target = m.group(1) if m else ""
-        return {"verb": "delete", "target": target, "short": f"Delete {target}"}
-
-    if low.startswith("mv "):
-        return {"verb": "edit", "target": "", "short": "Move files"}
-    if low.startswith("cp "):
-        return {"verb": "edit", "target": "", "short": "Copy files"}
-
-    if low.startswith("npm install") or low.startswith("pnpm add") or low.startswith("yarn add"):
-        pkgs = re.findall(r"\b([@a-z0-9][@a-z0-9/\-._]+)\b", c[len("npm install"):])
-        pkgs = [p for p in pkgs if not p.startswith("-") and p not in {"install", "add"}]
-        target = " ".join(pkgs[:3]) if pkgs else ""
-        short = f"Install {target}" if target else "Install dependencies"
-        return {"verb": "install", "target": target, "short": short}
-
-    if "npm run" in low or "pnpm run" in low:
-        m = re.search(r"(?:npm|pnpm)\s+run\s+(\S+)", c)
-        script = m.group(1) if m else ""
-        return {"verb": "execute", "target": script, "short": f"Run {script}"}
-
+        return {"verb": "delete", "target": m.group(1) if m else "", "short": f"Delete {m.group(1) if m else ''}"}
+    if low.startswith("npm install") or low.startswith("npm i "):
+        return {"verb": "install", "target": "", "short": "Install dependencies"}
+    if low.startswith("npm run"):
+        m = re.search(r"npm\s+run\s+(\S+)", c)
+        return {"verb": "execute", "target": m.group(1) if m else "", "short": f"Run {m.group(1) if m else 'script'}"}
     if low.startswith("curl"):
-        m = re.search(r"(?:https?://[^\s\"']+)", c)
-        host = ""
-        if m:
-            host = m.group(0).split("/")[2] if len(m.group(0).split("/")) > 2 else m.group(0)
         if "supabase.com" in c and "database/query" in c:
             return {"verb": "database", "target": "migration", "short": "Run SQL migration"}
-        return {"verb": "fetch", "target": host, "short": f"Fetch from {host}" if host else "API call"}
-
+        return {"verb": "fetch", "target": "", "short": "API call"}
     if low.startswith("cat ") or low.startswith("tail ") or low.startswith("head "):
         m = re.match(r"\S+\s+(?:-\S+\s+)*['\"]?([^\s'\"]+)", c)
-        target = m.group(1) if m else ""
-        return {"verb": "read", "target": target, "short": f"Read {target}" if target else "Read file"}
-
-    if low.startswith("find ") or low.startswith("ls "):
-        return {"verb": "scan", "target": "", "short": "Scan filesystem"}
-
-    if low.startswith("git "):
-        m = re.search(r"git\s+(\S+)", c)
-        action = m.group(1) if m else ""
-        return {"verb": "git", "target": action, "short": f"git {action}"}
-
+        return {"verb": "read", "target": m.group(1) if m else "", "short": f"Read {m.group(1) if m else 'file'}"}
+    if low.startswith("grep ") or low.startswith("find "):
+        return {"verb": "scan", "target": "", "short": "Search files"}
+    if low.startswith("python"):
+        return {"verb": "execute", "target": "python", "short": "Run Python script"}
+    if low.startswith("sed "):
+        return {"verb": "edit", "target": "", "short": "Edit file"}
     first = c.split()[0] if c.split() else "run"
     return {"verb": "execute", "target": "", "short": f"Execute {first}"}
 
@@ -156,8 +117,6 @@ class SandboxSession:
     deps_installed: bool = False
     content_hashes: Dict[str, str] = field(default_factory=dict)
     _billing_task: Optional[asyncio.Task] = field(default=None, repr=False)
-    # Persisted agent — keeps session memory (files seen, todo state) across
-    # user messages so the agent doesn't re-read everything from scratch.
     agent: Optional[Any] = field(default=None, repr=False)
 
 
@@ -211,12 +170,11 @@ class E2BSandboxManager:
         })
 
     def _emit_activity_chunk(self, project_id, activity_id, stream, text):
-        if not text:
-            return
-        self._emit(project_id, {
-            "type": "activity_chunk", "id": activity_id,
-            "stream": stream, "text": text,
-        })
+        if text:
+            self._emit(project_id, {
+                "type": "activity_chunk", "id": activity_id,
+                "stream": stream, "text": text,
+            })
 
     def _emit_activity_end(self, project_id, activity_id, exit_code):
         self._emit(project_id, {
@@ -225,9 +183,8 @@ class E2BSandboxManager:
         })
 
     def _emit_narration(self, project_id, text):
-        if not text:
-            return
-        self._emit(project_id, {"type": "narration", "text": text})
+        if text:
+            self._emit(project_id, {"type": "narration", "text": text})
 
     # -----------------------------------------------------------
     # Port detection
@@ -238,126 +195,82 @@ class E2BSandboxManager:
             if path in file_tree and file_tree[path]:
                 m = re.search(r"port\s*:\s*(\d+)", file_tree[path])
                 if m:
-                    try:
-                        return int(m.group(1))
-                    except ValueError:
-                        pass
+                    try: return int(m.group(1))
+                    except ValueError: pass
         pkg = file_tree.get("package.json", "")
         m = re.search(r"--port[= ]+(\d+)", pkg)
         if m:
-            try:
-                return int(m.group(1))
-            except ValueError:
-                pass
+            try: return int(m.group(1))
+            except ValueError: pass
         return DEFAULT_PREVIEW_PORT
 
-    def _sandbox_url_for_port(self, sandbox_id: str, port: int) -> str:
-        return f"https://{sandbox_id}-{port}.e2b.dev"
+    def _sandbox_url_for_port(self, sbx, port: int) -> str:
+        try:
+            host = sbx.get_host(port)
+            return f"https://{host}"
+        except Exception:
+            return f"https://{sbx.sandbox_id}-{port}.e2b.dev"
 
     # -----------------------------------------------------------
-    # LATENCY FIX 1: Batched boot-time file upload via tar+base64
+    # Batched boot-time file upload via tar
     # -----------------------------------------------------------
     @staticmethod
     def _build_tar_base64(file_tree: Dict[str, str]) -> Tuple[str, int, Dict[str, str]]:
-        """
-        Pack all files into a tar.gz in memory, base64 it, and return
-        (base64_str, file_count, content_hashes).
-        Skips binary/lockfile paths. Returns "" if too large.
-        """
         buf = io.BytesIO()
         hashes: Dict[str, str] = {}
         count = 0
         with tarfile.open(fileobj=buf, mode="w:gz") as tf:
             for path, content in file_tree.items():
-                if not path or content is None:
-                    continue
-                if any(x in path for x in [
-                    "package-lock.json", "yarn.lock", "node_modules/", ".git/",
-                ]):
-                    continue
+                if not path or content is None: continue
+                if any(x in path for x in ["package-lock.json", "yarn.lock", "node_modules/", ".git/"]): continue
                 data = content.encode("utf-8", errors="replace")
-                # Skip pre-encoded binary blobs to avoid bloating the tar
-                if len(data) > 1_000_000:
-                    continue
+                if len(data) > 1_000_000: continue
                 ti = tarfile.TarInfo(name=path)
                 ti.size = len(data)
                 ti.mtime = int(time.time())
                 tf.addfile(ti, io.BytesIO(data))
                 hashes[path] = hashlib.md5(data).hexdigest()
                 count += 1
-
         raw = buf.getvalue()
-        if len(raw) > BOOT_UPLOAD_TAR_MAX:
-            # Caller will fall back to per-file method
-            return "", 0, {}
-        b64 = base64.b64encode(raw).decode("ascii")
-        return b64, count, hashes
-
-    @staticmethod
-    def _chunk_string(s: str, chunk_size: int = 60_000) -> List[str]:
-        """Split a string into chunks to avoid hitting shell arg limits."""
-        return [s[i:i + chunk_size] for i in range(0, len(s), chunk_size)]
+        if len(raw) > 5 * 1024 * 1024: return "", 0, {}
+        return base64.b64encode(raw).decode("ascii"), count, hashes
 
     def _upload_files_fast(self, sbx, file_tree: Dict[str, str]) -> Tuple[int, Dict[str, str]]:
-        """
-        Upload all files in ONE batched operation.
-        Returns (file_count, content_hashes). Falls back to per-file on failure.
-        """
         b64, count, hashes = self._build_tar_base64(file_tree)
         if not b64:
             return self._upload_files_slow(sbx, file_tree)
-
         try:
-            # Write base64 in chunks via append, then decode+extract in one go
-            sbx.commands.run(f"rm -f /tmp/bundle.b64 && touch /tmp/bundle.b64", timeout=5)
-            for chunk in self._chunk_string(b64, 50_000):
-                # Append chunk safely using printf '%s' (no interpretation)
-                # We have to base64-encode the chunk again to avoid shell quoting issues
+            sbx.commands.run("rm -f /tmp/bundle.b64 && touch /tmp/bundle.b64", timeout=5)
+            for i in range(0, len(b64), 50000):
+                chunk = b64[i:i+50000]
                 meta = base64.b64encode(chunk.encode()).decode()
-                sbx.commands.run(
-                    f"echo '{meta}' | base64 -d >> /tmp/bundle.b64",
-                    timeout=10,
-                )
-            # Now decode the entire bundle and extract to APP_DIR
+                sbx.commands.run(f"echo '{meta}' | base64 -d >> /tmp/bundle.b64", timeout=10)
             result = sbx.commands.run(
-                f"mkdir -p {APP_DIR} && "
-                f"cat /tmp/bundle.b64 | base64 -d | tar -xzf - -C {APP_DIR} && "
-                f"rm -f /tmp/bundle.b64",
+                f"mkdir -p {APP_DIR} && cat /tmp/bundle.b64 | base64 -d | tar -xzf - -C {APP_DIR} && rm -f /tmp/bundle.b64",
                 timeout=60,
             )
             if result.exit_code != 0:
-                # Tar failed — fall back
-                print(f"⚠️ Tar extract failed: {(result.stderr or '')[:200]}; falling back")
                 return self._upload_files_slow(sbx, file_tree)
             return count, hashes
         except Exception as e:
-            print(f"⚠️ Batched upload crashed: {e}; falling back to per-file")
+            print(f"⚠️ Batched upload failed: {e}; falling back")
             return self._upload_files_slow(sbx, file_tree)
 
     @staticmethod
     def _upload_files_slow(sbx, file_tree: Dict[str, str]) -> Tuple[int, Dict[str, str]]:
-        """Old per-file upload. Only used as a fallback."""
         hashes: Dict[str, str] = {}
         count = 0
         dirs_created: Set[str] = set()
         for path, content in file_tree.items():
-            if not path or content is None:
-                continue
-            if any(x in path for x in [
-                "package-lock.json", "yarn.lock", "node_modules/", ".git/",
-            ]):
-                continue
+            if not path or content is None: continue
+            if any(x in path for x in ["package-lock.json", "yarn.lock", "node_modules/", ".git/"]): continue
             full = f"{APP_DIR}/{path}"
             dirp = "/".join(full.split("/")[:-1])
-            # Cheap optimisation: only mkdir once per unique directory
             if dirp and dirp not in dirs_created:
                 sbx.commands.run(f"mkdir -p '{dirp}'", timeout=5)
                 dirs_created.add(dirp)
             safe = content.replace("GORILLA_EOF", "GORILLA__EOF")
-            sbx.commands.run(
-                f"cat > '{full}' << 'GORILLA_EOF'\n{safe}\nGORILLA_EOF",
-                timeout=15,
-            )
+            sbx.commands.run(f"cat > '{full}' << 'GORILLA_EOF'\n{safe}\nGORILLA_EOF", timeout=15)
             hashes[path] = hashlib.md5(content.encode("utf-8", errors="replace")).hexdigest()
             count += 1
         return count, hashes
@@ -365,9 +278,7 @@ class E2BSandboxManager:
     # -----------------------------------------------------------
     # Lifecycle
     # -----------------------------------------------------------
-    async def ensure_running(
-        self, project_id: str, env_vars: Dict[str, str], owner_id: str,
-    ) -> SandboxSession:
+    async def ensure_running(self, project_id: str, env_vars: Dict[str, str], owner_id: str) -> SandboxSession:
         if project_id in self._sessions:
             s = self._sessions[project_id]
             s.last_activity = time.time()
@@ -381,45 +292,32 @@ class E2BSandboxManager:
             files = await self._fetch_files(project_id)
             return await self._do_boot(project_id, files, env_vars, owner_id)
 
-    async def _do_boot(
-        self, project_id: str, file_tree: Dict[str, str],
-        env_vars: Dict[str, str], owner_id: str,
-    ) -> SandboxSession:
-        if not Sandbox:
-            raise RuntimeError("E2B SDK not installed")
-        if not E2B_API_KEY:
-            raise RuntimeError("E2B_API_KEY not set")
+    async def _do_boot(self, project_id, file_tree, env_vars, owner_id):
+        if not Sandbox: raise RuntimeError("E2B SDK not installed")
+        if not E2B_API_KEY: raise RuntimeError("E2B_API_KEY not set")
 
         self._emit_log(project_id, "sandbox", f"Booting sandbox ({SANDBOX_TEMPLATE})...")
         self._emit_status(project_id, "Booting Sandbox...")
 
-        # Run boot in a thread so we don't block the event loop
         def _boot_sync():
             sbx = Sandbox(template=SANDBOX_TEMPLATE, api_key=E2B_API_KEY, timeout=3600)
-            sid = sbx.sandbox_id
             sbx.commands.run(f"mkdir -p {APP_DIR}", timeout=5)
-            return sbx, sid
+            return sbx
 
         try:
-            sbx, sandbox_id = await asyncio.to_thread(_boot_sync)
+            sbx = await asyncio.to_thread(_boot_sync)
         except Exception as e:
             self._emit_log(project_id, "sandbox", f"Boot failed: {e}")
             raise
 
-        # LATENCY FIX 1: batched file upload
         self._emit_log(project_id, "sandbox", "Uploading project files...")
-        file_count, hashes = await asyncio.to_thread(
-            self._upload_files_fast, sbx, file_tree,
-        )
+        file_count, hashes = await asyncio.to_thread(self._upload_files_fast, sbx, file_tree)
         self._emit_log(project_id, "sandbox", f"Mounted {file_count} files")
 
-        # Write env vars
         if env_vars:
             try:
                 env_lines = "\n".join(f"{k}={v}" for k, v in env_vars.items() if v)
-                shell_lines = "\n".join(
-                    f'export {k}="{v}"' for k, v in env_vars.items() if v
-                )
+                shell_lines = "\n".join(f'export {k}="{v}"' for k, v in env_vars.items() if v)
                 await asyncio.to_thread(
                     sbx.commands.run,
                     f"cat > {APP_DIR}/.env << 'GORILLA_EOF'\n{env_lines}\nGORILLA_EOF && "
@@ -428,51 +326,34 @@ class E2BSandboxManager:
             except Exception as e:
                 self._emit_log(project_id, "sandbox", f"env write warning: {e}")
 
-        # Check dep cache
-        def _check_deps():
-            return sbx.commands.run(
-                f"test -d {APP_DIR}/node_modules && echo EXISTS || echo MISSING",
-                timeout=5,
-            )
-        check = await asyncio.to_thread(_check_deps)
+        check = await asyncio.to_thread(
+            sbx.commands.run, f"test -d {APP_DIR}/node_modules && echo EXISTS || echo MISSING",
+        )
         deps_cached = "EXISTS" in (check.stdout or "")
-
         preview_port = self._detect_preview_port(file_tree)
 
         session = SandboxSession(
-            project_id=project_id,
-            sandbox=sbx,
-            sandbox_id=sandbox_id,
-            owner_id=owner_id,
-            preview_port=preview_port,
-            url=self._sandbox_url_for_port(sandbox_id, preview_port),
-            deps_installed=deps_cached,
-            content_hashes=hashes,
+            project_id=project_id, sandbox=sbx, sandbox_id=sbx.sandbox_id,
+            owner_id=owner_id, preview_port=preview_port,
+            url=self._sandbox_url_for_port(sbx, preview_port),
+            deps_installed=deps_cached, content_hashes=hashes,
         )
         self._sessions[project_id] = session
 
         if not deps_cached:
-            self._emit_log(project_id, "sandbox", "Installing dependencies (this can take 1-2 min)...")
+            self._emit_log(project_id, "sandbox", "Installing dependencies...")
             self._emit_status(project_id, "Installing Dependencies...")
-
-            # --no-fund --no-audit reduce memory pressure and extra network calls
-            # --prefer-offline speeds up if cache exists
-            def _npm_install():
-                return sbx.commands.run(
-                    f"cd {APP_DIR} && npm install --legacy-peer-deps "
-                    f"--no-fund --no-audit --prefer-offline",
+            try:
+                inst = await asyncio.to_thread(
+                    sbx.commands.run,
+                    f"cd {APP_DIR} && npm install --legacy-peer-deps --no-fund --no-audit --prefer-offline",
                     timeout=360,
                 )
-            try:
-                inst = await asyncio.to_thread(_npm_install)
                 if inst.exit_code == 0:
                     session.deps_installed = True
                     self._emit_log(project_id, "sandbox", "Dependencies installed")
                 else:
-                    self._emit_log(
-                        project_id, "sandbox",
-                        f"npm install warning: {(inst.stderr or '')[:200]}",
-                    )
+                    self._emit_log(project_id, "sandbox", f"npm install warning: {(inst.stderr or '')[:200]}")
             except Exception as e:
                 self._emit_log(project_id, "sandbox", f"npm install error: {e}")
         else:
@@ -482,11 +363,8 @@ class E2BSandboxManager:
         if not self._idle_monitor_task or self._idle_monitor_task.done():
             self._idle_monitor_task = asyncio.create_task(self._idle_monitor())
 
-        self._emit_log(
-            project_id, "sandbox",
-            f"Sandbox ready (preview port {preview_port}): {session.url}",
-        )
-        self._emit_status(project_id, "Sandbox Ready")
+        self._emit_log(project_id, "sandbox", f"Sandbox ready: {session.url}")
+        self._emit_status(project_id, "Agent started...)
         self._emit(project_id, {"type": "sandbox_url", "url": session.url})
         return session
 
@@ -496,27 +374,19 @@ class E2BSandboxManager:
             self._boot_locks.pop(project_id, None)
             self._turn_locks.pop(project_id, None)
             return
-
         now = time.time()
-        elapsed_hours = (now - session.last_bill_at) / 3600.0
-        if elapsed_hours > 0.01:
-            prorated = int(BILLING_TOKENS_PER_HOUR * elapsed_hours)
+        elapsed = (now - session.last_bill_at) / 3600.0
+        if elapsed > 0.01:
+            prorated = int(BILLING_TOKENS_PER_HOUR * elapsed)
             if prorated > 0:
-                try:
-                    self._add_tokens(session.owner_id, prorated)
-                    session.total_billed_tokens += prorated
-                except Exception as e:
-                    print(f"⚠️ Prorated billing error: {e}")
-
+                try: self._add_tokens(session.owner_id, prorated)
+                except Exception as e: print(f"⚠️ Billing error: {e}")
         if session._billing_task and not session._billing_task.done():
             session._billing_task.cancel()
-        try:
-            await asyncio.to_thread(session.sandbox.kill)
-        except Exception as e:
-            print(f"⚠️ Error killing sandbox {project_id}: {e}")
+        try: await asyncio.to_thread(session.sandbox.kill)
+        except Exception as e: print(f"⚠️ Kill error: {e}")
         self._boot_locks.pop(project_id, None)
         self._turn_locks.pop(project_id, None)
-        self._emit_log(project_id, "sandbox", "Sandbox shut down")
         self._emit_status(project_id, "Sandbox Offline")
 
     def is_running(self, project_id: str) -> bool:
@@ -524,8 +394,7 @@ class E2BSandboxManager:
 
     def get_session(self, project_id: str) -> Optional[SandboxSession]:
         s = self._sessions.get(project_id)
-        if s:
-            s.last_activity = time.time()
+        if s: s.last_activity = time.time()
         return s
 
     def get_preview_url(self, project_id: str) -> Optional[str]:
@@ -533,7 +402,7 @@ class E2BSandboxManager:
         return s.url if s else None
 
     # -----------------------------------------------------------
-    # Main entry point
+    # Agent turn — mini-SWE-agent loop
     # -----------------------------------------------------------
     async def run_agent_turn(
         self, project_id, user_request, user_id, env_vars,
@@ -544,11 +413,9 @@ class E2BSandboxManager:
         self._turn_locks.setdefault(project_id, asyncio.Lock())
         async with self._turn_locks[project_id]:
             return await self._do_run_agent_turn(
-                project_id=project_id, user_request=user_request, user_id=user_id,
-                env_vars=env_vars, chat_history=chat_history,
-                gorilla_proxy_url=gorilla_proxy_url, has_supabase=has_supabase,
-                is_debug=is_debug, error_context=error_context,
-                image_b64=image_b64, on_assistant_message=on_assistant_message,
+                project_id, user_request, user_id, env_vars,
+                chat_history, gorilla_proxy_url, has_supabase,
+                is_debug, error_context, image_b64, on_assistant_message,
             )
 
     async def _do_run_agent_turn(
@@ -556,11 +423,6 @@ class E2BSandboxManager:
         chat_history, gorilla_proxy_url, has_supabase, is_debug,
         error_context, image_b64, on_assistant_message,
     ) -> Dict[str, Any]:
-        """
-        Stripped-down orchestrator. The AGENT is fully autonomous: it runs
-        npm run dev, checks ports, fixes errors, and verifies the app works.
-        This method only does infrastructure: boot, execute, sync, emit URL.
-        """
         try:
             session = await self.ensure_running(project_id, env_vars, user_id)
         except Exception as e:
@@ -570,44 +432,49 @@ class E2BSandboxManager:
                     "tokens": 0, "final_message": "", "turns": 0}
 
         try:
+            await asyncio.to_thread(session.sandbox.commands.run, f"touch {SYNC_MARKER}")
+        except Exception:
+            pass
+
+        # #3 — Auto-kill ports before agent starts
+        # Eliminates the "port in use" retry spiral
+        try:
             await asyncio.to_thread(
-                session.sandbox.commands.run, f"touch {SYNC_MARKER}",
+                session.sandbox.commands.run,
+                "pkill -f 'vite' 2>/dev/null; pkill -f 'npm run dev' 2>/dev/null; "
+                "pkill -f 'node server' 2>/dev/null; sleep 1",
+                timeout=10,
             )
         except Exception:
             pass
 
-        # Persist agent across user messages — session memory survives
-        if session.agent is None or is_debug:
+        # Persist agent across user messages
+        if session.agent is None:
             session.agent = LineageAgent(project_id)
         agent = session.agent
-        # Reset intra-request session turns so stale context from the
-        # previous user message doesn't leak into this one.
-        agent.reset_session()
 
         all_commands: List[str] = []
         final_message = ""
-        accumulated_output: List[str] = []
         total_tokens = 0
         turn_count = 0
+        previous_output: Optional[str] = None
+        last_raw_output = ""
+
+        # Read file tree once
+        tree = await self._read_tree_from_sandbox(project_id)
 
         for turn in range(MAX_TURNS_PER_REQUEST):
             turn_count = turn + 1
             log_agent("agent", f"Turn {turn_count}/{MAX_TURNS_PER_REQUEST}", project_id)
 
-            # Turn 1: full tree. Turn 2+: only changed files merged in.
-            if turn == 0:
-                tree = await self._read_tree_from_sandbox(project_id)
-            else:
-                changed = await self._read_changed_files_from_sandbox(project_id)
-                tree.update(changed)
-
-            previous_output = "\n\n".join(accumulated_output)[-5000:] if accumulated_output else None
-
             result = await agent.run(
-                user_request=user_request, file_tree=tree,
-                chat_history=chat_history, gorilla_proxy_url=gorilla_proxy_url,
-                has_supabase=has_supabase, is_debug=is_debug,
-                error_context=error_context,
+                user_request=user_request,
+                file_tree=tree if turn == 0 else {},
+                chat_history=chat_history if turn == 0 else None,
+                gorilla_proxy_url=gorilla_proxy_url,
+                has_supabase=has_supabase,
+                is_debug=is_debug,
+                error_context=error_context if turn == 0 else "",
                 image_b64=image_b64 if turn == 0 else None,
                 previous_command_output=previous_output,
             )
@@ -618,48 +485,93 @@ class E2BSandboxManager:
                 final_message = msg
                 self._emit_narration(project_id, msg)
                 if on_assistant_message:
-                    try:
-                        on_assistant_message(msg)
-                    except Exception:
-                        pass
+                    try: on_assistant_message(msg)
+                    except Exception: pass
 
             commands = result.get("commands", [])
-            if not commands:
+
+            if result.get("done", False) and not commands:
                 break
+
+            if not commands and not result.get("done", False):
+                previous_output = (
+                    "OBSERVATION:\n"
+                    "No commands detected. Provide your next step in a "
+                    "```bash``` code block, or write GORILLA_DONE if finished."
+                )
+                continue
 
             all_commands.extend(commands)
             cmd_results = await self._execute_commands_streaming(project_id, commands)
 
-            if result.get("done", True):
+            # Build OBSERVATION
+            output_parts = []
+            for r in cmd_results:
+                stdout = (r.get("stdout") or "").strip()
+                stderr = (r.get("stderr") or "").strip()
+                exit_code = r.get("exit_code", 0)
+                if stdout: output_parts.append(stdout[:3000])
+                if stderr: output_parts.append(f"STDERR: {stderr[:1500]}")
+                if exit_code != 0: output_parts.append(f"[exit code: {exit_code}]")
+
+            # #8 — Silent success confirmation
+            raw_output = "\n".join(output_parts)[:6000] if output_parts else "Your command ran successfully and did not produce any output."
+            last_raw_output = raw_output
+
+            # #6 — Linter-in-the-loop: if the command wrote a .tsx/.ts file,
+            # run tsc --noEmit on it and append lint errors to the observation
+            for cmd in commands:
+                # Detect cat > path.tsx heredoc writes
+                m = re.search(r"cat\s+>\s+['\"]?(\S+\.tsx?)['\"]?\s+<<", cmd)
+                if m:
+                    lint_path = m.group(1)
+                    try:
+                        lint_result = await asyncio.to_thread(
+                            session.sandbox.commands.run,
+                            f"cd {APP_DIR} && npx tsc --noEmit {lint_path} 2>&1 | head -20",
+                            timeout=15,
+                        )
+                        lint_out = (lint_result.stdout or "").strip()
+                        if lint_out and ("error TS" in lint_out or "Error" in lint_out):
+                            raw_output += f"\n\nLINT ERRORS in {lint_path}:\n{lint_out[:800]}"
+                    except Exception:
+                        pass
+
+            previous_output = raw_output
+
+            if result.get("done", False):
                 break
 
-            # Accumulate output for next turn
-            parts = []
-            for r in cmd_results[-10:]:
-                cmd_short = r["command"][:150]
-                out = (r["stdout"] or "")[:800]
-                err = (r["stderr"] or "")[:500]
-                p = f"$ {cmd_short}\n"
-                if out:
-                    p += f"stdout:\n{out}\n"
-                if err:
-                    p += f"stderr:\n{err}\n"
-                p += f"exit_code: {r['exit_code']}"
-                parts.append(p)
-            if parts:
-                accumulated_output.append(
-                    f"=== Turn {turn_count} ===\n" + "\n---\n".join(parts)
-                )
+        # #10 — Reviewer: after agent says done, one cheap call checks for mistakes
+        if not is_debug and turn_count > 1:
+            try:
+                current_tree = await self._read_tree_from_sandbox(project_id)
+                tree_summary = "\n".join(f"  {p}" for p in sorted(current_tree.keys()) if not p.endswith(".b64"))
+                review_fixes = await review_output(tree_summary, last_raw_output)
+                if review_fixes:
+                    # Feed the review back to the agent for one more pass
+                    self._emit_narration(project_id, "Reviewing output for issues...")
+                    fix_result = await agent.run(
+                        user_request=f"Code review found issues. Fix them:\n{review_fixes}",
+                        file_tree={},
+                        gorilla_proxy_url=gorilla_proxy_url,
+                        has_supabase=has_supabase,
+                        is_debug=True,
+                        error_context=review_fixes,
+                    )
+                    total_tokens += fix_result.get("tokens", 0)
+                    fix_cmds = fix_result.get("commands", [])
+                    if fix_cmds:
+                        all_commands.extend(fix_cmds)
+                        await self._execute_commands_streaming(project_id, fix_cmds)
+            except Exception as e:
+                log_agent("agent", f"Reviewer error: {e}", project_id)
 
-        # Sync to Supabase (permanent storage)
+        # Sync to Supabase
         self._emit_status(project_id, "Syncing to database...")
         synced, deleted = await self._sync_once(project_id)
-        self._emit_log(
-            project_id, "sync",
-            f"Synced {synced} changed, removed {deleted} deleted",
-        )
+        self._emit_log(project_id, "sync", f"Synced {synced} changed, removed {deleted} deleted")
 
-        # Detect the preview URL from whatever port the agent started
         url = session.url
         self._emit(project_id, {"type": "sandbox_url", "url": url})
 
@@ -672,20 +584,18 @@ class E2BSandboxManager:
         }
 
     # -----------------------------------------------------------
-    # Streaming executor (unchanged from v5)
+    # Streaming executor
     # -----------------------------------------------------------
     async def _execute_commands_streaming(self, project_id, commands):
         session = self._sessions.get(project_id)
         if not session:
-            return [{"command": "N/A", "stdout": "",
-                     "stderr": "Sandbox not running", "exit_code": -1}]
+            return [{"command": "N/A", "stdout": "", "stderr": "Sandbox not running", "exit_code": -1}]
 
         session.last_activity = time.time()
         results: List[Dict[str, Any]] = []
 
         for cmd in commands[:MAX_COMMANDS_PER_TURN]:
-            if not cmd or not cmd.strip():
-                continue
+            if not cmd or not cmd.strip(): continue
 
             classification = classify_command(cmd)
             activity_id = self._next_activity_id(project_id)
@@ -704,16 +614,14 @@ class E2BSandboxManager:
             stderr_buf: List[str] = []
 
             def on_stdout(line: str):
-                if not line:
-                    return
+                if not line: return
                 stdout_buf.append(line)
                 clean = line.rstrip("\n")[:400]
                 if clean.strip():
                     self._emit_activity_chunk(project_id, activity_id, "stdout", clean)
 
             def on_stderr(line: str):
-                if not line:
-                    return
+                if not line: return
                 stderr_buf.append(line)
                 clean = line.rstrip("\n")[:400]
                 if clean.strip():
@@ -731,213 +639,102 @@ class E2BSandboxManager:
                 exit_code = -1
 
             self._emit_activity_end(project_id, activity_id, exit_code)
-
             results.append({
-                "command": cmd,
-                "stdout": "".join(stdout_buf),
-                "stderr": "".join(stderr_buf),
-                "exit_code": exit_code,
+                "command": cmd, "stdout": "".join(stdout_buf),
+                "stderr": "".join(stderr_buf), "exit_code": exit_code,
             })
 
         try:
             await asyncio.to_thread(session.sandbox.commands.run, "sync && true")
-        except Exception:
-            pass
+        except Exception: pass
         session.last_activity = time.time()
         return results
 
     @staticmethod
-    def _run_command_with_streaming(sandbox, cmd: str, on_stdout, on_stderr) -> int:
+    def _run_command_with_streaming(sandbox, cmd, on_stdout, on_stderr):
         try:
-            result = sandbox.commands.run(
-                cmd, on_stdout=on_stdout, on_stderr=on_stderr, timeout=180,
-            )
+            result = sandbox.commands.run(cmd, on_stdout=on_stdout, on_stderr=on_stderr, timeout=180)
             return getattr(result, "exit_code", 0)
-        except TypeError:
-            pass
+        except TypeError: pass
         try:
             result = sandbox.commands.run(cmd, timeout=180)
             if result.stdout:
-                for line in result.stdout.splitlines(keepends=True):
-                    on_stdout(line)
+                for line in result.stdout.splitlines(keepends=True): on_stdout(line)
             if result.stderr:
-                for line in result.stderr.splitlines(keepends=True):
-                    on_stderr(line)
+                for line in result.stderr.splitlines(keepends=True): on_stderr(line)
             return getattr(result, "exit_code", 0)
         except Exception as e:
-            on_stderr(str(e))
-            return -1
+            on_stderr(str(e)); return -1
 
     # -----------------------------------------------------------
-    # LATENCY FIX 2: batched tree read
+    # Batched tree read
     # -----------------------------------------------------------
     async def _read_tree_from_sandbox(self, project_id: str) -> Dict[str, str]:
-        """
-        Instead of N sequential `cat` round-trips, do ONE shell command that
-        dumps every file with delimiters, then parse the combined output.
-        """
         session = self._sessions.get(project_id)
-        if not session:
-            return {}
+        if not session: return {}
 
-        # Single command: for each file, emit sentinel+path, then content
         dump_cmd = (
             f"find {APP_DIR} -type f "
-            f"-not -path '*/node_modules/*' "
-            f"-not -path '*/.git/*' "
-            f"-not -path '*/dist/*' "
-            f"-not -name 'package-lock.json' "
-            f"-not -name '*.lock' "
-            f"-size -500k -print0 | "
-            # Use xargs to cat all files with sentinel headers
+            f"-not -path '*/node_modules/*' -not -path '*/.git/*' "
+            f"-not -path '*/dist/*' -not -name 'package-lock.json' "
+            f"-not -name '*.lock' -size -500k -print0 | "
             f'xargs -0 -I {{}} sh -c \''
             f'echo "{FILE_READ_SENTINEL}{{}}"; '
             f'echo "{FILE_CONTENT_SENTINEL}"; '
-            f'cat "{{}}" 2>/dev/null; '
-            f'echo ""\''
-        )
-
-        try:
-            result = await asyncio.to_thread(
-                session.sandbox.commands.run, dump_cmd,
-            )
-            output = result.stdout or ""
-        except Exception as e:
-            print(f"⚠️ Batched tree read failed: {e}; falling back")
-            return await self._read_tree_slow(project_id)
-
-        if not output.strip():
-            return {}
-
-        # Parse: split on FILE_READ_SENTINEL, each chunk has path + content
-        tree: Dict[str, str] = {}
-        # First split gives us ["", "path1\nCONTENT_SENTINEL\ncontent1\n", "path2\n..."]
-        chunks = output.split(FILE_READ_SENTINEL)
-        for chunk in chunks[1:]:  # skip the empty prefix
-            if FILE_CONTENT_SENTINEL not in chunk:
-                continue
-            header, _, body = chunk.partition(FILE_CONTENT_SENTINEL)
-            path = header.strip().replace(f"{APP_DIR}/", "", 1)
-            if not path:
-                continue
-            # Body ends with a trailing echo "" — strip it
-            content = body
-            if content.endswith("\n\n"):
-                content = content[:-1]
-            elif content.endswith("\n"):
-                content = content[:-1]
-            # Skip binary
-            if "\x00" in content[:1000]:
-                continue
-            tree[path] = content
-
-        return tree
-
-    async def _read_tree_slow(self, project_id: str) -> Dict[str, str]:
-        """Fallback: old one-cat-per-file. Only used if batched read fails."""
-        session = self._sessions.get(project_id)
-        if not session:
-            return {}
-        try:
-            listing = await asyncio.to_thread(
-                session.sandbox.commands.run,
-                f"find {APP_DIR} -type f "
-                f"-not -path '*/node_modules/*' -not -path '*/.git/*' "
-                f"-not -path '*/dist/*' -not -name 'package-lock.json' "
-                f"-not -name '*.lock' -size -500k",
-            )
-        except Exception:
-            return {}
-        if not listing.stdout:
-            return {}
-        paths = [
-            p.strip().replace(f"{APP_DIR}/", "", 1)
-            for p in listing.stdout.strip().split("\n")
-            if p.strip()
-        ]
-        tree: Dict[str, str] = {}
-        for rel in paths[:400]:
-            full = f"{APP_DIR}/{rel}"
-            try:
-                r = await asyncio.to_thread(
-                    session.sandbox.commands.run, f"cat '{full}' 2>/dev/null",
-                )
-                content = r.stdout or ""
-                if "\x00" in content[:1000]:
-                    continue
-                tree[rel] = content
-            except Exception:
-                continue
-        return tree
-
-    async def _read_changed_files_from_sandbox(self, project_id: str) -> Dict[str, str]:
-        """
-        Fast diff-read: only files touched since the last SYNC_MARKER.
-        Used on turns 2+ inside a request so we don't re-read every file.
-        Returns only the files that changed; caller merges into existing tree.
-        """
-        session = self._sessions.get(project_id)
-        if not session:
-            return {}
-        sentinel = f"/tmp/.gorilla_turn_marker_{project_id[:8]}"
-        # Update the per-turn marker (not SYNC_MARKER which is for DB sync)
-        try:
-            await asyncio.to_thread(
-                session.sandbox.commands.run,
-                f"touch {sentinel} 2>/dev/null || true",
-            )
-        except Exception:
-            pass
-
-        dump_cmd = (
-            f"find {APP_DIR} -type f -newer {sentinel} "
-            f"-not -path '*/node_modules/*' -not -path '*/.git/*' "
-            f"-not -path '*/dist/*' -not -name 'package-lock.json' "
-            f"-not -name '*.lock' -size -500k -print0 2>/dev/null | "
-            f'xargs -0 -I {{}} sh -c \''
-            f'echo "═══GORILLA_FILE_BOUNDARY_9f8c═══{{}}"; '
-            f'echo "═══GORILLA_CONTENT_START_9f8c═══"; '
             f'cat "{{}}" 2>/dev/null; echo ""\''
         )
+
         try:
             result = await asyncio.to_thread(session.sandbox.commands.run, dump_cmd)
             output = result.stdout or ""
         except Exception:
-            return {}
+            return await self._read_tree_slow(project_id)
 
-        if not output.strip():
-            return {}
+        if not output.strip(): return {}
 
         tree: Dict[str, str] = {}
-        FILE_READ_SENTINEL = "═══GORILLA_FILE_BOUNDARY_9f8c═══"
-        FILE_CONTENT_SENTINEL = "═══GORILLA_CONTENT_START_9f8c═══"
         for chunk in output.split(FILE_READ_SENTINEL)[1:]:
-            if FILE_CONTENT_SENTINEL not in chunk:
-                continue
+            if FILE_CONTENT_SENTINEL not in chunk: continue
             header, _, body = chunk.partition(FILE_CONTENT_SENTINEL)
             path = header.strip().replace(f"{APP_DIR}/", "", 1)
-            if not path:
-                continue
+            if not path: continue
             content = body[:-1] if body.endswith("\n") else body
-            if "\x00" in content[:1000]:
-                continue
+            if "\x00" in content[:1000]: continue
             tree[path] = content
+        return tree
 
+    async def _read_tree_slow(self, project_id: str) -> Dict[str, str]:
+        session = self._sessions.get(project_id)
+        if not session: return {}
+        try:
+            listing = await asyncio.to_thread(
+                session.sandbox.commands.run,
+                f"find {APP_DIR} -type f -not -path '*/node_modules/*' "
+                f"-not -path '*/.git/*' -not -path '*/dist/*' "
+                f"-not -name 'package-lock.json' -not -name '*.lock' -size -500k",
+            )
+        except Exception: return {}
+        if not listing.stdout: return {}
+        paths = [p.strip().replace(f"{APP_DIR}/", "", 1) for p in listing.stdout.strip().split("\n") if p.strip()]
+        tree: Dict[str, str] = {}
+        for rel in paths[:400]:
+            try:
+                r = await asyncio.to_thread(session.sandbox.commands.run, f"cat '{APP_DIR}/{rel}' 2>/dev/null")
+                content = r.stdout or ""
+                if "\x00" in content[:1000]: continue
+                tree[rel] = content
+            except Exception: continue
         return tree
 
     # -----------------------------------------------------------
-    # LATENCY FIX 3: batched sync
+    # Batched sync
     # -----------------------------------------------------------
     async def _sync_once(self, project_id: str) -> Tuple[int, int]:
         session = self._sessions.get(project_id)
-        if not session:
-            return (0, 0)
-        try:
-            await asyncio.to_thread(session.sandbox.commands.run, "sync")
-        except Exception:
-            pass
+        if not session: return (0, 0)
+        try: await asyncio.to_thread(session.sandbox.commands.run, "sync")
+        except Exception: pass
 
-        # One dump command for changed files only
         changed_dump_cmd = (
             f"find {APP_DIR} -type f -newer {SYNC_MARKER} "
             f"-not -path '*/node_modules/*' -not -path '*/.git/*' "
@@ -946,66 +743,48 @@ class E2BSandboxManager:
             f'xargs -0 -I {{}} sh -c \''
             f'echo "{FILE_READ_SENTINEL}{{}}"; '
             f'echo "{FILE_CONTENT_SENTINEL}"; '
-            f'cat "{{}}" 2>/dev/null; '
-            f'echo ""\''
+            f'cat "{{}}" 2>/dev/null; echo ""\''
         )
 
         try:
-            result = await asyncio.to_thread(
-                session.sandbox.commands.run, changed_dump_cmd,
-            )
+            result = await asyncio.to_thread(session.sandbox.commands.run, changed_dump_cmd)
             dump = result.stdout or ""
         except Exception as e:
-            self._emit_log(project_id, "sync", f"Sync dump failed: {e}")
+            self._emit_log(project_id, "sync", f"Sync failed: {e}")
             return (0, 0)
 
-        # Parse
         changed_files: Dict[str, str] = {}
         if dump.strip():
             for chunk in dump.split(FILE_READ_SENTINEL)[1:]:
-                if FILE_CONTENT_SENTINEL not in chunk:
-                    continue
+                if FILE_CONTENT_SENTINEL not in chunk: continue
                 header, _, body = chunk.partition(FILE_CONTENT_SENTINEL)
                 path = header.strip().replace(f"{APP_DIR}/", "", 1)
-                if not path:
-                    continue
-                content = body
-                if content.endswith("\n\n"):
-                    content = content[:-1]
-                elif content.endswith("\n"):
-                    content = content[:-1]
-                if "\x00" in content[:1000]:
-                    continue
-                if len(content) > 500_000:
-                    continue
+                if not path: continue
+                content = body[:-1] if body.endswith("\n") else body
+                if "\x00" in content[:1000]: continue
+                if len(content) > 500_000: continue
                 changed_files[path] = content
 
-        # Build upsert rows by hash comparison
         rows: List[Dict[str, Any]] = []
         current_sandbox_paths: Set[str] = set(changed_files.keys())
         for rel, content in changed_files.items():
             h = hashlib.md5(content.encode("utf-8", errors="replace")).hexdigest()
-            if session.content_hashes.get(rel) == h:
-                continue
+            if session.content_hashes.get(rel) == h: continue
             session.content_hashes[rel] = h
             rows.append({"project_id": project_id, "path": rel, "content": content})
 
-        # Also need the FULL file list to detect deletions
         try:
             all_listing = await asyncio.to_thread(
                 session.sandbox.commands.run,
-                f"find {APP_DIR} -type f "
-                f"-not -path '*/node_modules/*' -not -path '*/.git/*' "
-                f"-not -path '*/dist/*' -not -name 'package-lock.json' "
-                f"-not -name '*.lock'",
+                f"find {APP_DIR} -type f -not -path '*/node_modules/*' "
+                f"-not -path '*/.git/*' -not -path '*/dist/*' "
+                f"-not -name 'package-lock.json' -not -name '*.lock'",
             )
             if all_listing.stdout:
                 for p in all_listing.stdout.strip().split("\n"):
                     p = p.strip()
-                    if p:
-                        current_sandbox_paths.add(p.replace(f"{APP_DIR}/", "", 1))
-        except Exception:
-            pass
+                    if p: current_sandbox_paths.add(p.replace(f"{APP_DIR}/", "", 1))
+        except Exception: pass
 
         if rows:
             try:
@@ -1022,207 +801,112 @@ class E2BSandboxManager:
         deleted_count = 0
         try:
             db_paths = set(self._list_db_paths(project_id) or [])
-            to_delete = db_paths - current_sandbox_paths
-            safe_skip = {".env", ".gorilla_env"}
-            to_delete -= safe_skip
+            to_delete = db_paths - current_sandbox_paths - {".env", ".gorilla_env"}
             for p in to_delete:
                 try:
                     self._db_delete("files", {"project_id": project_id, "path": p})
                     self._emit_file_deleted(project_id, p)
                     session.content_hashes.pop(p, None)
                     deleted_count += 1
-                except Exception as e:
-                    self._emit_log(project_id, "sync", f"Delete failed {p}: {e}")
-        except Exception:
-            pass
+                except Exception: pass
+        except Exception: pass
 
-        # Reset sync marker for next pass
         try:
-            await asyncio.to_thread(
-                session.sandbox.commands.run, f"touch {SYNC_MARKER}",
-            )
-        except Exception:
-            pass
+            await asyncio.to_thread(session.sandbox.commands.run, f"touch {SYNC_MARKER}")
+        except Exception: pass
 
         return (len(rows), deleted_count)
 
     # -----------------------------------------------------------
-    # Dev server (mostly unchanged, just to_thread wrapped)
+    # Dev server (kept for /sandbox/start endpoint, NOT used in agent loop)
     # -----------------------------------------------------------
     async def start_dev_server(self, project_id: str) -> Tuple[Optional[str], Optional[str]]:
         session = self._sessions.get(project_id)
-        if not session:
-            return (None, None)
+        if not session: return (None, None)
         session.last_activity = time.time()
 
         try:
-            await asyncio.to_thread(
-                session.sandbox.commands.run,
-                "pkill -f vite || true; pkill -f 'npm run dev' || true; "
-                "pkill -f 'node server' || true",
-            )
+            await asyncio.to_thread(session.sandbox.commands.run,
+                "pkill -f vite || true; pkill -f 'npm run dev' || true; pkill -f 'node server' || true")
             await asyncio.sleep(1)
-        except Exception:
-            pass
+        except Exception: pass
 
-        self._emit_log(project_id, "sandbox", "Starting dev server...")
         try:
-            await asyncio.to_thread(
-                session.sandbox.commands.run,
-                f"cd {APP_DIR} && nohup npm run dev > /tmp/vite.log 2>&1 &",
-            )
-        except Exception:
-            pass
+            await asyncio.to_thread(session.sandbox.commands.run,
+                f"cd {APP_DIR} && nohup npm run dev > /tmp/vite.log 2>&1 &")
+        except Exception: pass
 
         bound = False
-        last_log = ""
-        for i in range(DEV_SERVER_WAIT_S):
+        for _ in range(15):
             await asyncio.sleep(1)
             try:
-                check = await asyncio.to_thread(
-                    session.sandbox.commands.run,
-                    f"curl -s -o /dev/null -w '%{{http_code}}' "
-                    f"http://localhost:{session.preview_port} || echo fail",
-                )
-                code = (check.stdout or "").strip()
-                if "200" in code or "304" in code:
-                    bound = True
-                    break
-                log_peek = await asyncio.to_thread(
-                    session.sandbox.commands.run, "tail -n 40 /tmp/vite.log",
-                )
-                last_log = log_peek.stdout or ""
-                for pat in READY_PATTERNS:
-                    if re.search(pat, last_log, re.IGNORECASE):
-                        await asyncio.sleep(1)
-                        check2 = await asyncio.to_thread(
-                            session.sandbox.commands.run,
-                            f"curl -s -o /dev/null -w '%{{http_code}}' "
-                            f"http://localhost:{session.preview_port} || echo fail",
-                        )
-                        c2 = (check2.stdout or "").strip()
-                        if "200" in c2 or "304" in c2:
-                            bound = True
-                        break
-                if bound:
-                    break
-            except Exception:
-                pass
+                check = await asyncio.to_thread(session.sandbox.commands.run,
+                    f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{session.preview_port} || echo fail")
+                if "200" in (check.stdout or "") or "304" in (check.stdout or ""):
+                    bound = True; break
+            except Exception: pass
 
-        try:
-            final_log = await asyncio.to_thread(
-                session.sandbox.commands.run, "tail -n 60 /tmp/vite.log",
-            )
-            log_text = final_log.stdout or ""
-        except Exception:
-            log_text = last_log
-
-        if bound:
-            self._emit_log(project_id, "sandbox", f"Dev server live at {session.url}")
-        else:
-            self._emit_log(
-                project_id, "debugger",
-                f"Dev server not responding. Log tail:\n{log_text[:600]}",
-            )
-
-        vite_error = self._extract_vite_errors(log_text)
         self._emit(project_id, {"type": "sandbox_url", "url": session.url})
-        return (session.url, vite_error)
+        return (session.url, None)
 
-    @staticmethod
-    def _extract_vite_errors(log_text: str) -> Optional[str]:
-        if not log_text:
-            return None
-        lines = log_text.splitlines()
-        issues: List[str] = []
-        for i, line in enumerate(lines):
-            low = line.lower()
-            if ("could not be resolved" in low
-                    or "failed to resolve import" in low
-                    or "cannot find module" in low):
-                context = "\n".join(lines[i:i + 8]).strip()
-                issues.append(context)
-        for i, line in enumerate(lines):
-            if re.search(r"(SyntaxError|Unexpected token|Unexpected end)", line):
-                context = "\n".join(lines[max(0, i - 2):i + 6]).strip()
-                issues.append(context)
-        if not issues:
-            return None
-        return "\n\n---\n\n".join(issues[:3])[:3000]
-
+    # -----------------------------------------------------------
+    # File write/delete for editor /save bridge
+    # -----------------------------------------------------------
     async def write_file(self, project_id: str, rel_path: str, content: str) -> bool:
         session = self._sessions.get(project_id)
-        if not session:
-            return False
+        if not session: return False
         full = f"{APP_DIR}/{rel_path}"
         dirp = "/".join(full.split("/")[:-1])
         try:
             safe = content.replace("GORILLA_EOF", "GORILLA__EOF")
-            await asyncio.to_thread(
-                session.sandbox.commands.run,
-                f"mkdir -p '{dirp}' && "
-                f"cat > '{full}' << 'GORILLA_EOF'\n{safe}\nGORILLA_EOF",
-            )
-            session.content_hashes[rel_path] = hashlib.md5(
-                content.encode("utf-8", errors="replace")
-            ).hexdigest()
+            await asyncio.to_thread(session.sandbox.commands.run,
+                f"mkdir -p '{dirp}' && cat > '{full}' << 'GORILLA_EOF'\n{safe}\nGORILLA_EOF")
+            session.content_hashes[rel_path] = hashlib.md5(content.encode("utf-8", errors="replace")).hexdigest()
             session.last_activity = time.time()
             return True
         except Exception as e:
-            print(f"⚠️ write_file failed: {e}")
-            return False
+            print(f"⚠️ write_file failed: {e}"); return False
 
     async def delete_file(self, project_id: str, rel_path: str) -> bool:
         session = self._sessions.get(project_id)
-        if not session:
-            return False
+        if not session: return False
         try:
-            await asyncio.to_thread(
-                session.sandbox.commands.run, f"rm -f '{APP_DIR}/{rel_path}'",
-            )
+            await asyncio.to_thread(session.sandbox.commands.run, f"rm -f '{APP_DIR}/{rel_path}'")
             session.content_hashes.pop(rel_path, None)
             session.last_activity = time.time()
             return True
-        except Exception:
-            return False
+        except Exception: return False
 
+    # -----------------------------------------------------------
+    # Billing + idle
+    # -----------------------------------------------------------
     async def _billing_loop(self, project_id: str) -> None:
         try:
             while True:
                 await asyncio.sleep(BILLING_TICK_S)
                 session = self._sessions.get(project_id)
-                if not session:
-                    return
+                if not session: return
                 now = time.time()
-                elapsed_hours = (now - session.last_bill_at) / 3600.0
-                if elapsed_hours <= 0:
-                    continue
-                prorated = int(BILLING_TOKENS_PER_HOUR * elapsed_hours)
-                if prorated <= 0:
-                    continue
+                elapsed = (now - session.last_bill_at) / 3600.0
+                if elapsed <= 0: continue
+                prorated = int(BILLING_TOKENS_PER_HOUR * elapsed)
+                if prorated <= 0: continue
                 try:
                     self._add_tokens(session.owner_id, prorated)
                     session.total_billed_tokens += prorated
                     session.last_bill_at = now
                 except Exception as e:
-                    print(f"⚠️ Billing error for {project_id}: {e}")
-        except asyncio.CancelledError:
-            pass
+                    print(f"⚠️ Billing error: {e}")
+        except asyncio.CancelledError: pass
 
     async def _idle_monitor(self) -> None:
         while True:
             try:
                 now = time.time()
-                to_kill = [
-                    pid for pid, s in list(self._sessions.items())
-                    if (now - s.last_activity) > IDLE_TIMEOUT_S
-                ]
-                for pid in to_kill:
-                    print(f"💤 Idle kill: sandbox {pid}")
-                    try:
-                        await self._sync_once(pid)
-                    except Exception:
-                        pass
+                for pid in [p for p, s in list(self._sessions.items()) if (now - s.last_activity) > IDLE_TIMEOUT_S]:
+                    print(f"💤 Idle kill: {pid}")
+                    try: await self._sync_once(pid)
+                    except Exception: pass
                     await self.kill(pid)
             except Exception as e:
                 print(f"Idle monitor error: {e}")

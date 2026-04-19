@@ -7,7 +7,8 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 8080,
-    // ✅ THE FIX: Route frontend API calls to the Express backend
+    // ✅ ADDED THIS: Allows the E2B sandbox hostname
+    allowedHosts: true, 
     proxy: {
       "/api": {
         target: "http://localhost:3000",
@@ -17,7 +18,7 @@ export default defineConfig({
     },
   },
   plugins: [
-    react(), // Uses standard plugin (Safer for WebContainer)
+    react(),
   ],
   resolve: {
     alias: {
