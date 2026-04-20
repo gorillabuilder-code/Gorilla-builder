@@ -418,7 +418,7 @@ class E2BSandboxManager:
                 is_debug, error_context, image_b64, on_assistant_message,
             )
 
-async def _do_run_agent_turn(
+    async def _do_run_agent_turn(
         self, project_id, user_request, user_id, env_vars,
         chat_history, gorilla_proxy_url, has_supabase, is_debug,
         error_context, image_b64, on_assistant_message,

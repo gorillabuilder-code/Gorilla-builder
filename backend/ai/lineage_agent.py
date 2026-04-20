@@ -265,6 +265,7 @@ Layout: src/ (React), src/components/ui/ (shadcn), src/utils/auth.ts (auth gatew
 8. You MUST verify both :8080 and :3000 return 200 before writing GORILLA_DONE
 9. If something fails, read /tmp/dev.log, fix the issue, restart, verify again
 10. Create ONE file per step. Do NOT write multiple files in a single bash block.
+11. NEVER say GORILLA_DONE before turn 5. You have not built enough yet!
 
 ## Auth gateway
 ```tsx
