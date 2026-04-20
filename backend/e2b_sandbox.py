@@ -46,7 +46,7 @@ E2B_API_KEY = os.getenv("E2B_API_KEY", "")
 SANDBOX_TEMPLATE = os.getenv("E2B_TEMPLATE", "base")
 IDLE_TIMEOUT_S = 300
 BILLING_TOKENS_PER_HOUR = 50_000
-BILLING_TICK_S = 60
+BILLING_TICK_S = 1  # Bill per-second for accurate usage tracking
 APP_DIR = "/home/user/app"
 MAX_COMMANDS_PER_TURN = 40
 MAX_TURNS_PER_REQUEST = 20
@@ -364,7 +364,7 @@ class E2BSandboxManager:
             self._idle_monitor_task = asyncio.create_task(self._idle_monitor())
 
         self._emit_log(project_id, "sandbox", f"Sandbox ready: {session.url}")
-        self._emit_status(project_id, "Agent started...)
+        self._emit_status(project_id, "Sandbox Ready")
         self._emit(project_id, {"type": "sandbox_url", "url": session.url})
         return session
 
@@ -478,7 +478,41 @@ class E2BSandboxManager:
                 image_b64=image_b64 if turn == 0 else None,
                 previous_command_output=previous_output,
             )
-            total_tokens += result.get("tokens", 0)
+            turn_tokens = result.get("tokens", 0) - total_tokens
+            total_tokens = result.get("tokens", 0)
+
+            # Bill LLM tokens to the user immediately per-turn
+            if turn_tokens > 0:
+                try:
+                    self._add_tokens(session.owner_id, turn_tokens)
+                    self._emit(project_id, {"type": "token_usage", "tokens": turn_tokens})
+                except Exception:
+                    pass
+
+            # On first turn, save the generated plan as .gorilla/todo.md in sandbox
+            if turn == 0 and hasattr(agent, '_plan_injected') and agent._plan_injected:
+                try:
+                    # Extract the plan from the agent's first user message
+                    first_user_msg = agent.messages[1].get("content", "") if len(agent.messages) > 1 else ""
+                    if isinstance(first_user_msg, str) and "follow it step by step" in first_user_msg:
+                        plan_start = first_user_msg.find("# Task:")
+                        if plan_start == -1:
+                            plan_start = first_user_msg.find("- [ ]")
+                        if plan_start > 0:
+                            plan_content = first_user_msg[plan_start:]
+                            # Truncate at next section if any
+                            for marker in ["\nRecent conversation:", "\nProject files"]:
+                                idx = plan_content.find(marker)
+                                if idx > 0:
+                                    plan_content = plan_content[:idx]
+                            await asyncio.to_thread(
+                                session.sandbox.commands.run,
+                                f"mkdir -p {APP_DIR}/.gorilla && cat > {APP_DIR}/.gorilla/todo.md << 'GORILLA_EOF'\n{plan_content.strip()}\nGORILLA_EOF",
+                                timeout=5,
+                            )
+                            log_agent("agent", "Saved plan to .gorilla/todo.md", project_id)
+                except Exception as e:
+                    log_agent("agent", f"Failed to save todo.md: {e}", project_id)
 
             msg = result.get("message", "")
             if msg:
@@ -881,6 +915,8 @@ class E2BSandboxManager:
     # Billing + idle
     # -----------------------------------------------------------
     async def _billing_loop(self, project_id: str) -> None:
+        """Bill sandbox time per-second, flush to DB every 10s."""
+        accumulated = 0
         try:
             while True:
                 await asyncio.sleep(BILLING_TICK_S)
@@ -891,13 +927,23 @@ class E2BSandboxManager:
                 if elapsed <= 0: continue
                 prorated = int(BILLING_TOKENS_PER_HOUR * elapsed)
                 if prorated <= 0: continue
-                try:
-                    self._add_tokens(session.owner_id, prorated)
-                    session.total_billed_tokens += prorated
-                    session.last_bill_at = now
-                except Exception as e:
-                    print(f"⚠️ Billing error: {e}")
-        except asyncio.CancelledError: pass
+                accumulated += prorated
+                session.total_billed_tokens += prorated
+                session.last_bill_at = now
+                # Flush to DB every ~10 seconds worth of accumulation
+                if accumulated >= int(BILLING_TOKENS_PER_HOUR / 360):
+                    try:
+                        self._add_tokens(session.owner_id, accumulated)
+                        accumulated = 0
+                    except Exception as e:
+                        print(f"⚠️ Billing error: {e}")
+        except asyncio.CancelledError:
+            # Flush remaining on cancel
+            if accumulated > 0:
+                session = self._sessions.get(project_id)
+                if session:
+                    try: self._add_tokens(session.owner_id, accumulated)
+                    except Exception: pass
 
     async def _idle_monitor(self) -> None:
         while True:

@@ -29,7 +29,7 @@ export const login = (provider: 'google' | 'github' = 'google') => {
   const top = window.screen.height / 2 - height / 2;
   
   // Point to the specific app-auth initiation route on the backend
-  const authUrl = `https://gorillabuilder.dev/api/v1/app-auth/${authId}/${provider}?return_url=${encodeURIComponent(window.location.origin)}`;
+  const authUrl = `https://slaw-carefully-cried.ngrok-free.dev/api/v1/app-auth/${authId}/${provider}?return_url=${encodeURIComponent(window.location.origin)}`;
   
   window.open(
     authUrl, 

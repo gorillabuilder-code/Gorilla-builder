@@ -33,7 +33,8 @@ import httpx
 # ---------------------------------------------------------------------------
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 MODEL = os.getenv("LINEAGE_MODEL", "kwaipilot/kat-coder-pro-v2")
-VISION_MODEL = os.getenv("VISION_MODEL", "anthropic/claude-sonnet-4.6")
+PLANNER_MODEL = os.getenv("PLANNER_MODEL", "arcee-ai/trinity-large-thinking")
+VISION_MODEL = os.getenv("VISION_MODEL", "xiaomi/mimo-v2-omni")
 OPENROUTER_URL = os.getenv(
     "OPENROUTER_URL",
     "https://openrouter.ai/api/v1/chat/completions",
@@ -335,7 +336,7 @@ async def expand_prompt(short_prompt: str) -> str:
         {"role": "user", "content": short_prompt},
     ]
     try:
-        raw, _ = await _call_llm(messages, model=MODEL, temperature=0.8)
+        raw, _ = await _call_llm(messages, model=PLANNER_MODEL, temperature=0.8)
         expanded = raw.strip()
         if len(expanded) > len(short_prompt) * 2:
             log_agent("agent", f"Expanded prompt: {expanded[:150]}...")
@@ -373,7 +374,7 @@ Rules:
 - Last item is ALWAYS "Start dev server and verify both ports return 200"
 - Each item is ONE file. Never combine multiple files in one item.
 - Include the file path and a dash-separated description of contents.
-- Keep it to 6-12 items. Not more.
+- Keep it to 6-20 items. Not more. TRY TO ADD 3+ PAGES
 - Output ONLY the checklist. No prose before or after."""
 
 
@@ -387,7 +388,7 @@ async def generate_plan(expanded_prompt: str, file_tree_summary: str) -> Optiona
         {"role": "user", "content": f"Existing files:\n{file_tree_summary}\n\nSpec:\n{expanded_prompt}"},
     ]
     try:
-        raw, _ = await _call_llm(messages, model=MODEL, temperature=0.4)
+        raw, _ = await _call_llm(messages, model=PLANNER_MODEL, temperature=0.4)
         plan = raw.strip()
         # Validate it looks like a checklist
         if "- [ ]" in plan:
@@ -519,7 +520,12 @@ async def _call_llm(messages: list, model: str = MODEL, temperature: float = 0.6
         data = resp.json()
     content = data["choices"][0]["message"]["content"]
     u = data.get("usage", {})
-    return content, int(u.get("prompt_tokens", 0) * 0.3 + u.get("completion_tokens", 0) * 1.2)
+    p = u.get("prompt_tokens", 0)
+    c = u.get("completion_tokens", 0)
+    # Weighted cost: frontier models cost more per token
+    is_frontier = any(x in model for x in ["claude", "gpt-4", "gemini"])
+    weight = (p * 0.6 + c * 2.4) if is_frontier else (p * 0.3 + c * 1.2)
+    return content, int(weight)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
