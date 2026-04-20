@@ -48,8 +48,8 @@ IDLE_TIMEOUT_S = 300
 BILLING_TOKENS_PER_HOUR = 50_000
 BILLING_TICK_S = 1  # Bill per-second for accurate usage tracking
 APP_DIR = "/home/user/app"
-MAX_COMMANDS_PER_TURN = 40
-MAX_TURNS_PER_REQUEST = 20
+MAX_COMMANDS_PER_TURN = 80
+MAX_TURNS_PER_REQUEST = 40
 SYNC_MARKER = "/tmp/.gorilla_sync_marker"
 FILE_READ_SENTINEL = "═══GORILLA_FILE_BOUNDARY_9f8c═══"
 FILE_CONTENT_SENTINEL = "═══GORILLA_CONTENT_START_9f8c═══"
@@ -364,7 +364,7 @@ class E2BSandboxManager:
             self._idle_monitor_task = asyncio.create_task(self._idle_monitor())
 
         self._emit_log(project_id, "sandbox", f"Sandbox ready: {session.url}")
-        self._emit_status(project_id, "Sandbox Ready")
+        self._emit_status(project_id, "Agent Started..")
         self._emit(project_id, {"type": "sandbox_url", "url": session.url})
         return session
 
@@ -418,7 +418,7 @@ class E2BSandboxManager:
                 is_debug, error_context, image_b64, on_assistant_message,
             )
 
-    async def _do_run_agent_turn(
+async def _do_run_agent_turn(
         self, project_id, user_request, user_id, env_vars,
         chat_history, gorilla_proxy_url, has_supabase, is_debug,
         error_context, image_b64, on_assistant_message,
@@ -437,7 +437,6 @@ class E2BSandboxManager:
             pass
 
         # #3 — Auto-kill ports before agent starts
-        # Eliminates the "port in use" retry spiral
         try:
             await asyncio.to_thread(
                 session.sandbox.commands.run,
@@ -492,7 +491,6 @@ class E2BSandboxManager:
             # On first turn, save the generated plan as .gorilla/todo.md in sandbox
             if turn == 0 and hasattr(agent, '_plan_injected') and agent._plan_injected:
                 try:
-                    # Extract the plan from the agent's first user message
                     first_user_msg = agent.messages[1].get("content", "") if len(agent.messages) > 1 else ""
                     if isinstance(first_user_msg, str) and "follow it step by step" in first_user_msg:
                         plan_start = first_user_msg.find("# Task:")
@@ -500,7 +498,6 @@ class E2BSandboxManager:
                             plan_start = first_user_msg.find("- [ ]")
                         if plan_start > 0:
                             plan_content = first_user_msg[plan_start:]
-                            # Truncate at next section if any
                             for marker in ["\nRecent conversation:", "\nProject files"]:
                                 idx = plan_content.find(marker)
                                 if idx > 0:
@@ -535,6 +532,21 @@ class E2BSandboxManager:
                 )
                 continue
 
+            # ── Auto-background fix ──────────────────────────────────
+            # If the agent forgot the & on npm run dev, it blocks the
+            # bash session forever. Detect and auto-fix before executing.
+            fixed_commands = []
+            for cmd in commands:
+                if re.search(r'npm run dev\s*$', cmd.strip()) and '&' not in cmd:
+                    cmd = cmd.rstrip() + ' > /tmp/dev.log 2>&1 &'
+                    log_agent("agent", "Auto-backgrounded npm run dev", project_id)
+                elif re.search(r'npm run dev\s*>', cmd.strip()) and '&' not in cmd:
+                    # Has redirect but no &
+                    cmd = cmd.rstrip() + ' &'
+                    log_agent("agent", "Auto-backgrounded npm run dev (had redirect)", project_id)
+                fixed_commands.append(cmd)
+            commands = fixed_commands
+
             all_commands.extend(commands)
             cmd_results = await self._execute_commands_streaming(project_id, commands)
 
@@ -552,10 +564,29 @@ class E2BSandboxManager:
             raw_output = "\n".join(output_parts)[:6000] if output_parts else "Your command ran successfully and did not produce any output."
             last_raw_output = raw_output
 
+            # ── Vite compile error capture ────────────────────────────
+            # After any command that starts the dev server, wait for Vite
+            # to compile and grab errors from the log. This gives the agent
+            # visibility into compile errors it would otherwise never see.
+            for cmd in commands:
+                if "npm run dev" in cmd:
+                    try:
+                        error_check = await asyncio.to_thread(
+                            session.sandbox.commands.run,
+                            "sleep 4 && grep -i -E 'error|failed|Cannot find|could not be resolved' /tmp/dev.log 2>/dev/null | head -30",
+                            timeout=10,
+                        )
+                        vite_errors = (error_check.stdout or "").strip()
+                        if vite_errors:
+                            raw_output += f"\n\nVITE COMPILE ERRORS (from /tmp/dev.log):\n{vite_errors}"
+                            log_agent("agent", f"Vite errors detected: {vite_errors[:150]}", project_id)
+                    except Exception:
+                        pass
+                    break
+
             # #6 — Linter-in-the-loop: if the command wrote a .tsx/.ts file,
             # run tsc --noEmit on it and append lint errors to the observation
             for cmd in commands:
-                # Detect cat > path.tsx heredoc writes
                 m = re.search(r"cat\s+>\s+['\"]?(\S+\.tsx?)['\"]?\s+<<", cmd)
                 if m:
                     lint_path = m.group(1)
@@ -576,14 +607,13 @@ class E2BSandboxManager:
             if result.get("done", False):
                 break
 
-        # #10 — Reviewer: after agent says done, one cheap call checks for mistakes
+        # #10 — Reviewer
         if not is_debug and turn_count > 1:
             try:
                 current_tree = await self._read_tree_from_sandbox(project_id)
                 tree_summary = "\n".join(f"  {p}" for p in sorted(current_tree.keys()) if not p.endswith(".b64"))
                 review_fixes = await review_output(tree_summary, last_raw_output)
                 if review_fixes:
-                    # Feed the review back to the agent for one more pass
                     self._emit_narration(project_id, "Reviewing output for issues...")
                     fix_result = await agent.run(
                         user_request=f"Code review found issues. Fix them:\n{review_fixes}",
