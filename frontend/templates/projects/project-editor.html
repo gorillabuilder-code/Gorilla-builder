@@ -653,7 +653,7 @@ function addUserMessage(text) {
 }
 
 // Typing animation for narration blocks
-async function typeInto(el, html, speed = 12) {
+async function typeInto(el, html, speed = 67) {
   // We type the plain text but restore HTML afterward
   const plain = new DOMParser().parseFromString(html, 'text/html').body.textContent || "";
   el.innerHTML = '<span class="typed"></span><span class="caret"></span>';

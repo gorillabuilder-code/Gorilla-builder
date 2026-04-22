@@ -89,7 +89,7 @@ DEFAULT_TOKEN_LIMIT = int(os.getenv("MONTHLY_TOKEN_LIMIT", "500000"))
 # 4. Google Auth Keys
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://corrinne-turbid-illustratively.ngrok-free.dev/auth/google/callback")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://cuddly-space-memory-g4975q7q7g7ph945p-8000.app.github.dev/auth/google/callback")
 
 # ==========================================================================
 # CONFIGURATION: RESEND & SUPABASE (CRITICAL FIX)
@@ -404,12 +404,18 @@ def _require_project_owner(user: Dict[str, Any], project_id: str) -> None:
 
 # --- RESEND EMAIL LOGIC ---
 
+import resend # Ensure you have this imported
+
+# Make sure you assign the API key to the resend library somewhere in your environment setup:
+# resend.api_key = RESEND_API_KEY
+
 def send_otp_email(to_email: str, code: str):
     if not RESEND_API_KEY:
         print(f"⚠️ Resend Key missing. Code for {to_email}: {code}")
         return
+    
     try:
-        # 1. Send the Verification Email
+        # 1. Set up the parameters
         params = {
             "from": "Gor://a Auth Verification <auth@gorillabuilder.dev>", # Use your verified domain
             "to": [to_email],
@@ -442,6 +448,10 @@ def send_otp_email(to_email: str, code: str):
             </html>
             """,
         }
+
+        # 2. Actually trigger the email send via the Resend API
+        email = resend.Emails.send(params)
+        print(f"✅ OTP email sent to {to_email}")
 
     except Exception as e:
         print(f"❌ Resend Error: {e}")

@@ -32,7 +32,7 @@ import httpx
 # Config
 # ---------------------------------------------------------------------------
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("LINEAGE_MODEL", "kwaipilot/kat-coder-pro-v2")
+MODEL = os.getenv("LINEAGE_MODEL", "moonshotai/kimi-k2.6")
 PLANNER_MODEL = os.getenv("PLANNER_MODEL", "arcee-ai/trinity-large-thinking")
 VISION_MODEL = os.getenv("VISION_MODEL", "xiaomi/mimo-v2-omni")
 OPENROUTER_URL = os.getenv(
@@ -277,7 +277,7 @@ useEffect(() => onAuthStateChanged(setUser), []);
 ## AI proxy (backend, $GORILLA_API_KEY)
 Base: {GORILLA_PROXY}
 - LLM: POST {GORILLA_PROXY}/api/v1/chat/completions (don't send model)
-- Images: POST {GORILLA_PROXY}/api/v1/images/generations → save to public/generated/
+- Images: POST {GORILLA_PROXY}/api/v1/images/generations (use this for the users app (don't send model)) if you want to generate image for users app do curl → save to public/generated/
 - STT: POST {GORILLA_PROXY}/api/v1/audio/transcriptions
 - BG removal: POST {GORILLA_PROXY}/api/v1/images/remove-background
 - TTS: use window.speechSynthesis
@@ -362,6 +362,7 @@ Format:
 
 - [ ] View existing files (App.tsx, server.js, index.css) to understand structure
 - [ ] Create src/components/Navbar.tsx — fixed dark navbar, brand left, nav links right, mobile hamburger
+- [ ] Generate Hero Image using gorilla api's image genertion endpoint, curl and the api key
 - [ ] Create src/components/Hero.tsx — full-screen hero, gradient bg, headline, subtitle, CTA button
 - [ ] Create src/components/MenuSection.tsx — tabbed menu (3 categories), card grid, prices
 - [ ] Update src/pages/Index.tsx — import and compose all components in order
