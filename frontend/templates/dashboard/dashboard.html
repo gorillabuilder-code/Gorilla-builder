@@ -28,7 +28,6 @@
       --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E");
       --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
-      /* 3D shadow system */
       --shadow-3d-idle: 
         0 1px 0 rgba(255,255,255,0.06) inset,
         0 -2px 0 rgba(0,0,0,0.4) inset,
@@ -77,7 +76,6 @@
       bottom: -100px; right: 10%; filter: blur(80px);
     }
 
-    /* Grid pattern overlay for depth */
     .grid-overlay {
       position: fixed; top: 0; left: 260px; right: 0; bottom: 0;
       background-image: 
@@ -95,7 +93,6 @@
       padding: 24px 14px; z-index: 10; position: relative;
     }
 
-    /* Sidebar inner glow line */
     aside::after {
       content: ''; position: absolute; top: 0; right: 0; width: 1px; height: 100%;
       background: linear-gradient(to bottom, var(--accent-glow), transparent 40%, transparent 60%, rgba(139,92,246,0.1));
@@ -229,15 +226,6 @@
     .token-val { font-size: 14px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
     .token-lbl { font-size: 11px; color: var(--text-muted); }
 
-    /* 3D BUTTONS */
-    .btn-3d {
-      position: relative;
-      padding: 10px 22px; border-radius: var(--radius); border: none;
-      font-size: 13px; font-weight: 600; cursor: pointer;
-      transition: all 0.15s var(--ease-out);
-      text-decoration: none; display: inline-flex; align-items: center; gap: 8px;
-    }
-
     .upgrade-btn {
       background: linear-gradient(180deg, #ffffff 0%, #e8e8e8 100%);
       color: #000; padding: 10px 22px; border-radius: var(--radius);
@@ -271,10 +259,47 @@
     /* --- BUILDER --- */
     .builder-section { max-width: 800px; margin: 0 auto 80px auto; text-align: center; }
 
+    /* --- MODE SELECTOR --- */
+    .mode-selector {
+      display: flex; align-items: center; gap: 3px; margin-left: 8px; flex-shrink: 0;
+    }
+    .mode-btn {
+      background: none; border: 1px solid transparent; border-radius: 8px;
+      cursor: pointer; padding: 5px 10px; font-size: 11px; font-weight: 700;
+      letter-spacing: 0.5px; text-transform: uppercase;
+      transition: all 0.15s var(--ease-out);
+      white-space: nowrap; display: flex; align-items: center; gap: 5px;
+      color: var(--text-muted); font-family: 'Funnel Display', system-ui, sans-serif;
+    }
+    .mode-dot {
+      width: 6px; height: 6px; border-radius: 50%; display: block; background: currentColor;
+      flex-shrink: 0;
+    }
+    .mode-btn.fast { color: #10b981; }
+    .mode-btn.normal { color: var(--text-muted); }
+    .mode-btn.deep { color: #8b5cf6; }
+    .mode-btn.active.fast {
+      background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.3); color: #10b981;
+      box-shadow: 0 0 10px rgba(16,185,129,0.1);
+    }
+    .mode-btn.active.normal {
+      background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.12); color: #fff;
+    }
+    .mode-btn.active.deep {
+      background: rgba(139,92,246,0.12); border-color: rgba(139,92,246,0.3); color: #8b5cf6;
+      box-shadow: 0 0 10px rgba(139,92,246,0.1);
+    }
+    .mode-btn:hover:not(.active) {
+      background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.08); color: #fff;
+    }
+    .mode-divider {
+      width: 1px; height: 28px; background: rgba(255,255,255,0.08); flex-shrink: 0; margin: 0 4px;
+    }
+
     .input-box {
       position: relative; background: rgba(10, 10, 14, 0.8);
       border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-lg); padding: 8px;
-      display: flex; align-items: center; gap: 12px;
+      display: flex; align-items: center; gap: 8px;
       box-shadow: 
         0 1px 0 rgba(255,255,255,0.03) inset,
         0 10px 40px -10px rgba(0,0,0,0.6),
@@ -295,7 +320,7 @@
 
     .input-box input[type="text"] {
       flex: 1; background: transparent; border: none; color: #fff;
-      font-size: 17px; height: 52px; padding-left: 16px; font-weight: 400;
+      font-size: 17px; height: 52px; padding-left: 8px; font-weight: 400;
     }
     .input-box input::placeholder { color: rgba(255,255,255,0.2); transition: opacity 0.2s; }
     .input-box:focus-within input::placeholder { opacity: 0.4; }
@@ -323,7 +348,7 @@
       background: linear-gradient(180deg, #4f7fff 0%, #2a5cee 50%, #1a4ad4 100%);
       color: #fff; cursor: pointer;
       display: flex; align-items: center; justify-content: center; font-size: 20px;
-      transition: all 0.15s var(--ease-out);
+      transition: all 0.15s var(--ease-out); flex-shrink: 0;
       box-shadow: 
         0 1px 0 rgba(255,255,255,0.2) inset,
         0 -2px 0 rgba(0,0,0,0.3) inset,
@@ -355,7 +380,6 @@
         0 4px 12px rgba(255, 215, 0, 0.3),
         0 2px 4px rgba(0,0,0,0.3);
     }
-
     .action-btn.locked { 
       background: linear-gradient(180deg, #2a2a30 0%, #1a1a1f 100%);
       color: #555; cursor: not-allowed; 
@@ -414,7 +438,6 @@
 
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
 
-    /* --- CARD with 3D feel --- */
     .card {
       background: linear-gradient(180deg, rgba(22, 22, 28, 0.9) 0%, rgba(14, 14, 18, 0.9) 100%);
       border: 1px solid var(--border); border-radius: var(--radius-lg);
@@ -780,18 +803,15 @@
       background: radial-gradient(300px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(255,215,0,0.04), transparent 60%);
     }
 
-    /* Divider line between sidebar sections */
     nav::after {
       content: ''; display: block; height: 1px; margin-top: 8px;
       background: linear-gradient(90deg, var(--border), transparent);
     }
+
     /* --- AGENT SELECTOR --- */
     .agent-select-wrapper {
-      position: relative;
-      display: flex;
-      align-items: center;
-      margin-right: 6px;
-      transition: all 0.3s var(--ease-out);
+      position: relative; display: flex; align-items: center;
+      margin-right: 6px; transition: all 0.3s var(--ease-out);
     }
     .agent-select {
       appearance: none;
@@ -800,53 +820,25 @@
       color: var(--text-muted);
       padding: 10px 32px 10px 14px;
       border-radius: var(--radius-sm);
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      outline: none;
+      font-size: 13px; font-weight: 600; cursor: pointer; outline: none;
       transition: all 0.2s var(--ease-out);
       box-shadow: 0 1px 2px rgba(0,0,0,0.2) inset;
     }
-    .agent-select:hover {
-      background: rgba(255, 255, 255, 0.05);
-      color: #fff;
-      border-color: rgba(255, 255, 255, 0.1);
-    }
-    .agent-select:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 1px var(--accent-glow);
-      color: #fff;
-    }
+    .agent-select:hover { background: rgba(255, 255, 255, 0.05); color: #fff; border-color: rgba(255, 255, 255, 0.1); }
+    .agent-select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-glow); color: #fff; }
     .agent-select-wrapper::after {
-      content: '';
-      position: absolute;
-      right: 12px;
-      top: 50%;
-      transform: translateY(-50%);
-      border-left: 4px solid transparent;
-      border-right: 4px solid transparent;
-      border-top: 4px solid var(--text-muted);
-      pointer-events: none;
-      transition: border-top-color 0.2s;
+      content: ''; position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      border-left: 4px solid transparent; border-right: 4px solid transparent;
+      border-top: 4px solid var(--text-muted); pointer-events: none; transition: border-top-color 0.2s;
     }
     .agent-select-wrapper:hover::after { border-top-color: #fff; }
-    .agent-select option {
-      background: #111116;
-      color: #fff;
-      font-weight: 500;
-    }
+    .agent-select option { background: #111116; color: #fff; font-weight: 500; }
     
-    /* The Forced State */
     .agent-select-wrapper.forced-mode {
-      opacity: 0.5;
-      filter: blur(0.8px) grayscale(50%);
-      pointer-events: none;
-      transform: scale(0.98);
+      opacity: 0.5; filter: blur(0.8px) grayscale(50%);
+      pointer-events: none; transform: scale(0.98);
     }
-    .agent-select-wrapper.forced-mode .agent-select {
-      border-color: #3ECF8E; /* Supabase Green */
-      color: #3ECF8E;
-    }
+    .agent-select-wrapper.forced-mode .agent-select { border-color: #3ECF8E; color: #3ECF8E; }
   </style>
 
   <div class="noise-overlay"></div>
@@ -937,7 +929,22 @@
       <form class="input-box {% if is_locked %}disabled{% endif %}" method="POST" action="/projects/create" id="mainPromptForm" enctype="multipart/form-data">
 
         {% if not is_locked %}
-        <div class="input-actions" style="display: flex; align-items: center; gap: 8px; margin-left: 8px;">
+
+        <!-- MODE SELECTOR -->
+        <div class="mode-selector" id="modeSelectorGroup">
+          <button type="button" class="mode-btn fast active" id="modeFast" onclick="setMode('fast')" title="Fast — token efficient, no-fluff output">
+            <span class="mode-dot"></span>Fast
+          </button>
+          <button type="button" class="mode-btn normal" id="modeNormal" onclick="setMode('normal')" title="Normal — balanced quality and speed">
+            <span class="mode-dot"></span>Normal
+          </button>
+          <button type="button" class="mode-btn deep" id="modeDeep" onclick="setMode('deep')" title="Deep — thorough reasoning, best for complex apps">
+            <span class="mode-dot"></span>Deep
+          </button>
+        </div>
+        <div class="mode-divider"></div>
+
+        <div class="input-actions" style="display: flex; align-items: center; gap: 8px;">
 
           <div class="image-upload-wrapper">
             <input type="file" name="image_file" id="imageInput" accept="image/png, image/jpeg, image/webp">
@@ -974,6 +981,8 @@
           <input type="hidden" id="figmaUrlInput" name="figma_url">
           
           <button type="submit" class="action-btn" id="submitPromptBtn" title="Create App">
+            <i class="ph-bold ph-arrow-right"></i>
+          </button>
         {% endif %}
       </form>
 
@@ -1129,6 +1138,21 @@
       });
     });
 
+    // --- MODE SELECTOR ---
+    let currentMode = 'fast';
+    const modePrefixes = {
+      fast: 'BE TOKEN EFFICIENT AND FAST. No preamble, no explanation, no commentary. Output only the essential working code. Get straight to the point.\n\n',
+      normal: '',
+      deep: 'TAKE YOUR TIME AND THINK DEEPLY. Before writing any code, carefully plan your architecture, reason through edge cases, and think about potential failure points. Quality and thoroughness over speed.\n\n'
+    };
+
+    function setMode(m) {
+      currentMode = m;
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+      const btn = document.querySelector('.mode-btn.' + m);
+      if (btn) btn.classList.add('active');
+    }
+
     // --- GHOST BUG FIX ---
     window.addEventListener('pageshow', (e) => {
       const figmaHidden = document.getElementById('figmaUrlInput');
@@ -1157,6 +1181,9 @@
         sbmBtn.style.opacity = '1';
         sbmBtn.style.pointerEvents = 'auto';
       }
+
+      // Reset mode selector
+      setMode('fast');
     });
 
     // --- Ideas Chip Logic ---
@@ -1280,10 +1307,12 @@
         if(supabaseBtn) { supabaseBtn.classList.remove('active'); useSupabaseInput.value = "false"; supabaseBtn.classList.add('input-action-locked'); }
       }
     }
+
     function toggleSupabaseMode() {
       const on = supabaseBtn.classList.contains('active');
       if (on) { supabaseBtn.classList.remove('active'); useSupabaseInput.value = "false"; if(figmaBtn) figmaBtn.classList.remove('input-action-locked'); }
       else { supabaseBtn.classList.add('active'); useSupabaseInput.value = "true"; if(figmaBtn) figmaBtn.classList.add('input-action-locked'); }
+      updateAgentSelection();
     }
 
     const urlParams = new URLSearchParams(window.location.search);
@@ -1295,52 +1324,44 @@
     if (mainForm) {
       mainForm.addEventListener('submit', (e) => {
         const val = promptInput.value.trim();
+        const prefix = modePrefixes[currentMode] || '';
+
         if (val.includes('figma.com/')) {
           figmaHiddenInput.value = val;
-          promptInput.value = "Build a pixel-perfect React and Tailwind replica of the design structure. I have provided the exact layout rules, spacing, typography, and hex colors in the `.gorilla/figma.json` file. Read that file and implement it exactly.";
-        } else { figmaHiddenInput.value = ""; }
-        if(submitBtn) { submitBtn.innerHTML = '<i class="ph ph-spinner" style="animation: spin 1s linear infinite;"></i>'; submitBtn.style.opacity = '0.7'; submitBtn.style.pointerEvents = 'none'; }
+          promptInput.value = prefix + "Build a pixel-perfect React and Tailwind replica of the design structure. I have provided the exact layout rules, spacing, typography, and hex colors in the `.gorilla/figma.json` file. Read that file and implement it exactly.";
+        } else {
+          figmaHiddenInput.value = "";
+          promptInput.value = prefix + val;
+        }
+
+        if(submitBtn) {
+          submitBtn.innerHTML = '<i class="ph ph-spinner" style="animation: spin 1s linear infinite;"></i>';
+          submitBtn.style.opacity = '0.7';
+          submitBtn.style.pointerEvents = 'none';
+        }
       });
     }
+
     // --- Agent Selector Logic ---
     const agentWrapper = document.getElementById('agentSelectWrapper');
     const agentSelect = document.getElementById('agentTypeSelect');
 
     function updateAgentSelection() {
       if (!agentWrapper || !agentSelect) return;
-
-      const promptText = promptInput.value.toLowerCase();
+      const promptText = promptInput ? promptInput.value.toLowerCase() : '';
       const isSupabaseActive = supabaseBtn && supabaseBtn.classList.contains('active');
-      
-      // Regex detects standalone words so "db" matches but "feedback" doesn't
       const mentionsDb = /\b(db|database|supabase|postgres|sql)\b/.test(promptText);
 
       if (isSupabaseActive || mentionsDb) {
-        // Force the hidden Supabase option and lock the UI
         agentSelect.value = 'supabase';
         agentWrapper.classList.add('forced-mode');
       } else {
-        // Unlock and revert to Fast if it was previously forced to Supabase
-        if (agentSelect.value === 'supabase') {
-           agentSelect.value = 'fast'; 
-        }
+        if (agentSelect.value === 'supabase') agentSelect.value = 'fast';
         agentWrapper.classList.remove('forced-mode');
       }
     }
 
-    // Listen to typing in real-time
-    if (promptInput) {
-      promptInput.addEventListener('input', updateAgentSelection);
-    }
-
-    // Override your existing toggleSupabaseMode to trigger the check when clicked
-    const originalToggleSupabaseMode = toggleSupabaseMode;
-    toggleSupabaseMode = function() {
-      originalToggleSupabaseMode();
-      updateAgentSelection();
-    };
-    
-    // Run once on load just in case
+    if (promptInput) promptInput.addEventListener('input', updateAgentSelection);
     updateAgentSelection();
 
     // --- Delete ---

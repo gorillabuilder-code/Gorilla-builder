@@ -286,7 +286,7 @@ A FEW IMPORTANT ISSUES TO LOOK OUT FOR:
 - Always list packages in package.json
 - Never render App.tsx with a browser router as a browser router inside the main.tsx (this causes react errors)
 - Be extremely cautious about react errors as they may not be relayed to you, but you must find a way to check them
-- NEVER BE TO AMBTITIOUS UNLESS EXPLICITLY ASKED AND TRY TO BE HIGHLY TOKEN EFFECEINT 
+- NEVER BE TO AMBTITIOUS UNLESS EXPLICITLY ASKED, AND TRY TO BE HIGHLY TOKEN EFFECEINT 
 """
 
 SUPABASE_ADDON = r"""
