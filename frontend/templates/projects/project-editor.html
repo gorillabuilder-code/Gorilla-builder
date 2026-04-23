@@ -12,9 +12,6 @@
 
   <script type="module">
     // Before setting iframe src, check the parent is a real page
-  if (location.protocol !== 'chrome-error:') {
-    $("preview").src = sandboxUrl;
-  }
     import { marked } from "https://esm.sh/marked@12.0.1";
     import DOMPurify from "https://esm.sh/dompurify@3.0.9";
 
@@ -48,6 +45,9 @@
           else if (fileName.endsWith('.sql')) extensions.push(javascript());
       }
       return new EditorView({ state: EditorState.create({ doc: content, extensions }), parent });
+    };
+    if (location.protocol !== 'chrome-error:') {
+    $("preview").src = sandboxUrl;
     };
   </script>
 

@@ -312,9 +312,9 @@ Read the error. Find the file. Make the smallest fix. Restart server. Verify por
 EXPANDER_SYSTEM = """You are a product designer for Gorilla Builder — a platform that builds REAL working SaaS apps, not just landing pages.
  
 The platform has these built-in capabilities that the developer can use:
-- **Auth gateway** — Google & GitHub login, zero setup, returns {id, email, name, avatar}
-- **AI proxy** — LLM chat completions, image generation, speech-to-text, background removal
-- **Supabase** — Postgres database with row-level security, auth, realtime subscriptions
+- **Auth gateway** — Google & GitHub login, zero setup, returns {id, email, name, avatar} --> ONLY USE IF NESSACARY OR GOOD FOR APP 
+- **AI proxy** — LLM chat completions, image generation, speech-to-text, background removal --> ONLY USE IF NESSACARY OR GOOD FOR APP 
+- **Supabase** — Postgres database with row-level security, auth, realtime subscriptions --> ONLY USE IF NESSACARY OR GOOD FOR APP 
 - **Image generation** — generate images via API, save to public/generated/, use in the app
 - **Express backend** — full API server on :3000, can store data, proxy AI calls, handle webhooks
  
@@ -380,7 +380,7 @@ PLANNER_SYSTEM = """You are a project planner for Gorilla Builder — a platform
  
 ## Platform capabilities (use these in your plans!)
  
-**Auth gateway** — zero setup:
+**Auth gateway (DO NOT ADD UNLESS NESSACARY)** — zero setup:
 ```tsx
 import { login, logout, onAuthStateChanged } from '@/utils/auth';
 // Providers: 'google' | 'github' — returns {id, email, name, avatar}
@@ -400,7 +400,7 @@ curl -sS -X POST "$GORILLA_PROXY/api/v1/images/generations" \
   | jq -r '.[0].base64 // .data[0].b64_json' | base64 -d > public/generated/image.jpg
 ```
  
-**Supabase** (if linked): createClient, migrations via Management API, RLS policies
+**Supabase** (if linked): createClient, migrations via Management API, RLS policies --> MAKE TASKS THAT USE THIS ONLY IF REQUIRED AND DO NOT FORCE SUPABASE AS IT IS NOT LINKED SOMETIMES, BUT PLAN TO USE IT IF AVAILABLE
  
 **Express backend**: routes/ folder, mounted in server.js, full API capability
  
@@ -434,10 +434,10 @@ Format:
 ```
  
 Rules:
-- DO NOT COPY THE EXACT CHECKLIST THAT IS GIVEN EXPAND IT OR CHANGE IT ACCORDING TO THE TASK
+- DO NOT COPY THE EXACT CHECKLIST THAT IS GIVEN EXPAND IT OR CHANGE IT ACCORDING TO THE TASK MAKE IT RELEVANT
 - First item: "View existing files"
 - Last item: "Start dev server and verify both ports return 200"
-- ONE action per item. Never combine files.
+- ONE action per item. Never combine files. Never have more than 2-3 image generations
 - 8-20 items. Plan the WHOLE app, not just the landing page.
 - Include image generation steps where the app needs visuals.
 - Include backend routes if the app has any interactivity.

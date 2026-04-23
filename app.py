@@ -3511,34 +3511,42 @@ async def proxy_image_generations(request: Request, auth=Depends(verify_gorilla_
     user_id = auth["user_id"]
     payload = await request.json()
     
-    # Fireworks Native Parameters
-    fireworks_payload = {
-        "prompt": payload.get("prompt", ""),
-        "samples": 1,
-        "height": 1024,
-        "width": 1024
+    openrouter_payload = {
+        "model": "sourceful/riverflow-v2-fast",
+        "messages": [
+            {
+                "role": "user",
+                "content": payload.get("prompt", "")
+            }
+        ],
+        "modalities": ["image", "text"]
     }
     
     headers = {
-        "Authorization": f"Bearer {FIREWORKS_API_KEY}",
-        "Content-Type": "application/json",
-        "Accept": "application/json"  # <--- CRITICAL: Ensures we get JSON back
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
     }
     
-    url = "https://api.fireworks.ai/inference/v1/image_generation/accounts/fireworks/models/playground-v2-5-1024px-aesthetic"
+    url = "https://openrouter.ai/api/v1/chat/completions"
     
     async with httpx.AsyncClient() as client:
-        resp = await client.post(url, json=fireworks_payload, headers=headers, timeout=60.0)
+        resp = await client.post(url, json=openrouter_payload, headers=headers, timeout=60.0)
         
         if resp.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"Fireworks Error: {resp.text}")
+            raise HTTPException(status_code=502, detail=f"OpenRouter Error: {resp.text}")
         
-        # Deduct tokens only on success
-        _deduct_proxy_tokens(user_id, 250, "image_gen")
+        result = resp.json()
         
-        return JSONResponse(resp.json())
+        images = []
+        if result.get("choices"):
+            message = result["choices"][0]["message"]
+            for image in message.get("images", []):
+                images.append({"url": image["image_url"]["url"]})
+        
+        _deduct_proxy_tokens(user_id, 10000, "image_gen")
+        
+        return JSONResponse({"data": images})
 
-# --- 3. SPEECH TO TEXT (Fireworks Whisper / 100 tokens per min) ---
 @app.post("/api/v1/audio/transcriptions")
 async def proxy_audio_transcriptions(
     file: UploadFile = File(...),
