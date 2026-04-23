@@ -11,7 +11,6 @@
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 
   <script type="module">
-    // Before setting iframe src, check the parent is a real page
     import { marked } from "https://esm.sh/marked@12.0.1";
     import DOMPurify from "https://esm.sh/dompurify@3.0.9";
 
@@ -45,9 +44,6 @@
           else if (fileName.endsWith('.sql')) extensions.push(javascript());
       }
       return new EditorView({ state: EditorState.create({ doc: content, extensions }), parent });
-    };
-    if (location.protocol !== 'chrome-error:') {
-    $("preview").src = sandboxUrl;
     };
   </script>
 
@@ -553,13 +549,13 @@
     <div class="stage">
       <div id="editor"></div>
       <div id="imageViewer" style="display:none;flex:1;align-items:center;justify-content:center;overflow:auto;background:#0a0e18;padding:20px;"></div>
-      <iframe id="preview" sandbox="allow-scripts allow-same-origin allow-popups allow-forms" allow="clipboard-write"></iframe>
+      <iframe id="preview" sandbox="allow-scripts allow-popups allow-forms" allow="clipboard-write"></iframe>
       <div class="preview-empty" id="previewEmpty">
         <div class="pe-icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         </div>
-        <div class="pe-title">Preview will appear here</div>
-        <div class="pe-sub">Click Preview to launch the live sandbox. Your app will boot in seconds.</div>
+        <div class="pe-title">Preview is not live yet...</div>
+        <div class="pe-sub">The sandbox environment is starting up. It will appear here once ready.</div>
       </div>
     </div>
   </div>
@@ -895,7 +891,7 @@ function renderTree(container, nodeObj, depth) {
 
     const ico = document.createElement("span"); ico.className = "ico";
     if (isFile) {
-      if (name.endsWith('.js')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height=15" viewBox="0 0 48 48"><path fill="#ffd600" d="M6,42V6h36v36H6z"/><path fill="none" stroke="#000" stroke-width="3.3" d="M23.8,22.3v9.8c0,3.7-4.4,4-6.3,0.8"/><path fill="none" stroke="#000" stroke-width="3.3" d="M34.7,25.3c-1.7-2.7-5.7-2.3-5.8,0.6c-0.2,3.7,6.8,2.9,6.2,7.1c-0.4,2.9-4.9,3.9-7.2-0.1"/></svg>`;
+      if (name.endsWith('.js')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 48 48"><path fill="#ffd600" d="M6,42V6h36v36H6z"/><path fill="none" stroke="#000" stroke-width="3.3" d="M23.8,22.3v9.8c0,3.7-4.4,4-6.3,0.8"/><path fill="none" stroke="#000" stroke-width="3.3" d="M34.7,25.3c-1.7-2.7-5.7-2.3-5.8,0.6c-0.2,3.7,6.8,2.9,6.2,7.1c-0.4,2.9-4.9,3.9-7.2-0.1"/></svg>`;
       else if (name.endsWith('.html')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 48 48"><path fill="#E65100" d="M41,5H7l3,34l14,4l14-4L41,5z"/><path fill="#FF6D00" d="M24 8L24 39.9 35.2 36.7 37.7 8z"/><path fill="#FFF" d="M24,25v-4h8.6l-0.7,11.5L24,35.1v-4.2l4.1-1.4l0.3-4.5H24z M32.9,17l0.3-4H24v4H32.9z"/><path fill="#EEE" d="M24,30.9v4.2l-7.9-2.6L15.7,27h4l0.2,2.5L24,30.9z M19.1,17H24v-4h-9.1l0.7,12H24v-4h-4.6L19.1,17z"/></svg>`;
       else if (name.endsWith('.css')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 48 48"><path fill="#0277BD" d="M41,5H7l3,34l14,4l14-4L41,5z"/><path fill="#039BE5" d="M24 8L24 39.9 35.2 36.7 37.7 8z"/><path fill="#FFF" d="M33.1 13L24 13 24 17 28.9 17 28.6 21 24 21 24 25 28.4 25 28.1 29.5 24 30.9 24 35.1 31.9 32.5 32.6 21z"/><path fill="#EEE" d="M24,13v4h-8.9l-0.3-4H24z M19.4,21l0.2,4H24v-4H19.4z M19.8,27h-4l0.3,5.5l7.9,2.6v-4.2l-4.1-1.4L19.8,27z"/></svg>`;
       else if (name.endsWith('.tsx') || name.endsWith('.jsx')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 32 32" fill="none"><path d="M18.6789 15.9759C18.6789 14.5415 17.4796 13.3785 16 13.3785C14.5206 13.3785 13.3211 14.5415 13.3211 15.9759C13.3211 17.4105 14.5206 18.5734 16 18.5734C17.4796 18.5734 18.6789 17.4105 18.6789 15.9759Z" fill="#53C1DE"/><path fill-rule="evenodd" clip-rule="evenodd" d="M24.7004 11.1537C25.2661 8.92478 25.9772 4.79148 23.4704 3.39016C20.9753 1.99495 17.7284 4.66843 16.0139 6.27318C14.3044 4.68442 10.9663 2.02237 8.46163 3.42814C5.96751 4.82803 6.73664 8.8928 7.3149 11.1357C4.98831 11.7764 1 13.1564 1 15.9759C1 18.7874 4.98416 20.2888 7.29698 20.9289C6.71658 23.1842 5.98596 27.1909 8.48327 28.5877C10.9973 29.9932 14.325 27.3945 16.0554 25.7722C17.7809 27.3864 20.9966 30.0021 23.4922 28.6014C25.9956 27.1963 25.3436 23.1184 24.7653 20.8625C27.0073 20.221 31 18.7523 31 15.9759C31 13.1835 26.9903 11.7923 24.7004 11.1537ZM24.4162 19.667C24.0365 18.5016 23.524 17.2623 22.8971 15.9821C23.4955 14.7321 23.9881 13.5088 24.3572 12.3509C26.0359 12.8228 29.7185 13.9013 29.7185 15.9759C29.7185 18.07 26.1846 19.1587 24.4162 19.667ZM22.85 27.526C20.988 28.571 18.2221 26.0696 16.9478 24.8809C17.7932 23.9844 18.638 22.9422 19.4625 21.7849C20.9129 21.6602 22.283 21.4562 23.5256 21.1777C23.9326 22.7734 24.7202 26.4763 22.85 27.526ZM9.12362 27.5111C7.26143 26.47 8.11258 22.8946 8.53957 21.2333C9.76834 21.4969 11.1286 21.6865 12.5824 21.8008C13.4123 22.9332 14.2816 23.9741 15.1576 24.8857C14.0753 25.9008 10.9945 28.557 9.12362 27.5111ZM2.28149 15.9759C2.28149 13.874 5.94207 12.8033 7.65904 12.3326C8.03451 13.5165 8.52695 14.7544 9.12123 16.0062C8.51925 17.2766 8.01977 18.5341 7.64085 19.732C6.00369 19.2776 2.28149 18.0791 2.28149 15.9759ZM9.1037 4.50354C10.9735 3.45416 13.8747 6.00983 15.1159 7.16013C14.2444 8.06754 13.3831 9.1006 12.5603 10.2265C11.1494 10.3533 9.79875 10.5569 8.55709 10.8297C8.09125 9.02071 7.23592 5.55179 9.1037 4.50354ZM20.3793 11.5771C21.3365 11.6942 22.2536 11.85 23.1147 12.0406C22.8562 12.844 22.534 13.6841 22.1545 14.5453C21.6044 13.5333 21.0139 12.5416 20.3793 11.5771ZM16.0143 8.0481C16.6054 8.66897 17.1974 9.3623 17.7798 10.1145C16.5985 10.0603 15.4153 10.0601 14.234 10.1137C14.8169 9.36848 15.414 8.67618 16.0143 8.0481ZM9.8565 14.5444C9.48329 13.6862 9.16398 12.8424 8.90322 12.0275C9.75918 11.8418 10.672 11.69 11.623 11.5748C10.9866 12.5372 10.3971 13.5285 9.8565 14.5444ZM11.6503 20.4657C10.6679 20.3594 9.74126 20.2153 8.88556 20.0347C9.15044 19.2055 9.47678 18.3435 9.85796 17.4668C10.406 18.4933 11.0045 19.4942 11.6503 20.4657ZM16.0498 23.9915C15.4424 23.356 14.8365 22.6531 14.2448 21.8971C15.4328 21.9423 16.6231 21.9424 17.811 21.891C17.2268 22.6608 16.6369 23.3647 16.0498 23.9915ZM22.1667 17.4222C22.5677 18.3084 22.9057 19.1657 23.1742 19.9809C22.3043 20.1734 21.3652 20.3284 20.3757 20.4435C21.015 19.4607 21.6149 18.4536 22.1667 17.4222ZM18.7473 20.5941C16.9301 20.72 15.1016 20.7186 13.2838 20.6044C12.2509 19.1415 11.3314 17.603 10.5377 16.0058C11.3276 14.4119 12.2404 12.8764 13.2684 11.4158C15.0875 11.2825 16.9178 11.2821 18.7369 11.4166C19.7561 12.8771 20.6675 14.4086 21.4757 15.9881C20.6771 17.5812 19.7595 19.1198 18.7473 20.5941ZM22.8303 4.4666C24.7006 5.51254 23.8681 9.22726 23.4595 10.8426C22.2149 10.5641 20.8633 10.3569 19.4483 10.2281C18.6239 9.09004 17.7698 8.05518 16.9124 7.15949C18.1695 5.98441 20.9781 3.43089 22.8303 4.4666Z" fill="#53C1DE"/></svg>`;
@@ -990,10 +986,12 @@ function switchTab(tab) {
   if (tab === "preview") {
     $("tabPreview").classList.add("active"); $("tabCode").classList.remove("active");
     $("editor").style.display = "none"; $("imageViewer").style.display = "none";
-    if (sandboxUrl) {
+    
+    // Only attempt to show the iframe if we are actually confident it's Live
+    if (sandboxUrl && $("sandboxStatus").textContent.toLowerCase().includes("live")) {
+      $("preview").src = sandboxUrl;
       $("preview").style.display = "block";
       $("previewEmpty").style.display = "none";
-      $("preview").src = sandboxUrl;
     } else {
       $("preview").style.display = "none";
       $("previewEmpty").style.display = "flex";
@@ -1014,17 +1012,22 @@ $("tabPreview").onclick = () => switchTab("preview");
 
 // -------------------- SANDBOX --------------------
 async function bootSandboxIfNeeded() {
-  if (sandboxUrl) { $("preview").src = sandboxUrl; return; }
+  if (sandboxUrl && $("sandboxStatus").textContent.toLowerCase().includes("live")) { 
+    $("preview").src = sandboxUrl; 
+    return; 
+  }
   updateSandboxStatus("Booting");
   try {
     const res = await fetch(`/api/project/${PROJECT_ID}/sandbox/start`, { method: 'POST' });
     const data = await res.json();
     if (data.url) {
       sandboxUrl = data.url;
-      $("preview").src = sandboxUrl;
-      $("preview").style.display = "block";
-      $("previewEmpty").style.display = "none";
       updateSandboxStatus("Live");
+      if ($("tabPreview").classList.contains("active")) {
+        $("preview").src = sandboxUrl;
+        $("preview").style.display = "block";
+        $("previewEmpty").style.display = "none";
+      }
     } else {
       updateSandboxStatus("Error");
     }
@@ -1045,11 +1048,17 @@ function startStream() {
       if (/Done|Ready|Error/i.test(m.text)) {
         resetGroup();
         setInputState(false);
-        if (sandboxUrl && /Done/i.test(m.text)) {
-          setTimeout(() => { $("preview").src = sandboxUrl; }, 600);
+      }
+      if (/Sandbox Ready|Sandbox: Live/i.test(m.text)) {
+        updateSandboxStatus("Live");
+        if (sandboxUrl && $("tabPreview").classList.contains("active")) {
+          setTimeout(() => { 
+            $("preview").src = sandboxUrl; 
+            $("preview").style.display = "block";
+            $("previewEmpty").style.display = "none";
+          }, 600);
         }
       }
-      if (/Sandbox Ready|Sandbox: Live/i.test(m.text)) updateSandboxStatus("Live");
       if (/Sandbox Offline/i.test(m.text)) { sandboxUrl = null; updateSandboxStatus("Offline"); }
     }
     else if (m.type === "progress") setProgress(m.text, m.pct);
@@ -1096,8 +1105,8 @@ function startStream() {
 async function triggerAgent(promptText) {
   if (!promptText && !currentAttachedImage) return;
   resetGroup();
- 
-  const dbKeywords = /\\b(db|database|supabase|postgres|sql)\\b/i;
+  
+  const dbKeywords = /\b(db|database|supabase|postgres|sql)\b/i;
   const isDbReq = dbKeywords.test(promptText);
   const formData = new FormData();
   formData.append("agent_type", isDbReq ? "supabase" : "fast");
@@ -1106,22 +1115,21 @@ async function triggerAgent(promptText) {
     return;
   }
   if (isDbReq && !PROJECT_HAS_DB) formData.append("is_db_request", "true");
- 
+  
   setInputState(true);
   addUserMessage(promptText || "Please update to match this image.");
   formData.append("prompt", promptText || "Please update to match this image.");
   if (currentAttachedImage) formData.append("image_base64", currentAttachedImage);
- 
+  
   currentAttachedImage = null;
   if (imgPreview) { imgPreview.style.display = "none"; imgPreview.src = ""; }
   document.querySelector('label[for="editorImageInput"]').style.display = 'flex';
   if (imgInput) imgInput.value = "";
- 
+  
   // ★ FIX: open SSE FIRST, then kick off the agent.
-  // Also small delay so the server-side queue is registered before POST returns.
   startStream();
   await new Promise(r => setTimeout(r, 120));
- 
+  
   fetch(`/api/project/${PROJECT_ID}/agent/start`, {
     method: "POST",
     body: formData,
@@ -1129,10 +1137,34 @@ async function triggerAgent(promptText) {
     console.error("Agent start failed:", err);
     setInputState(false);
   });
-  // note: no `await` on the fetch — we don\'t need to block the UI; SSE
-  // will stream the activity. The frontend already re-enables itself
-  // when status "Done" or "Error" arrives.
 }
+
+// -------------------- EVENT LISTENERS --------------------
+const runBtn = $("runAgent");
+if (runBtn) {
+  runBtn.onclick = () => {
+    const val = $("prompt").value.trim();
+    if (val || currentAttachedImage) {
+      triggerAgent(val);
+      $("prompt").value = "";
+    }
+  };
+}
+
+const promptEl = $("prompt");
+if (promptEl) {
+  promptEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      const val = promptEl.value.trim();
+      if (val || currentAttachedImage) {
+        triggerAgent(val);
+        promptEl.value = "";
+      }
+    }
+  });
+}
+
 // -------------------- INIT --------------------
 (async () => {
   loadChatHistory();

@@ -3519,7 +3519,7 @@ async def proxy_image_generations(request: Request, auth=Depends(verify_gorilla_
                 "content": payload.get("prompt", "")
             }
         ],
-        "modalities": ["image", "text"]
+        "modalities": ["image"]  # image-only model, no "text"
     }
     
     headers = {
@@ -3527,10 +3527,13 @@ async def proxy_image_generations(request: Request, auth=Depends(verify_gorilla_
         "Content-Type": "application/json"
     }
     
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    
     async with httpx.AsyncClient() as client:
-        resp = await client.post(url, json=openrouter_payload, headers=headers, timeout=60.0)
+        resp = await client.post(
+            "https://openrouter.ai/api/v1/chat/completions",  # correct endpoint
+            json=openrouter_payload,
+            headers=headers,
+            timeout=60.0
+        )
         
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"OpenRouter Error: {resp.text}")

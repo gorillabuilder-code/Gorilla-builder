@@ -2,19 +2,12 @@
 E2B Sandbox Manager — Final (matches Lineage Agent v9)
 ========================================================
 
-Architecture:
-  - Boot: tar.gz upload (v6 latency fix)
-  - Tree read: batched find+xargs with sentinel (v6 latency fix)
-  - Agent loop: mini-SWE-agent style — call run(), execute bash, feed
-    raw OBSERVATION back, loop until GORILLA_DONE
-  - Agent persisted on session across user messages
-  - Sync: batched, runs once after agent finishes
-  - No orchestrator error correction — agent handles everything
-  - URL: uses SDK's get_host() method
-
-The agent is fully autonomous. It runs npm run dev, checks ports, fixes
-errors. The sandbox manager only does infrastructure: boot, execute,
-sync, emit URL.
+Fixes applied:
+  - Path stripping: robust regex strips home/user/app/ prefix → always src/...
+  - Smart HTTP check: reads actual page content, catches Cannot GET /
+  - Console error tunnel: injects window.onerror into index.html at boot,
+    Express endpoint drains errors, agent sees React Router crashes etc.
+  - Vite log check: also checks Express :3000 for Cannot GET responses
 """
 
 from __future__ import annotations
@@ -44,9 +37,9 @@ from backend.ai.lineage_agent import LineageAgent, log_agent, review_output
 # ---------------------------------------------------------------------------
 E2B_API_KEY = os.getenv("E2B_API_KEY", "")
 SANDBOX_TEMPLATE = os.getenv("E2B_TEMPLATE", "base")
-IDLE_TIMEOUT_S = 300
+IDLE_TIMEOUT_S = 900
 BILLING_TOKENS_PER_HOUR = 50_000
-BILLING_TICK_S = 1  # Bill per-second for accurate usage tracking
+BILLING_TICK_S = 1
 APP_DIR = "/home/user/app"
 MAX_COMMANDS_PER_TURN = 1600
 MAX_TURNS_PER_REQUEST = 80
@@ -63,6 +56,24 @@ READY_PATTERNS = [
     r"Server running",
     r"listening on",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Path stripping helper
+# ---------------------------------------------------------------------------
+def _strip_app_prefix(p: str) -> str:
+    """Robustly strip /home/user/app/ or home/user/app/ from any path."""
+    p = p.strip()
+    # Absolute path variant
+    p = p.replace(f"{APP_DIR}/", "")
+    # Relative path variant (no leading slash)
+    app_rel = APP_DIR.lstrip("/") + "/"
+    if p.startswith(app_rel):
+        p = p[len(app_rel):]
+    # Fallback: regex strip everything up to and including /app/
+    if p.startswith("home/") or p.startswith("/home/"):
+        p = re.sub(r"^/?.*?/app/", "", p)
+    return p
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +337,33 @@ class E2BSandboxManager:
             except Exception as e:
                 self._emit_log(project_id, "sandbox", f"env write warning: {e}")
 
+        # ── Inject browser error reporter into index.html ──────────────
+        # window.onerror + unhandledrejection → POST /api/__gorilla_errors
+        # Agent polls GET /api/__gorilla_errors to see React/Router crashes
+        inject_error_reporter = (
+            r"grep -q '__gorilla_errors' " + APP_DIR + r"/index.html 2>/dev/null || "
+            r"sed -i 's|</head>|<script>"
+            r"(function(){"
+            r"function send(d){try{fetch(\"/api/__gorilla_errors\",{method:\"POST\","
+            r"headers:{\"Content-Type\":\"application/json\"},body:JSON.stringify(d)})}catch(e){}}"
+            r"window.onerror=function(m,s,l,c,e){"
+            r"send({message:m,source:s+\":\"+l,type:\"error\",stack:e&&e.stack?e.stack.slice(0,300):\"\"});"
+            r"return false;};"
+            r"window.addEventListener(\"unhandledrejection\",function(e){"
+            r"send({message:e.reason&&e.reason.message?e.reason.message:String(e.reason),"
+            r"type:\"unhandledrejection\"});});"
+            r"window.addEventListener(\"error\",function(e){"
+            r"if(e.target&&e.target!==window){"
+            r"send({message:\"Resource failed: \"+(e.target.src||e.target.href),type:\"resource\"});}},true);"
+            r"})();"
+            r"<\/script><\/head>|' " + APP_DIR + r"/index.html"
+        )
+        try:
+            await asyncio.to_thread(sbx.commands.run, inject_error_reporter, timeout=5)
+            log_agent("agent", "Injected browser error reporter into index.html", project_id)
+        except Exception as e:
+            log_agent("agent", f"Error reporter inject skipped: {e}", project_id)
+
         check = await asyncio.to_thread(
             sbx.commands.run, f"test -d {APP_DIR}/node_modules && echo EXISTS || echo MISSING",
         )
@@ -402,6 +440,47 @@ class E2BSandboxManager:
         return s.url if s else None
 
     # -----------------------------------------------------------
+    # Console error polling
+    # -----------------------------------------------------------
+    async def _poll_console_errors(self, project_id: str) -> str:
+        """
+        Drain browser console errors tunnelled via Express
+        POST/GET /api/__gorilla_errors.
+        Returns a formatted string to append to the agent observation,
+        or empty string if no errors.
+        """
+        session = self._sessions.get(project_id)
+        if not session:
+            return ""
+        try:
+            result = await asyncio.to_thread(
+                session.sandbox.commands.run,
+                "curl -s http://localhost:3000/api/__gorilla_errors 2>/dev/null",
+                timeout=5,
+            )
+            raw = (result.stdout or "").strip()
+            if not raw or raw in ("[]", ""):
+                return ""
+            errors = json.loads(raw)
+            if not errors:
+                return ""
+            lines = []
+            for e in errors[:10]:
+                msg = e.get("message", str(e))
+                src = e.get("source", "")
+                etype = e.get("type", "error")
+                stack = e.get("stack", "")
+                entry = f"  [{etype}] {msg}"
+                if src:
+                    entry += f" @ {src}"
+                if stack:
+                    entry += f"\n    {stack[:200]}"
+                lines.append(entry)
+            return "BROWSER CONSOLE ERRORS (fix these):\n" + "\n".join(lines)
+        except Exception:
+            return ""
+
+    # -----------------------------------------------------------
     # Agent turn — mini-SWE-agent loop
     # -----------------------------------------------------------
     async def run_agent_turn(
@@ -436,7 +515,7 @@ class E2BSandboxManager:
         except Exception:
             pass
 
-        # #3 — Auto-kill ports before agent starts
+        # Auto-kill ports before agent starts
         try:
             await asyncio.to_thread(
                 session.sandbox.commands.run,
@@ -480,7 +559,6 @@ class E2BSandboxManager:
             turn_tokens = result.get("tokens", 0) - total_tokens
             total_tokens = result.get("tokens", 0)
 
-            # Bill LLM tokens to the user immediately per-turn
             if turn_tokens > 0:
                 try:
                     self._add_tokens(session.owner_id, turn_tokens)
@@ -488,7 +566,7 @@ class E2BSandboxManager:
                 except Exception:
                     pass
 
-            # On first turn, save the generated plan as .gorilla/todo.md in sandbox
+            # Save generated plan as .gorilla/todo.md on first turn
             if turn == 0 and hasattr(agent, '_plan_injected') and agent._plan_injected:
                 try:
                     first_user_msg = agent.messages[1].get("content", "") if len(agent.messages) > 1 else ""
@@ -532,16 +610,13 @@ class E2BSandboxManager:
                 )
                 continue
 
-            # ── Auto-background fix ──────────────────────────────────
-            # If the agent forgot the & on npm run dev, it blocks the
-            # bash session forever. Detect and auto-fix before executing.
+            # Auto-background fix: npm run dev must not block
             fixed_commands = []
             for cmd in commands:
                 if re.search(r'npm run dev\s*$', cmd.strip()) and '&' not in cmd:
                     cmd = cmd.rstrip() + ' > /tmp/dev.log 2>&1 &'
                     log_agent("agent", "Auto-backgrounded npm run dev", project_id)
                 elif re.search(r'npm run dev\s*>', cmd.strip()) and '&' not in cmd:
-                    # Has redirect but no &
                     cmd = cmd.rstrip() + ' &'
                     log_agent("agent", "Auto-backgrounded npm run dev (had redirect)", project_id)
                 fixed_commands.append(cmd)
@@ -560,32 +635,76 @@ class E2BSandboxManager:
                 if stderr: output_parts.append(f"STDERR: {stderr[:1500]}")
                 if exit_code != 0: output_parts.append(f"[exit code: {exit_code}]")
 
-            # #8 — Silent success confirmation
             raw_output = "\n".join(output_parts)[:6000] if output_parts else "Your command ran successfully and did not produce any output."
             last_raw_output = raw_output
 
-            # ── Vite compile error capture ────────────────────────────
-            # After any command that starts the dev server, wait for Vite
-            # to compile and grab errors from the log. This gives the agent
-            # visibility into compile errors it would otherwise never see.
+            # ── Post npm-run-dev: smart health checks ──────────────────
             for cmd in commands:
                 if "npm run dev" in cmd:
                     try:
+                        await asyncio.sleep(5)
+
+                        # 1. Vite compile errors from log
                         error_check = await asyncio.to_thread(
                             session.sandbox.commands.run,
-                            "sleep 4 && grep -i -E 'error|failed|Cannot find|could not be resolved' /tmp/dev.log 2>/dev/null | head -30",
+                            "grep -i -E 'error|failed|Cannot find|could not be resolved|SyntaxError' "
+                            "/tmp/dev.log 2>/dev/null | grep -v 'node_modules' | head -30",
                             timeout=10,
                         )
                         vite_errors = (error_check.stdout or "").strip()
                         if vite_errors:
-                            raw_output += f"\n\nVITE COMPILE ERRORS (from /tmp/dev.log):\n{vite_errors}"
-                            log_agent("agent", f"Vite errors detected: {vite_errors[:150]}", project_id)
-                    except Exception:
-                        pass
+                            raw_output += f"\n\nVITE COMPILE ERRORS:\n{vite_errors}"
+
+                        # 2. Read actual page content — not just status code
+                        http_check = await asyncio.to_thread(
+                            session.sandbox.commands.run,
+                            f"curl -s --max-time 5 http://localhost:{session.preview_port} | head -10",
+                            timeout=10,
+                        )
+                        page_content = (http_check.stdout or "").strip()
+                        if not page_content:
+                            raw_output += "\n\nWARNING: Frontend port returned empty response — Vite may still be compiling or crashed. Check /tmp/dev.log."
+                        elif "Cannot GET" in page_content:
+                            raw_output += f"\n\nWARNING: Frontend returned 'Cannot GET' — check vite.config and index.html.\nResponse: {page_content[:200]}"
+
+                        # 3. Check Express API on :3000
+                        api_check = await asyncio.to_thread(
+                            session.sandbox.commands.run,
+                            "curl -s --max-time 5 http://localhost:3000 2>/dev/null | head -5",
+                            timeout=8,
+                        )
+                        api_resp = (api_check.stdout or "").strip()
+                        if "Cannot GET /" in api_resp:
+                            # This is actually fine for Express — means it's running but no root route
+                            raw_output += "\n\nNOTE: Express on :3000 is running (no root GET / route is normal)."
+                        elif not api_resp:
+                            raw_output += "\n\nWARNING: Express on :3000 returned nothing — server.js may have crashed. Check /tmp/dev.log."
+
+                        # 4. Ensure Express has the console-error drain endpoint
+                        inject_express = (
+                            f"grep -q '__gorilla_errors' {APP_DIR}/server.js 2>/dev/null || "
+                            f"cat >> {APP_DIR}/server.js << 'GORILLA_EOF'\n"
+                            f"// Gorilla browser error tunnel\n"
+                            f"const _gErrs = [];\n"
+                            f"app.post('/api/__gorilla_errors', (req, res) => {{\n"
+                            f"  if (req.body) {{ _gErrs.push(req.body); if (_gErrs.length > 50) _gErrs.shift(); }}\n"
+                            f"  res.json({{ok: true}});\n"
+                            f"}});\n"
+                            f"app.get('/api/__gorilla_errors', (req, res) => {{\n"
+                            f"  res.json(_gErrs.splice(0));\n"
+                            f"}});\n"
+                            f"GORILLA_EOF"
+                        )
+                        await asyncio.to_thread(
+                            session.sandbox.commands.run, inject_express, timeout=5
+                        )
+
+                        log_agent("agent", f"Health check done. Vite errors: {bool(vite_errors)}", project_id)
+                    except Exception as e:
+                        log_agent("agent", f"Health check failed: {e}", project_id)
                     break
 
-            # #6 — Linter-in-the-loop: if the command wrote a .tsx/.ts file,
-            # run tsc --noEmit on it and append lint errors to the observation
+            # Linter-in-the-loop: tsc --noEmit on freshly written .tsx/.ts files
             for cmd in commands:
                 m = re.search(r"cat\s+>\s+['\"]?(\S+\.tsx?)['\"]?\s+<<", cmd)
                 if m:
@@ -602,16 +721,25 @@ class E2BSandboxManager:
                     except Exception:
                         pass
 
+            # Poll browser console errors and append to observation
+            console_errs = await self._poll_console_errors(project_id)
+            if console_errs:
+                raw_output += f"\n\n{console_errs}"
+                log_agent("agent", f"Console errors captured: {console_errs[:150]}", project_id)
+
+            last_raw_output = raw_output
             previous_output = raw_output
 
             if result.get("done", False):
                 break
 
-        # #10 — Reviewer
+        # Reviewer pass
         if not is_debug and turn_count > 1:
             try:
                 current_tree = await self._read_tree_from_sandbox(project_id)
-                tree_summary = "\n".join(f"  {p}" for p in sorted(current_tree.keys()) if not p.endswith(".b64"))
+                tree_summary = "\n".join(
+                    f"  {p}" for p in sorted(current_tree.keys()) if not p.endswith(".b64")
+                )
                 review_fixes = await review_output(tree_summary, last_raw_output)
                 if review_fixes:
                     self._emit_narration(project_id, "Reviewing output for issues...")
@@ -631,7 +759,7 @@ class E2BSandboxManager:
             except Exception as e:
                 log_agent("agent", f"Reviewer error: {e}", project_id)
 
-        # Sync to Supabase
+        # Sync to database
         self._emit_status(project_id, "Syncing to database...")
         synced, deleted = await self._sync_once(project_id)
         self._emit_log(project_id, "sync", f"Synced {synced} changed, removed {deleted} deleted")
@@ -731,7 +859,7 @@ class E2BSandboxManager:
             on_stderr(str(e)); return -1
 
     # -----------------------------------------------------------
-    # Batched tree read
+    # Batched tree read — with robust path stripping
     # -----------------------------------------------------------
     async def _read_tree_from_sandbox(self, project_id: str) -> Dict[str, str]:
         session = self._sessions.get(project_id)
@@ -760,7 +888,7 @@ class E2BSandboxManager:
         for chunk in output.split(FILE_READ_SENTINEL)[1:]:
             if FILE_CONTENT_SENTINEL not in chunk: continue
             header, _, body = chunk.partition(FILE_CONTENT_SENTINEL)
-            path = header.strip().replace(f"{APP_DIR}/", "", 1)
+            path = _strip_app_prefix(header)
             if not path: continue
             content = body[:-1] if body.endswith("\n") else body
             if "\x00" in content[:1000]: continue
@@ -779,11 +907,20 @@ class E2BSandboxManager:
             )
         except Exception: return {}
         if not listing.stdout: return {}
-        paths = [p.strip().replace(f"{APP_DIR}/", "", 1) for p in listing.stdout.strip().split("\n") if p.strip()]
+
+        paths = [
+            _strip_app_prefix(p)
+            for p in listing.stdout.strip().split("\n") if p.strip()
+        ]
+
         tree: Dict[str, str] = {}
         for rel in paths[:400]:
+            if not rel: continue
             try:
-                r = await asyncio.to_thread(session.sandbox.commands.run, f"cat '{APP_DIR}/{rel}' 2>/dev/null")
+                r = await asyncio.to_thread(
+                    session.sandbox.commands.run,
+                    f"cat '{APP_DIR}/{rel}' 2>/dev/null"
+                )
                 content = r.stdout or ""
                 if "\x00" in content[:1000]: continue
                 tree[rel] = content
@@ -791,7 +928,7 @@ class E2BSandboxManager:
         return tree
 
     # -----------------------------------------------------------
-    # Batched sync
+    # Batched sync — with robust path stripping
     # -----------------------------------------------------------
     async def _sync_once(self, project_id: str) -> Tuple[int, int]:
         session = self._sessions.get(project_id)
@@ -822,7 +959,7 @@ class E2BSandboxManager:
             for chunk in dump.split(FILE_READ_SENTINEL)[1:]:
                 if FILE_CONTENT_SENTINEL not in chunk: continue
                 header, _, body = chunk.partition(FILE_CONTENT_SENTINEL)
-                path = header.strip().replace(f"{APP_DIR}/", "", 1)
+                path = _strip_app_prefix(header)
                 if not path: continue
                 content = body[:-1] if body.endswith("\n") else body
                 if "\x00" in content[:1000]: continue
@@ -846,8 +983,9 @@ class E2BSandboxManager:
             )
             if all_listing.stdout:
                 for p in all_listing.stdout.strip().split("\n"):
-                    p = p.strip()
-                    if p: current_sandbox_paths.add(p.replace(f"{APP_DIR}/", "", 1))
+                    stripped = _strip_app_prefix(p)
+                    if stripped:
+                        current_sandbox_paths.add(stripped)
         except Exception: pass
 
         if rows:
@@ -882,7 +1020,7 @@ class E2BSandboxManager:
         return (len(rows), deleted_count)
 
     # -----------------------------------------------------------
-    # Dev server (kept for /sandbox/start endpoint, NOT used in agent loop)
+    # Dev server (for /sandbox/start endpoint, NOT used in agent loop)
     # -----------------------------------------------------------
     async def start_dev_server(self, project_id: str) -> Tuple[Optional[str], Optional[str]]:
         session = self._sessions.get(project_id)
@@ -942,10 +1080,9 @@ class E2BSandboxManager:
         except Exception: return False
 
     # -----------------------------------------------------------
-    # Billing + idle
+    # Billing + idle monitor
     # -----------------------------------------------------------
     async def _billing_loop(self, project_id: str) -> None:
-        """Bill sandbox time per-second, flush to DB every 10s."""
         accumulated = 0
         try:
             while True:
@@ -960,7 +1097,6 @@ class E2BSandboxManager:
                 accumulated += prorated
                 session.total_billed_tokens += prorated
                 session.last_bill_at = now
-                # Flush to DB every ~10 seconds worth of accumulation
                 if accumulated >= int(BILLING_TOKENS_PER_HOUR / 360):
                     try:
                         self._add_tokens(session.owner_id, accumulated)
@@ -968,7 +1104,6 @@ class E2BSandboxManager:
                     except Exception as e:
                         print(f"⚠️ Billing error: {e}")
         except asyncio.CancelledError:
-            # Flush remaining on cancel
             if accumulated > 0:
                 session = self._sessions.get(project_id)
                 if session:
@@ -979,7 +1114,10 @@ class E2BSandboxManager:
         while True:
             try:
                 now = time.time()
-                for pid in [p for p, s in list(self._sessions.items()) if (now - s.last_activity) > IDLE_TIMEOUT_S]:
+                for pid in [
+                    p for p, s in list(self._sessions.items())
+                    if (now - s.last_activity) > IDLE_TIMEOUT_S
+                ]:
                     print(f"💤 Idle kill: {pid}")
                     try: await self._sync_once(pid)
                     except Exception: pass

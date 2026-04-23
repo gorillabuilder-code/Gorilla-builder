@@ -227,7 +227,7 @@ You interact with the sandbox in a loop. Each step you provide:
 1. DISCUSSION — your reasoning about what to do next (always include this and just speak naturally, never say Discussion: or working on it...)
 2. A fenced bash code block with the command(s) to execute
 
-Example response:
+Example response (NEVER EVER TALK ANYTHING RELATED TO LINT ERRORS):
 
 I need to check what's in App.tsx before making changes.
 
@@ -262,7 +262,7 @@ Layout: src/ (React), src/components/ui/ (shadcn), src/utils/auth.ts (auth gatew
 5. Never touch package.json directly, vite.config.ts, .env, src/utils/auth.ts
 6. Start server: `cd /home/user/app && npm run dev > /tmp/dev.log 2>&1 &`
 7. Verify: `sleep 3 && curl -so /dev/null -w '%{http_code}' http://localhost:8080 && curl -so /dev/null -w '%{http_code}' http://localhost:3000`
-8. You MUST verify both :8080 and :3000 return 200 before writing GORILLA_DONE
+8. You MUST verify both :8080 and :3000 return 200 before writing GORILLA_DONE, AND ALWAYS FOLLOW THE STRUCTURE FOR RUNNING EXACTLY
 9. If something fails, read /tmp/dev.log, fix the issue, restart, verify again
 10. Create ONE file per step. Do NOT write multiple files in a single bash block.
 11. NEVER say GORILLA_DONE before turn 5. You have not built enough yet!
@@ -277,15 +277,21 @@ useEffect(() => onAuthStateChanged(setUser), []);
 ## AI proxy (backend, $GORILLA_API_KEY)
 Base: {GORILLA_PROXY}
 - LLM: POST {GORILLA_PROXY}/api/v1/chat/completions (don't send model)
-- Images: POST {GORILLA_PROXY}/api/v1/images/generations (use this for the users app (don't send model)) if you want to generate image for users app do curl → save to public/generated/
+- Images: POST {GORILLA_PROXY}/api/v1/images/generations (use this for the users app (don't send model)) if you want to generate image for users app do curl → save to the app's folder inside public/generated/ AS BASE64 STRICTLY, NO OTHER FORMAT IS ALLOWED
 - STT: POST {GORILLA_PROXY}/api/v1/audio/transcriptions
 - BG removal: POST {GORILLA_PROXY}/api/v1/images/remove-background
 - TTS: use window.speechSynthesis
+
+A FEW IMPORTANT ISSUES TO LOOK OUT FOR:
+- Always list packages in package.json
+- Never render App.tsx with a browser router as a browser router inside the main.tsx (this causes react errors)
+- Be extremely cautious about react errors as they may not be relayed to you, but you must find a way to check them
+- NEVER BE TO AMBTITIOUS UNLESS EXPLICITLY ASKED AND TRY TO BE HIGHLY TOKEN EFFECEINT 
 """
 
 SUPABASE_ADDON = r"""
 ## Supabase is active
-Client: `import { createClient } from '@supabase/supabase-js'; const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);`
+Client: `import { createClient } from @supabase/supabase-js; const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);`
 Migrations via bash:
 ```
 cat > /tmp/migration.sql << 'SQL'
@@ -304,28 +310,54 @@ DEBUG_ADDON = r"""
 Read the error. Find the file. Make the smallest fix. Restart server. Verify ports. GORILLA_DONE.
 """
 
+# ---------------------------------------------------------------------------
+# Supabase addons for expander + planner (injected only when has_supabase)
+# ---------------------------------------------------------------------------
+
+EXPANDER_SUPABASE_ADDON = """
+## Supabase is linked and available
+You SHOULD plan to use Supabase for data persistence when the app clearly benefits from it (user-saved content, shared data, multi-session state). Include in your spec:
+- What tables are needed and what columns they have
+- Which tables need Row Level Security (user-owned data)
+- Whether realtime subscriptions would enhance the UX
+Do NOT force Supabase onto apps that are purely client-side or stateless."""
+
+PLANNER_SUPABASE_ADDON = """
+## Supabase is linked and available
+Include Supabase migration steps in your plan when the app needs data persistence. Use this pattern:
+```bash
+cat > /tmp/migration.sql << 'SQL'
+CREATE TABLE IF NOT EXISTS items (...);
+ALTER TABLE items ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "own" ON items USING (auth.uid() = user_id);
+SQL
+curl -sS -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
+  -H "Authorization: Bearer $SUPABASE_MGMT_TOKEN" -H "Content-Type: application/json" \
+  -d "$(cat /tmp/migration.sql | jq -Rs '{query: .}')"
+```
+Only add migration steps when the app genuinely stores user or shared data. Don't add Supabase steps for stateless or purely generative apps."""
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  #1 — Prompt Expander
 # ═══════════════════════════════════════════════════════════════════════════
- 
+
 EXPANDER_SYSTEM = """You are a product designer for Gorilla Builder — a platform that builds REAL working SaaS apps, not just landing pages.
- 
+
 The platform has these built-in capabilities that the developer can use:
-- **Auth gateway** — Google & GitHub login, zero setup, returns {id, email, name, avatar} --> ONLY USE IF NESSACARY OR GOOD FOR APP 
-- **AI proxy** — LLM chat completions, image generation, speech-to-text, background removal --> ONLY USE IF NESSACARY OR GOOD FOR APP 
-- **Supabase** — Postgres database with row-level security, auth, realtime subscriptions --> ONLY USE IF NESSACARY OR GOOD FOR APP 
+- **Auth gateway** — Google & GitHub login, zero setup, returns {id, email, name, avatar} --> ONLY USE IF NESSACARY OR GOOD FOR APP
+- **AI proxy** — LLM chat completions, image generation, speech-to-text, background removal --> ONLY USE IF NESSACARY OR GOOD FOR APP
 - **Image generation** — generate images via API, save to public/generated/, use in the app
 - **Express backend** — full API server on :3000, can store data, proxy AI calls, handle webhooks
- 
+
 The user will give you a short app idea. Expand it into a detailed product spec (200-350 words) that a developer can build.
- 
+
 Think about what makes this a FUNCTIONAL APP, not a brochure:
 - What does the user DO after landing? (create, browse, interact, generate, save, share)
 - What data is stored? (user profiles, posts, items, generated content, preferences)
 - What AI features make it special? (chat, image generation, content creation, analysis)
 - Does it need auth? (if users save anything, YES)
- 
+
 Include:
 - App name (creative, memorable)
 - Color scheme (specific hex codes, dark mode first)
@@ -335,29 +367,36 @@ Include:
 - Backend: what API routes are needed, what data is stored
 - AI features: how the AI proxy is used (chat, image gen, content creation, etc.)
 - Auth: whether login is needed and which providers
- 
+
 Examples of GOOD specs (functional SaaS):
 - "AI recipe generator" → landing page, generate page (enter ingredients → AI creates recipe + generates food image), saved recipes dashboard, auth via Google
-- "Mood journal" → landing, journal entry page (write + AI sentiment analysis + generates abstract art for mood), history dashboard with mood chart, Supabase for storage
-- "Portfolio builder" → landing, editor page (add projects, AI writes descriptions, generates hero images), public portfolio view, auth + Supabase
- 
+- "Mood journal" → landing, journal entry page (write + AI sentiment analysis + generates abstract art for mood), history dashboard with mood chart
+- "Portfolio builder" → landing, editor page (add projects, AI writes descriptions, generates hero images), public portfolio view, auth
+
 Examples of BAD specs (brochure sites):
 - Hero section, about section, features section, contact form, footer ← this is a template, not an app
- 
+
+IF IT IS A MINOR TASK FOR AN EXISTING APP OR A DEBUGGING TASK, SIMPLY STATE THE NESSACARY TASK.
+
 Output ONLY the spec. No preamble."""
- 
- 
-async def expand_prompt(short_prompt: str) -> str:
+
+
+async def expand_prompt(short_prompt: str, has_supabase: bool = False) -> str:
     """
     #1 — Turn "coffee shop site" into a 200-word detailed spec.
     Uses the same model — one cheap call, no extra cost.
+    Injects Supabase guidance only when has_supabase is True.
     """
     if len(short_prompt) > 300:
         # Already detailed enough, skip expansion
         return short_prompt
- 
+
+    system = EXPANDER_SYSTEM
+    if has_supabase:
+        system += "\n" + EXPANDER_SUPABASE_ADDON
+
     messages = [
-        {"role": "system", "content": EXPANDER_SYSTEM},
+        {"role": "system", "content": system},
         {"role": "user", "content": short_prompt},
     ]
     try:
@@ -370,28 +409,28 @@ async def expand_prompt(short_prompt: str) -> str:
     except Exception as e:
         log_agent("agent", f"Expander failed ({e}), using original prompt")
         return short_prompt
- 
- 
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  #2 + #5 — Planner (todo.md with per-file specs)
 # ═══════════════════════════════════════════════════════════════════════════
- 
-PLANNER_SYSTEM = """You are a project planner for Gorilla Builder — a platform that builds working SaaS apps with React + Express + Supabase.
- 
+
+PLANNER_SYSTEM = """You are a project planner for Gorilla Builder — a platform that builds working SaaS apps with React + Express.
+
 ## Platform capabilities (use these in your plans!)
- 
+
 **Auth gateway (DO NOT ADD UNLESS NESSACARY)** — zero setup:
 ```tsx
 import { login, logout, onAuthStateChanged } from '@/utils/auth';
 // Providers: 'google' | 'github' — returns {id, email, name, avatar}
 ```
- 
+
 **AI proxy** (backend, uses $GORILLA_API_KEY):
 - LLM chat: POST /api/v1/chat/completions (don't send model)
 - Image gen: POST /api/v1/images/generations → save to public/generated/
 - STT: POST /api/v1/audio/transcriptions
 - BG removal: POST /api/v1/images/remove-background
- 
+
 **Image generation via curl** (use in bash steps):
 ```bash
 curl -sS -X POST "$GORILLA_PROXY/api/v1/images/generations" \
@@ -399,60 +438,60 @@ curl -sS -X POST "$GORILLA_PROXY/api/v1/images/generations" \
   -d '{"prompt":"your prompt here","samples":1}' \
   | jq -r '.[0].base64 // .data[0].b64_json' | base64 -d > public/generated/image.jpg
 ```
- 
-**Supabase** (if linked): createClient, migrations via Management API, RLS policies --> MAKE TASKS THAT USE THIS ONLY IF REQUIRED AND DO NOT FORCE SUPABASE AS IT IS NOT LINKED SOMETIMES, BUT PLAN TO USE IT IF AVAILABLE
- 
+
 **Express backend**: routes/ folder, mounted in server.js, full API capability
- 
+
 ## Your job
- 
+
 Given a spec, output a markdown checklist. Each item = ONE action (one file, one install, one migration, one image generation).
- 
+
 Think about the FULL STACK:
 - Frontend pages (3+ pages minimum: landing, main app, settings/profile/dashboard)
 - Backend API routes (if the app stores/processes data)
-- Database tables (if Supabase is active)
 - AI features (image generation, chat endpoints, content creation)
 - Auth integration (if users save data)
 - Generated images (hero images, placeholders, AI-generated content)
- 
+
 Format:
 ```
 # Task: <short title>
- 
+
 - [ ] View existing files (App.tsx, server.js, index.css) to understand structure
 - [ ] Generate hero image — curl AI proxy with prompt "dark moody coffee beans close-up"
 - [ ] Create src/components/Navbar.tsx — fixed dark navbar, brand left, auth button right
 - [ ] Create src/pages/Dashboard.tsx — user's saved items grid, create button, AI generate button
 - [ ] Create routes/api.js — POST /api/generate (calls AI proxy), GET /api/items (reads Supabase)
 - [ ] Update server.js — mount routes/api.js at /api
-- [ ] Run Supabase migration — create items table with user_id FK, RLS policies
 - [ ] Update src/App.tsx — add routes for all pages, wrap with auth check
 - [ ] Update src/index.css — dark theme, custom fonts
 - [ ] Install framer-motion
 - [ ] Start dev server and verify both ports return 200
 ```
- 
+
 Rules:
 - DO NOT COPY THE EXACT CHECKLIST THAT IS GIVEN EXPAND IT OR CHANGE IT ACCORDING TO THE TASK MAKE IT RELEVANT
 - First item: "View existing files"
 - Last item: "Start dev server and verify both ports return 200"
 - ONE action per item. Never combine files. Never have more than 2-3 image generations
-- 8-20 items. Plan the WHOLE app, not just the landing page.
+- 8-20 items. Plan the WHOLE app, not just the landing page --> IF IT IS A MINOR TASK FOR AN EXISTING APP OR A DEBUGGING TASK, SIMPLY STATE THE NESSACARY TASKS NOT MORE THAN 5 ARE ALLOWED FOR CHANGES AND NOT MORE THAN 2 FOR DEBUGGING
 - Include image generation steps where the app needs visuals.
 - Include backend routes if the app has any interactivity.
-- Include Supabase migrations if data persistence is needed.
 - Don't overspecify component internals — the developer knows React.
 - Output ONLY the checklist."""
- 
- 
-async def generate_plan(expanded_prompt: str, file_tree_summary: str) -> Optional[str]:
+
+
+async def generate_plan(expanded_prompt: str, file_tree_summary: str, has_supabase: bool = False) -> Optional[str]:
     """
     #2 + #5 — Generate a todo.md checklist with per-file specs.
     Uses the same model. Returns the raw markdown or None on failure.
+    Injects Supabase guidance only when has_supabase is True.
     """
+    system = PLANNER_SYSTEM
+    if has_supabase:
+        system += "\n" + PLANNER_SUPABASE_ADDON
+
     messages = [
-        {"role": "system", "content": PLANNER_SYSTEM},
+        {"role": "system", "content": system},
         {"role": "user", "content": f"Existing files:\n{file_tree_summary}\n\nSpec:\n{expanded_prompt}"},
     ]
     try:
@@ -655,15 +694,15 @@ class LineageAgent:
             # ── First turn: expand prompt + generate plan ──────────
             effective_request = user_request
 
-            # #1 — Prompt expander
+            # #1 — Prompt expander (passes has_supabase for conditional addon)
             if not is_debug and not self._prompt_expanded and user_request:
-                effective_request = await expand_prompt(user_request)
+                effective_request = await expand_prompt(user_request, has_supabase=has_supabase)
                 self._prompt_expanded = True
 
-            # #2 + #5 — Generate plan with per-file specs
+            # #2 + #5 — Generate plan with per-file specs (passes has_supabase)
             plan_text = ""
             if not is_debug and not self._plan_injected and file_tree:
-                plan = await generate_plan(effective_request, tree_str)
+                plan = await generate_plan(effective_request, tree_str, has_supabase=has_supabase)
                 if plan:
                     plan_text = f"\n\nHere is your plan — follow it step by step, one file per bash block:\n{plan}"
                     self._plan_injected = True
