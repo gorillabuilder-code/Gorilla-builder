@@ -923,81 +923,328 @@
       </div>
     </div>
 
-    <section class="builder-section animate-entry" style="animation-delay: 100ms;">
-      {% set is_locked = (user.plan != 'premium' and projects|length >= 3) %}
+<section class="builder-section animate-entry" style="animation-delay: 100ms;">
+  {% set is_locked = (user.plan != 'premium' and projects|length >= 3) %}
 
-      <form class="input-box {% if is_locked %}disabled{% endif %}" method="POST" action="/projects/create" id="mainPromptForm" enctype="multipart/form-data">
+  <style>
+    .mode-dropdown-wrap { position: relative; flex-shrink: 0; }
 
-        {% if not is_locked %}
+    .mode-trigger {
+      display: flex; align-items: center; gap: 6px; padding: 7px 10px;
+      background: none; border: 1px solid transparent; border-radius: 8px;
+      cursor: pointer; font-size: 12px; font-weight: 700; letter-spacing: 0.5px;
+      text-transform: uppercase; transition: all 0.15s;
+      font-family: 'Funnel Display', system-ui, sans-serif; white-space: nowrap;
+    }
+    .mode-trigger .mode-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .mode-trigger .mode-chevron { width: 10px; height: 10px; opacity: 0.5; transition: transform 0.2s; margin-left: 2px; }
+    .mode-trigger[data-mode="fast"]   { color: #10b981; background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.3); }
+    .mode-trigger[data-mode="fast"]   .mode-dot { background: #10b981; }
+    .mode-trigger[data-mode="normal"] { color: #fff; background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.12); }
+    .mode-trigger[data-mode="normal"] .mode-dot { background: #fff; }
+    .mode-trigger[data-mode="deep"]   { color: #8b5cf6; background: rgba(139,92,246,0.12); border-color: rgba(139,92,246,0.3); }
+    .mode-trigger[data-mode="deep"]   .mode-dot { background: #8b5cf6; }
+    .mode-trigger:hover { filter: brightness(1.1); }
+    .mode-dropdown-wrap.open .mode-trigger .mode-chevron { transform: rotate(180deg); }
 
-        <!-- MODE SELECTOR -->
-        <div class="mode-selector" id="modeSelectorGroup">
-          <button type="button" class="mode-btn fast active" id="modeFast" onclick="setMode('fast')" title="Fast — token efficient, no-fluff output">
-            <span class="mode-dot"></span>Fast
-          </button>
-          <button type="button" class="mode-btn normal" id="modeNormal" onclick="setMode('normal')" title="Normal — balanced quality and speed">
-            <span class="mode-dot"></span>Normal
-          </button>
-          <button type="button" class="mode-btn deep" id="modeDeep" onclick="setMode('deep')" title="Deep — thorough reasoning, best for complex apps">
-            <span class="mode-dot"></span>Deep
-          </button>
-        </div>
-        <div class="mode-divider"></div>
+    .mode-menu {
+      position: absolute; top: calc(100% + 8px); right: 0;
+      background: #111116; border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px; padding: 5px;
+      display: flex; flex-direction: column; gap: 2px; min-width: 220px;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.8), 0 4px 12px rgba(0,0,0,0.5);
+      opacity: 0; pointer-events: none;
+      transform: translateY(6px) scale(0.97);
+      transition: all 0.18s cubic-bezier(0.16,1,0.3,1);
+      z-index: 50;
+    }
+    .mode-dropdown-wrap.open .mode-menu { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
 
-        <div class="input-actions" style="display: flex; align-items: center; gap: 8px;">
+    .mode-option {
+      display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px;
+      border-radius: 7px; cursor: pointer; border: 1px solid transparent;
+      transition: all 0.12s; text-align: left; background: none;
+      font-family: 'Funnel Display', system-ui, sans-serif; width: 100%;
+    }
+    .mode-option:hover { background: rgba(255,255,255,0.05); }
+    .mode-option.active { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.06); }
 
-          <div class="image-upload-wrapper">
-            <input type="file" name="image_file" id="imageInput" accept="image/png, image/jpeg, image/webp">
-            <i class="ph-bold ph-image image-upload-btn" id="imageUploadBtn" title="Upload Image Reference"></i>
-            <img id="imagePreview" class="image-preview" src="" alt="Preview">
-            <input type="hidden" name="image_base64" id="imageBase64">
-          </div>
+    .mode-option .opt-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+    .mode-option.opt-fast   .opt-dot { background: #10b981; }
+    .mode-option.opt-normal .opt-dot { background: #ffffff; }
+    .mode-option.opt-deep   .opt-dot { background: #8b5cf6; }
 
-          <button type="button" class="figma-upload-btn" id="figmaUploadBtn" title="Import from Figma" data-linked="{% if user.figma_access_token %}true{% else %}false{% endif %}" style="background: none; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 6px; border-radius: var(--radius-sm); transition: 0.2s;">
-            <svg width="30" height="30" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="transition: transform 0.2s;">
-              <path fill-rule="evenodd" clip-rule="evenodd" d="M16 16C16 13.7909 17.7909 12 20 12C22.2091 12 24 13.7909 24 16C24 18.2091 22.2091 20 20 20C17.7909 20 16 18.2091 16 16Z" fill="#1ABCFE"/>
-              <path fill-rule="evenodd" clip-rule="evenodd" d="M8 24C8 21.7909 9.79086 20 12 20H16V24C16 26.2091 14.2091 28 12 28C9.79086 28 8 26.2091 8 24Z" fill="#0ACF83"/>
-              <path fill-rule="evenodd" clip-rule="evenodd" d="M16 4V12H20C22.2091 12 24 10.2091 24 8C24 5.79086 22.2091 4 20 4H16Z" fill="#FF7262"/>
-              <path fill-rule="evenodd" clip-rule="evenodd" d="M8 8C8 10.2091 9.79086 12 12 12H16V4H12C9.79086 4 8 5.79086 8 8Z" fill="#F24E1E"/>
-              <path fill-rule="evenodd" clip-rule="evenodd" d="M8 16C8 18.2091 9.79086 20 12 20H16V12H12C9.79086 12 8 13.7909 8 16Z" fill="#A259FF"/>
-            </svg>
-          </button>
+    .opt-label { font-size: 13px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase; display: block; margin-bottom: 2px; }
+    .mode-option.opt-fast   .opt-label { color: #10b981; }
+    .mode-option.opt-normal .opt-label { color: #fff; }
+    .mode-option.opt-deep   .opt-label { color: #8b5cf6; }
 
-          <button type="button" class="supabase-toggle-btn" id="supabaseToggleBtn" title="Provision PostgreSQL Database" data-linked="{% if user.supabase_access_token %}true{% else %}false{% endif %}">
-            <svg width="24" height="24" viewBox="0 0 109 113" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M63.7076 110.284C60.8481 113.885 55.0502 111.912 54.9813 107.314L53.9738 40.0627L99.1935 40.0627C107.384 40.0627 111.952 49.5228 106.859 55.9374L63.7076 110.284Z" fill="url(#paint0_linear)"/><path d="M63.7076 110.284C60.8481 113.885 55.0502 111.912 54.9813 107.314L53.9738 40.0627L99.1935 40.0627C107.384 40.0627 111.952 49.5228 106.859 55.9374L63.7076 110.284Z" fill="url(#paint1_linear)" fill-opacity="0.2"/><path d="M45.317 2.07103C48.1765 -1.53037 53.9745 0.442937 54.0434 5.041L54.4849 72.2922H9.83113C1.64038 72.2922 -2.92775 62.8321 2.1655 56.4175L45.317 2.07103Z" fill="#3ECF8E"/><defs><linearGradient id="paint0_linear" x1="53.9738" y1="54.974" x2="94.1635" y2="71.8295" gradientUnits="userSpaceOnUse"><stop stop-color="#249361"/><stop offset="1" stop-color="#3ECF8E"/></linearGradient><linearGradient id="paint1_linear" x1="36.1558" y1="30.578" x2="54.4844" y2="65.0806" gradientUnits="userSpaceOnUse"><stop/><stop offset="1" stop-opacity="0"/></linearGradient></defs></svg>
-          </button>
-          <input type="hidden" name="use_supabase" id="useSupabaseInput" value="false">
+    .opt-desc { font-size: 11px; color: rgba(255,255,255,0.35); line-height: 1.4; display: block; font-weight: 400; text-transform: none; letter-spacing: 0; }
 
-        </div>
-        {% endif %}
+    .opt-check { margin-left: auto; flex-shrink: 0; color: rgba(255,255,255,0.5); width: 14px; height: 14px; opacity: 0; margin-top: 2px; }
+    .mode-option.active .opt-check { opacity: 1; }
+  </style>
 
-        {% if is_locked %}
-          <input type="text" disabled placeholder="Free limit reached (3/3). Upgrade to create more." style="cursor:not-allowed;">
-          <button type="button" class="action-btn locked" onclick="window.location.href='/pricing'">
-            <i class="ph-fill ph-lock-key"></i>
-          </button>
-        {% else %}
-          <input type="text" id="mainPromptInput" name="prompt" required placeholder="e.g. 'An app that shows 67 is the meaning of life'" autocomplete="off" autofocus>
-          <input type="hidden" id="figmaUrlInput" name="figma_url">
-          
-          <button type="submit" class="action-btn" id="submitPromptBtn" title="Create App">
-            <i class="ph-bold ph-arrow-right"></i>
-          </button>
-        {% endif %}
-      </form>
+  <form class="input-box {% if is_locked %}disabled{% endif %}" method="POST" action="/projects/create" id="mainPromptForm" enctype="multipart/form-data">
 
-      {% if error %}
-      <div class="error-msg">
-          <i class="ph-fill ph-warning-circle" style="font-size:18px; color:#ef4444;"></i>
-          <div style="flex:1;">
-            <strong>{{ error }}</strong>
-            {% if "Free Limit" in error %}
-             <br><a href="/pricing" style="font-size:12px; opacity:0.8;">Upgrade now for unlimited access &rarr;</a>
-            {% endif %}
-          </div>
+    {% if not is_locked %}
+
+    <div class="input-actions" style="display: flex; align-items: center; gap: 8px;">
+
+      <div class="image-upload-wrapper">
+        <input type="file" name="image_file" id="imageInput" accept="image/png, image/jpeg, image/webp">
+        <i class="ph-bold ph-image image-upload-btn" id="imageUploadBtn" title="Upload Image Reference"></i>
+        <img id="imagePreview" class="image-preview" src="" alt="Preview">
+        <input type="hidden" name="image_base64" id="imageBase64">
       </div>
+
+      <button type="button" class="figma-upload-btn" id="figmaUploadBtn" title="Import from Figma" data-linked="{% if user.figma_access_token %}true{% else %}false{% endif %}" style="background: none; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 6px; border-radius: var(--radius-sm); transition: 0.2s;">
+        <svg width="30" height="30" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="transition: transform 0.2s;">
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M16 16C16 13.7909 17.7909 12 20 12C22.2091 12 24 13.7909 24 16C24 18.2091 22.2091 20 20 20C17.7909 20 16 18.2091 16 16Z" fill="#1ABCFE"/>
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M8 24C8 21.7909 9.79086 20 12 20H16V24C16 26.2091 14.2091 28 12 28C9.79086 28 8 26.2091 8 24Z" fill="#0ACF83"/>
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M16 4V12H20C22.2091 12 24 10.2091 24 8C24 5.79086 22.2091 4 20 4H16Z" fill="#FF7262"/>
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M8 8C8 10.2091 9.79086 12 12 12H16V4H12C9.79086 4 8 5.79086 8 8Z" fill="#F24E1E"/>
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M8 16C8 18.2091 9.79086 20 12 20H16V12H12C9.79086 12 8 13.7909 8 16Z" fill="#A259FF"/>
+        </svg>
+      </button>
+
+      <button type="button" class="supabase-toggle-btn" id="supabaseToggleBtn" title="Provision PostgreSQL Database" data-linked="{% if user.supabase_access_token %}true{% else %}false{% endif %}">
+        <svg width="24" height="24" viewBox="0 0 109 113" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M63.7076 110.284C60.8481 113.885 55.0502 111.912 54.9813 107.314L53.9738 40.0627L99.1935 40.0627C107.384 40.0627 111.952 49.5228 106.859 55.9374L63.7076 110.284Z" fill="url(#paint0_linear)"/><path d="M63.7076 110.284C60.8481 113.885 55.0502 111.912 54.9813 107.314L53.9738 40.0627L99.1935 40.0627C107.384 40.0627 111.952 49.5228 106.859 55.9374L63.7076 110.284Z" fill="url(#paint1_linear)" fill-opacity="0.2"/><path d="M45.317 2.07103C48.1765 -1.53037 53.9745 0.442937 54.0434 5.041L54.4849 72.2922H9.83113C1.64038 72.2922 -2.92775 62.8321 2.1655 56.4175L45.317 2.07103Z" fill="#3ECF8E"/><defs><linearGradient id="paint0_linear" x1="53.9738" y1="54.974" x2="94.1635" y2="71.8295" gradientUnits="userSpaceOnUse"><stop stop-color="#249361"/><stop offset="1" stop-color="#3ECF8E"/></linearGradient><linearGradient id="paint1_linear" x1="36.1558" y1="30.578" x2="54.4844" y2="65.0806" gradientUnits="userSpaceOnUse"><stop/><stop offset="1" stop-opacity="0"/></linearGradient></defs></svg>
+      </button>
+      <input type="hidden" name="use_supabase" id="useSupabaseInput" value="false">
+
+    </div>
+
+    <div style="width: 1px; height: 28px; background: rgba(255,255,255,0.08); flex-shrink: 0;"></div>
+
+    {% endif %}
+
+    {% if is_locked %}
+      <input type="text" disabled placeholder="Free limit reached (3/3). Upgrade to create more." style="cursor:not-allowed;">
+      <button type="button" class="action-btn locked" onclick="window.location.href='/pricing'">
+        <i class="ph-fill ph-lock-key"></i>
+      </button>
+    {% else %}
+      <input type="text" id="mainPromptInput" name="prompt" required placeholder="e.g. 'An app that shows 67 is the meaning of life'" autocomplete="off" autofocus>
+      <input type="hidden" id="figmaUrlInput" name="figma_url">
+
+      <div class="mode-dropdown-wrap" id="modeWrap">
+        <button type="button" class="mode-trigger" id="modeTrigger" data-mode="fast">
+          <span class="mode-dot"></span>
+          <span class="mode-label">Fast</span>
+          <svg class="mode-chevron" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,3 5,7 8,3"/></svg>
+        </button>
+        <div class="mode-menu" id="modeMenu">
+          <button type="button" class="mode-option opt-fast active" data-mode="fast">
+            <span class="opt-dot"></span>
+            <span>
+              <span class="opt-label">Fast</span>
+            </span>
+            <svg class="opt-check" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,7 5.5,10.5 12,3"/></svg>
+          </button>
+          
+          <button type="button" class="mode-option opt-deep" data-mode="deep">
+            <span class="opt-dot"></span>
+            <span>
+              <span class="opt-label">Deep</span>
+            </span>
+            <svg class="opt-check" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,7 5.5,10.5 12,3"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <button type="submit" class="action-btn" id="submitPromptBtn" title="Create App">
+        <i class="ph-bold ph-arrow-right"></i>
+      </button>
+    {% endif %}
+  </form>
+
+  {% if error %}
+  <div class="error-msg">
+    <i class="ph-fill ph-warning-circle" style="font-size:18px; color:#ef4444;"></i>
+    <div style="flex:1;">
+      <strong>{{ error }}</strong>
+      {% if "Free Limit" in error %}
+        <br><a href="/pricing" style="font-size:12px; opacity:0.8;">Upgrade now for unlimited access &rarr;</a>
       {% endif %}
-    </section>
+    </div>
+  </div>
+  {% endif %}
+
+  <script>
+    let currentMode = 'fast';
+    const modePrefixes = {
+      fast: 'BE TOKEN EFFICIENT AND FAST AND DO THIS: \n\n',
+      normal: '',
+      deep: 'TAKE YOUR TIME AND THINK DEEPLY. Before writing any code, carefully plan your architecture, reason through edge cases, and think about potential failure points. Quality and thoroughness over speed and do this:\n\n'
+    };
+
+    const modeWrap    = document.getElementById('modeWrap');
+    const modeTrigger = document.getElementById('modeTrigger');
+    const modeOptions = document.querySelectorAll('.mode-option');
+
+    modeTrigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      modeWrap.classList.toggle('open');
+    });
+
+    modeOptions.forEach(opt => {
+      opt.addEventListener('click', () => {
+        const mode = opt.dataset.mode;
+        const labels = { fast: 'Fast', normal: 'Normal', deep: 'Deep' };
+        currentMode = mode;
+        modeTrigger.dataset.mode = mode;
+        modeTrigger.querySelector('.mode-label').textContent = labels[mode];
+        modeOptions.forEach(o => o.classList.remove('active'));
+        opt.classList.add('active');
+        modeWrap.classList.remove('open');
+      });
+    });
+
+    document.addEventListener('click', () => modeWrap.classList.remove('open'));
+    modeWrap.addEventListener('click', e => e.stopPropagation());
+
+    window.addEventListener('pageshow', () => {
+      const figmaHidden   = document.getElementById('figmaUrlInput');
+      const supabaseHidden = document.getElementById('useSupabaseInput');
+      const imgHidden     = document.getElementById('imageBase64');
+      const mainPrompt    = document.getElementById('mainPromptInput');
+      const fBtn          = document.getElementById('figmaUploadBtn');
+      const sBtn          = document.getElementById('supabaseToggleBtn');
+      const sbmBtn        = document.getElementById('submitPromptBtn');
+
+      if (figmaHidden)    figmaHidden.value    = '';
+      if (supabaseHidden) supabaseHidden.value = 'false';
+      if (imgHidden)      imgHidden.value      = '';
+
+      if (mainPrompt && mainPrompt.placeholder.includes('Figma')) {
+        mainPrompt.placeholder = "Describe your app idea (e.g. 'A kanban board for tracking tasks')";
+        mainPrompt.value = '';
+        mainPrompt.style.borderColor = 'var(--border)';
+        mainPrompt.style.boxShadow   = 'none';
+        if (fBtn) fBtn.style.background = 'none';
+        if (sBtn) sBtn.classList.remove('input-action-locked');
+      }
+
+      if (sbmBtn) {
+        sbmBtn.innerHTML       = '<i class="ph-bold ph-arrow-right"></i>';
+        sbmBtn.style.opacity        = '1';
+        sbmBtn.style.pointerEvents  = 'auto';
+      }
+
+      currentMode = 'fast';
+      modeTrigger.dataset.mode = 'fast';
+      modeTrigger.querySelector('.mode-label').textContent = 'Fast';
+      modeOptions.forEach(o => o.classList.toggle('active', o.dataset.mode === 'fast'));
+    });
+
+    const imageInput    = document.getElementById('imageInput');
+    const imagePreview  = document.getElementById('imagePreview');
+    const imageBase64   = document.getElementById('imageBase64');
+    const imageUploadBtn = document.getElementById('imageUploadBtn');
+
+    if (imageInput) {
+      imageInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const objectUrl = URL.createObjectURL(file);
+        imagePreview.src = objectUrl;
+        imagePreview.style.display = 'block';
+        imageUploadBtn.style.display = 'none';
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement('canvas');
+          const MAX_SIZE = 1024;
+          let w = img.width, h = img.height;
+          if (w > h && w > MAX_SIZE) { h *= MAX_SIZE / w; w = MAX_SIZE; }
+          else if (h > MAX_SIZE)     { w *= MAX_SIZE / h; h = MAX_SIZE; }
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          imageBase64.value = canvas.toDataURL('image/jpeg', 0.7);
+        };
+        img.src = objectUrl;
+      });
+    }
+
+    const figmaBtn       = document.getElementById('figmaUploadBtn');
+    const supabaseBtn    = document.getElementById('supabaseToggleBtn');
+    const promptInput    = document.getElementById('mainPromptInput');
+    const figmaHiddenInput  = document.getElementById('figmaUrlInput');
+    const useSupabaseInput  = document.getElementById('useSupabaseInput');
+    const mainForm       = document.getElementById('mainPromptForm');
+    const submitBtn      = document.getElementById('submitPromptBtn');
+
+    function toggleFigmaMode() {
+      const on = promptInput.placeholder.includes('Figma');
+      if (on) {
+        promptInput.placeholder = "Describe your app idea (e.g. 'A kanban board for tracking tasks')";
+        promptInput.value = ''; figmaHiddenInput.value = '';
+        promptInput.style.borderColor = 'var(--border)'; promptInput.style.boxShadow = 'none';
+        figmaBtn.style.background = 'none';
+        if (supabaseBtn) supabaseBtn.classList.remove('input-action-locked');
+      } else {
+        promptInput.placeholder = 'Paste your Figma Frame URL here...';
+        promptInput.value = ''; promptInput.focus();
+        promptInput.style.borderColor = '#0ACF83'; promptInput.style.boxShadow = '0 0 0 1px #0ACF83';
+        figmaBtn.style.background = 'rgba(10,207,131,0.15)';
+        if (supabaseBtn) { supabaseBtn.classList.remove('active'); useSupabaseInput.value = 'false'; supabaseBtn.classList.add('input-action-locked'); }
+      }
+    }
+
+    function toggleSupabaseMode() {
+      const on = supabaseBtn.classList.contains('active');
+      if (on) { supabaseBtn.classList.remove('active'); useSupabaseInput.value = 'false'; if (figmaBtn) figmaBtn.classList.remove('input-action-locked'); }
+      else    { supabaseBtn.classList.add('active');    useSupabaseInput.value = 'true';  if (figmaBtn) figmaBtn.classList.add('input-action-locked'); }
+      updateAgentSelection();
+    }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('success') === 'figma_linked'    && figmaBtn)    { figmaBtn.setAttribute('data-linked','true');    toggleFigmaMode();    window.history.replaceState({},'','/dashboard'); }
+    if (urlParams.get('success') === 'supabase_linked' && supabaseBtn) { supabaseBtn.setAttribute('data-linked','true'); toggleSupabaseMode(); window.history.replaceState({},'','/dashboard'); }
+    if (figmaBtn)    figmaBtn.addEventListener('click',    () => figmaBtn.getAttribute('data-linked')    === 'true' ? toggleFigmaMode()    : window.location.href = '/auth/figma');
+    if (supabaseBtn) supabaseBtn.addEventListener('click', () => supabaseBtn.getAttribute('data-linked') === 'true' ? toggleSupabaseMode() : window.location.href = '/auth/supabase/link');
+
+    if (mainForm) {
+      mainForm.addEventListener('submit', (e) => {
+        const val    = promptInput.value.trim();
+        const prefix = modePrefixes[currentMode] || '';
+
+        if (val.includes('figma.com/')) {
+          figmaHiddenInput.value = val;
+          promptInput.value = prefix + "Build a pixel-perfect React and Tailwind replica of the design structure. I have provided the exact layout rules, spacing, typography, and hex colors in the `.gorilla/figma.json` file. Read that file and implement it exactly.";
+        } else {
+          figmaHiddenInput.value = '';
+          promptInput.value = prefix + val;
+        }
+
+        if (submitBtn) {
+          submitBtn.innerHTML      = '<i class="ph ph-spinner" style="animation: spin 1s linear infinite;"></i>';
+          submitBtn.style.opacity       = '0.7';
+          submitBtn.style.pointerEvents = 'none';
+        }
+      });
+    }
+
+    function updateAgentSelection() {
+      const agentWrapper = document.getElementById('agentSelectWrapper');
+      const agentSelect  = document.getElementById('agentTypeSelect');
+      if (!agentWrapper || !agentSelect) return;
+      const promptText     = promptInput ? promptInput.value.toLowerCase() : '';
+      const isSupabaseActive = supabaseBtn && supabaseBtn.classList.contains('active');
+      const mentionsDb     = /\b(db|database|supabase|postgres|sql)\b/.test(promptText);
+      if (isSupabaseActive || mentionsDb) {
+        agentSelect.value = 'supabase';
+        agentWrapper.classList.add('forced-mode');
+      } else {
+        if (agentSelect.value === 'supabase') agentSelect.value = 'fast';
+        agentWrapper.classList.remove('forced-mode');
+      }
+    }
+
+    if (promptInput) promptInput.addEventListener('input', updateAgentSelection);
+    updateAgentSelection();
+  </script>
+</section>
 
     {% if user.plan != 'premium' %}
     <div class="ad-container animate-entry" style="animation-delay: 200ms;">

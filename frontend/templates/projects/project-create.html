@@ -39,7 +39,6 @@
       overflow: hidden;
     }
 
-    /* --- EFFECTS --- */
     .noise-overlay {
       position: fixed; top: 0; left: 0; width: 100%; height: 100%;
       background-image: var(--noise); pointer-events: none; z-index: 0;
@@ -56,8 +55,6 @@
       opacity: 0.5; pointer-events: none; z-index: 0;
       bottom: -100px; right: 15%; filter: blur(80px);
     }
-
-    /* Subtle grid pattern */
     .grid-overlay {
       position: fixed; inset: 0;
       background-image:
@@ -68,7 +65,6 @@
       mask-image: radial-gradient(ellipse 60% 50% at 50% 40%, black, transparent);
     }
 
-    /* --- CARD --- */
     .card {
       width: min(480px, 90%);
       background: linear-gradient(180deg, rgba(22, 22, 28, 0.85) 0%, rgba(12, 12, 16, 0.9) 100%);
@@ -81,17 +77,15 @@
         0 1px 0 rgba(255,255,255,0.04) inset,
         0 24px 60px -10px rgba(0,0,0,0.6),
         0 8px 16px rgba(0,0,0,0.3);
-      transition: all 0.4s var(--ease-out);
       animation: cardEntry 0.7s var(--ease-out) forwards;
       opacity: 0;
     }
 
     @keyframes cardEntry {
       from { opacity: 0; transform: translateY(30px) scale(0.97); }
-      to { opacity: 1; transform: translateY(0) scale(1); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
     }
 
-    /* Top accent line */
     .card::before {
       content: ''; position: absolute; top: 0; left: 20%; right: 20%; height: 1px;
       background: linear-gradient(90deg, transparent, var(--accent), transparent);
@@ -99,9 +93,8 @@
     }
 
     h1 { margin: 0 0 8px; font-size: 28px; font-weight: 300; letter-spacing: -0.5px; }
-    p { margin: 0 0 32px; color: var(--text-muted); font-size: 15px; }
+    p.subtitle { margin: 0 0 32px; color: var(--text-muted); font-size: 15px; }
 
-    /* --- FORM --- */
     .form-group { margin-bottom: 20px; }
     label {
       display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 8px;
@@ -134,12 +127,27 @@
       border-radius: var(--radius);
       padding: 14px 16px;
       margin-bottom: 30px;
-      display: flex; gap: 12px; align-items: start;
+      display: flex; gap: 12px; align-items: flex-start;
     }
-    .prompt-icon { color: var(--accent); font-size: 18px; margin-top: 2px; }
-    .prompt-content { flex: 1; }
-    .prompt-content strong { color: #fff; display: block; font-size: 13px; margin-bottom: 2px; }
-    .prompt-content span { color: var(--text-muted); font-size: 13px; line-height: 1.4; display: block; word-break: break-all; }
+    .prompt-icon { color: var(--accent); font-size: 18px; margin-top: 2px; flex-shrink: 0; }
+    .prompt-content { flex: 1; min-width: 0; }
+    .prompt-content strong { color: #fff; display: block; font-size: 13px; margin-bottom: 6px; }
+    .prompt-content .prompt-text { color: var(--text-muted); font-size: 13px; line-height: 1.4; display: block; word-break: break-word; }
+
+    /* --- MODE BADGE --- */
+    .mode-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
+      padding: 3px 8px; border-radius: var(--radius-sm);
+      margin-bottom: 8px;
+    }
+    .mode-badge .badge-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+    .mode-badge.fast   { color: #10b981; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.25); }
+    .mode-badge.fast   .badge-dot { background: #10b981; }
+    .mode-badge.normal { color: #fff;    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); }
+    .mode-badge.normal .badge-dot { background: #fff; }
+    .mode-badge.deep   { color: #8b5cf6; background: rgba(139,92,246,0.12); border: 1px solid rgba(139,92,246,0.25); }
+    .mode-badge.deep   .badge-dot { background: #8b5cf6; }
 
     .stashed-thumbnail {
       width: 40px; height: 40px; border-radius: var(--radius-sm);
@@ -148,7 +156,7 @@
       box-shadow: 0 2px 6px rgba(0,0,0,0.3);
     }
 
-    /* --- 3D BUTTONS --- */
+    /* --- BUTTONS --- */
     .btn-group { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
 
     .btn {
@@ -184,7 +192,6 @@
         0 1px 4px rgba(0,0,0,0.3);
     }
 
-    /* Ghost / secondary variant for premium */
     .btn-ghost {
       background: rgba(255,255,255,0.03);
       color: var(--text-muted);
@@ -198,30 +205,6 @@
     }
     .btn-ghost:active { transform: translateY(1px); box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
 
-    .btn-xmode {
-      background: linear-gradient(180deg, #8b5cf6 0%, #6d28d9 100%);
-      color: #fff;
-      border: none;
-      box-shadow:
-        0 1px 0 rgba(255,255,255,0.15) inset,
-        0 -2px 0 rgba(0,0,0,0.3) inset,
-        0 4px 12px rgba(124, 58, 237, 0.3),
-        0 2px 4px rgba(0,0,0,0.3);
-    }
-    .btn-xmode:hover {
-      transform: translateY(-2px);
-      box-shadow:
-        0 1px 0 rgba(255,255,255,0.2) inset,
-        0 -2px 0 rgba(0,0,0,0.3) inset,
-        0 8px 24px rgba(124, 58, 237, 0.45),
-        0 4px 8px rgba(0,0,0,0.4);
-      filter: brightness(1.08);
-    }
-    .btn-xmode:active {
-      transform: translateY(1px);
-      box-shadow: 0 1px 3px rgba(124, 58, 237, 0.2), 0 1px 0 rgba(255,255,255,0.1) inset;
-    }
-
     .back-link {
       display: block; text-align: center; margin-top: 24px;
       color: var(--text-muted); text-decoration: none; font-size: 13px;
@@ -229,18 +212,12 @@
     }
     .back-link:hover { color: #fff; }
 
-    /* ==========================================================================
-       LOADING STATE
-       ========================================================================== */
+    /* --- LOADING STATE --- */
     .loading-state {
-      display: none;
-      text-align: center;
-      padding: 40px 0;
-      position: relative;
+      display: none; text-align: center; padding: 40px 0; position: relative;
     }
     .loading-state.active {
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
     }
 
     .compiler-core {
@@ -248,20 +225,17 @@
       margin: 0 auto 40px;
       display: flex; align-items: center; justify-content: center;
     }
-
     .compiler-glow {
       position: absolute; width: 100%; height: 100%;
       background: radial-gradient(circle, var(--accent) 0%, transparent 60%);
       opacity: 0.15; filter: blur(25px);
       animation: corePulse 2s ease-in-out infinite alternate;
     }
-
     .figma-icon {
       width: 50px; height: 50px; z-index: 10;
       filter: drop-shadow(0 0 15px rgba(26, 188, 254, 0.5));
       animation: levitate 4s ease-in-out infinite;
     }
-
     .scanner-line {
       position: absolute; width: 120%; height: 2px;
       background: #1ABCFE;
@@ -269,7 +243,6 @@
       z-index: 15; opacity: 0.8;
       animation: scan 2s linear infinite;
     }
-
     .tech-ring {
       position: absolute; width: 100%; height: 100%;
       border: 1px dashed rgba(255, 255, 255, 0.12);
@@ -283,7 +256,7 @@
       box-shadow: 0 0 8px var(--accent);
     }
     .tech-ring::before { top: -3px; left: 50%; transform: translateX(-50%); }
-    .tech-ring::after { bottom: -3px; left: 50%; transform: translateX(-50%); }
+    .tech-ring::after  { bottom: -3px; left: 50%; transform: translateX(-50%); }
 
     #matrixCanvas {
       position: absolute; top: -50px; left: -50px;
@@ -300,7 +273,6 @@
       font-size: 24px; font-weight: 500; color: #fff;
       margin-bottom: 12px; letter-spacing: -0.5px;
     }
-
     .loading-subtitle {
       font-size: 13px; color: var(--accent);
       font-family: monospace; letter-spacing: 1px; text-transform: uppercase;
@@ -308,32 +280,30 @@
       padding: 6px 14px; border-radius: var(--radius);
       border: 1px solid rgba(59, 108, 255, 0.15);
     }
-
     .typewriter-text {
       display: inline-block; overflow: hidden; white-space: nowrap;
       border-right: 2px solid var(--accent);
       animation: typing 1.5s steps(3) infinite;
     }
 
-    /* Animations */
     @keyframes levitate {
       0%, 100% { transform: translateY(0) scale(1); }
-      50% { transform: translateY(-8px) scale(1.05); }
+      50%      { transform: translateY(-8px) scale(1.05); }
     }
     @keyframes corePulse {
-      0% { opacity: 0.08; transform: scale(0.8); }
+      0%   { opacity: 0.08; transform: scale(0.8); }
       100% { opacity: 0.25; transform: scale(1.2); }
     }
     @keyframes scan {
-      0% { top: -10%; opacity: 0; }
-      10% { opacity: 1; }
-      90% { opacity: 1; }
+      0%   { top: -10%; opacity: 0; }
+      10%  { opacity: 1; }
+      90%  { opacity: 1; }
       100% { top: 110%; opacity: 0; }
     }
     @keyframes spinAnim { 100% { transform: rotate(360deg); } }
     @keyframes typing {
       0%, 100% { border-color: transparent; }
-      50% { border-color: var(--accent); }
+      50%      { border-color: var(--accent); }
     }
   </style>
 </head>
@@ -349,17 +319,23 @@
 
     <div id="formView">
       <h1>Initialize Project</h1>
-      <p>Review details before the AI begins construction.</p>
+      <p class="subtitle">Review details before the AI begins construction.</p>
 
       {% if initial_prompt or stashed_image %}
       <div class="prompt-preview">
         <i class="ph-fill ph-sparkle prompt-icon"></i>
         <div class="prompt-content">
           <strong>Prompt Loaded</strong>
+
+          <span class="mode-badge fast" id="modeBadge" style="display:none;">
+            <span class="badge-dot"></span>
+            <span id="modeBadgeLabel">Fast</span>
+          </span>
+
           {% if initial_prompt %}
-            <span>"{{ initial_prompt[:80] }}{% if initial_prompt|length > 80 %}...{% endif %}"</span>
+            <span class="prompt-text" id="visiblePrompt">"{{ initial_prompt[:120] }}{% if initial_prompt|length > 120 %}...{% endif %}"</span>
           {% else %}
-            <span>Image layout detected.</span>
+            <span class="prompt-text">Image layout detected.</span>
           {% endif %}
         </div>
 
@@ -371,7 +347,7 @@
 
       <form id="createForm" method="post" action="/projects/create" enctype="multipart/form-data">
 
-        <input type="hidden" name="prompt" value="{{ initial_prompt or '' }}">
+        <input type="hidden" name="prompt" id="hiddenPrompt" value="{{ initial_prompt or '' }}">
         {% if stashed_image %}
           <input type="hidden" name="image_base64" value="{{ stashed_image }}">
         {% endif %}
@@ -383,7 +359,7 @@
 
         <div class="form-group">
           <label>Description</label>
-          <textarea name="description" placeholder="A brief summary of what this app does...">{{ initial_prompt }}</textarea>
+          <textarea name="description" placeholder="A brief summary of what this app does..." id="descriptionField">{{ initial_prompt }}</textarea>
         </div>
 
         <div class="btn-group">
@@ -403,7 +379,6 @@
     </div>
 
     <div id="loadingView" class="loading-state">
-
       <div class="compiler-core">
         <canvas id="matrixCanvas"></canvas>
         <div class="compiler-glow"></div>
@@ -426,7 +401,7 @@
       {% if is_figma_link %}
         <div class="loading-title">Compiling Figma Design</div>
         <div class="loading-subtitle" id="statusText">EXTRACTING_AST <span class="typewriter-text">...</span></div>
-        <p style="margin-top:20px; font-size:13px; color:var(--text-muted); opacity: 0.7;">Translating vector layout into React TSX</p>
+        <p style="margin-top:20px; font-size:13px; color:var(--text-muted); opacity:0.7;">Translating vector layout into React TSX</p>
       {% else %}
         <div class="loading-title">Initializing Environment</div>
         <div class="loading-subtitle">BOOTING_VM <span class="typewriter-text">...</span></div>
@@ -436,45 +411,135 @@
   </div>
 
   <script>
-    // --- MATRIX PARTICLES ---
+    // --- Detect and strip mode prefix from the prompt using RegEx ---
+    // This removes the target string NO MATTER WHERE it appears in the prompt.
+    const PREFIXES = [
+      {
+        regex: /TAKE YOUR TIME AND THINK DEEPLY\. Before writing any code, carefully plan your architecture, reason through edge cases, and think about potential failure points\. Quality and thoroughness over speed and do this:\s*/gi,
+        label: 'Deep',
+        cls: 'deep'
+      },
+      {
+        regex: /BE TOKEN EFFICIENT AND FAST AND DO THIS:\s*/gi,
+        label: 'Fast',
+        cls: 'fast'
+      }
+    ];
+
+    const hiddenPrompt     = document.getElementById('hiddenPrompt');
+    const visiblePrompt    = document.getElementById('visiblePrompt');
+    const modeBadge        = document.getElementById('modeBadge');
+    const modeBadgeLabel   = document.getElementById('modeBadgeLabel');
+    const descriptionField = document.getElementById('descriptionField');
+
+    function detectAndStrip() {
+      if (!hiddenPrompt || !visiblePrompt) return;
+
+      const raw = hiddenPrompt.value;
+      let detectedMode = null;
+      let cleanPrompt  = raw;
+
+      // Check against all regex prefixes
+      for (const cfg of PREFIXES) {
+        if (cfg.regex.test(cleanPrompt)) {
+          detectedMode = cfg;
+          // Strip the prefix out of the display prompt
+          cleanPrompt = cleanPrompt.replace(cfg.regex, '').trim();
+          break; // Stop after finding the mode
+        }
+      }
+
+      // Show badge if a mode prefix was found
+      if (detectedMode) {
+        modeBadge.className = `mode-badge ${detectedMode.cls}`;
+        modeBadgeLabel.textContent = detectedMode.label;
+        modeBadge.style.display = 'inline-flex';
+      }
+
+      // Update the visible prompt text (truncated, no prefix)
+      const display = cleanPrompt.length > 120
+        ? `"${cleanPrompt.slice(0, 120)}..."`
+        : `"${cleanPrompt}"`;
+      visiblePrompt.textContent = display;
+
+      // Also clean the description textarea default (no prefix)
+      if (descriptionField) {
+        let cleanDesc = descriptionField.value;
+        for (const cfg of PREFIXES) {
+          cleanDesc = cleanDesc.replace(cfg.regex, '').trim();
+        }
+        descriptionField.value = cleanDesc;
+      }
+
+      // hiddenPrompt keeps the FULL original value (with prefix) — passed to editor untouched
+    }
+
+    detectAndStrip();
+
+    // --- Form submit → loading state ---
+    document.getElementById("createForm").addEventListener("submit", function() {
+      const buttons = this.querySelectorAll('button[type="submit"]');
+      buttons.forEach(btn => {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.style.cursor  = 'wait';
+      });
+
+      document.getElementById("formView").style.display  = "none";
+      document.getElementById("loadingView").classList.add("active");
+
+      const isFigma = {{ 'true' if is_figma_link else 'false' }};
+      if (isFigma) {
+        startMatrixEffect();
+        const texts = ["EXTRACTING_AST", "PURGING_MATH", "TRANSLATING_FLEXBOX", "WRITING_COMPONENTS"];
+        let i = 0;
+        setInterval(() => {
+          i = (i + 1) % texts.length;
+          document.getElementById("statusText").innerHTML =
+            texts[i] + ' <span class="typewriter-text">...</span>';
+        }, 2500);
+      }
+    });
+
+    // --- Matrix particles ---
     function startMatrixEffect() {
       const canvas = document.getElementById('matrixCanvas');
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
-      canvas.width = canvas.offsetWidth;
+      canvas.width  = canvas.offsetWidth;
       canvas.height = canvas.offsetHeight;
 
       const particles = [];
-      const colors = ['#1ABCFE', '#0ACF83', '#A259FF', '#FF7262', '#ffffff'];
+      const colors    = ['#1ABCFE','#0ACF83','#A259FF','#FF7262','#ffffff'];
 
       class Particle {
         constructor() { this.reset(); }
         reset() {
-          const angle = Math.random() * Math.PI * 2;
+          const angle    = Math.random() * Math.PI * 2;
           const distance = 80 + Math.random() * 40;
-          this.x = canvas.width/2 + Math.cos(angle) * distance;
-          this.y = canvas.height/2 + Math.sin(angle) * distance;
-          this.size = Math.random() * 2 + 1;
+          this.x  = canvas.width/2  + Math.cos(angle) * distance;
+          this.y  = canvas.height/2 + Math.sin(angle) * distance;
+          this.size  = Math.random() * 2 + 1;
           this.speed = Math.random() * 1 + 0.5;
           this.color = colors[Math.floor(Math.random() * colors.length)];
-          const dx = canvas.width/2 - this.x;
+          const dx = canvas.width/2  - this.x;
           const dy = canvas.height/2 - this.y;
           const mag = Math.sqrt(dx*dx + dy*dy);
-          this.vx = (dx / mag) * this.speed;
-          this.vy = (dy / mag) * this.speed;
+          this.vx   = (dx / mag) * this.speed;
+          this.vy   = (dy / mag) * this.speed;
           this.life = 1;
         }
         update() {
           this.x += this.vx; this.y += this.vy;
-          const dx = canvas.width/2 - this.x;
-          const dy = canvas.height/2 - this.y;
+          const dx   = canvas.width/2  - this.x;
+          const dy   = canvas.height/2 - this.y;
           const dist = Math.sqrt(dx*dx + dy*dy);
           if (dist < 15) this.reset();
           else this.life = dist / 80;
         }
         draw() {
           ctx.globalAlpha = Math.max(0, Math.min(1, this.life));
-          ctx.fillStyle = this.color;
+          ctx.fillStyle   = this.color;
           ctx.beginPath();
           ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
           ctx.fill();
@@ -482,6 +547,7 @@
       }
 
       for (let i = 0; i < 30; i++) particles.push(new Particle());
+
       function animate() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         particles.forEach(p => { p.update(); p.draw(); });
@@ -489,29 +555,6 @@
       }
       animate();
     }
-
-    // Intercept form
-    document.getElementById("createForm").addEventListener("submit", function(e) {
-      const buttons = this.querySelectorAll('button[type="submit"]');
-      buttons.forEach(btn => { btn.disabled = true; btn.style.opacity = '0.5'; btn.style.cursor = 'wait'; });
-
-      const formView = document.getElementById("formView");
-      const loadingView = document.getElementById("loadingView");
-      const isFigma = {{ 'true' if is_figma_link else 'false' }};
-
-      formView.style.display = "none";
-      loadingView.classList.add("active");
-
-      if (isFigma) {
-        startMatrixEffect();
-        const texts = ["EXTRACTING_AST", "PURGING_MATH", "TRANSLATING_FLEXBOX", "WRITING_COMPONENTS"];
-        let i = 0;
-        setInterval(() => {
-          i = (i + 1) % texts.length;
-          document.getElementById("statusText").innerHTML = texts[i] + ' <span class="typewriter-text">...</span>';
-        }, 2500);
-      }
-    });
   </script>
 </body>
 </html>

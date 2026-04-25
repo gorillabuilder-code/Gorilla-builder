@@ -16,6 +16,11 @@ Improvements over v9:
   #8  Silent success — "command ran successfully" when stdout is empty
   #9  History compression — old observations collapsed to 1-line summaries
   #10 Reviewer — after GORILLA_DONE, one cheap call checks for obvious mistakes
+
+Image threading:
+  If .gorilla/prompt_image.b64 exists in the file tree, it is fed to the
+  prompt expander, the planner, AND the first agent turn so all three stages
+  have visual context.
 """
 
 from __future__ import annotations
@@ -24,7 +29,7 @@ import os
 import re
 import time
 import hashlib
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -32,7 +37,7 @@ import httpx
 # Config
 # ---------------------------------------------------------------------------
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("LINEAGE_MODEL", "deepseek/deepseek-v4-flash:deepseek")
+MODEL = os.getenv("LINEAGE_MODEL", "deepseek/deepseek-v4-flash")
 PLANNER_MODEL = os.getenv("PLANNER_MODEL", "xiaomi/mimo-v2.5")
 VISION_MODEL = os.getenv("VISION_MODEL", "xiaomi/mimo-v2.5")
 OPENROUTER_URL = os.getenv(
@@ -54,20 +59,31 @@ if not OPENROUTER_API_KEY:
 # ---------------------------------------------------------------------------
 _external_log_callback = None
 
+
 def set_log_callback(cb):
     global _external_log_callback
     _external_log_callback = cb
 
+
 def log_agent(role: str, message: str, project_id: str = "") -> None:
     prefix = f"[{project_id[:8]}]" if project_id else "[AGENT]"
     ts = time.strftime("%H:%M:%S")
-    c = {"agent": "\033[94m", "llm": "\033[90m", "system": "\033[97m",
-         "debugger": "\033[91m"}.get(role.lower(), "\033[94m")
-    print(f"\033[90m{ts}\033[0m {prefix} {c}{role.upper()}\033[0m: "
-          f"{message[:300]}{'...' if len(message) > 300 else ''}")
+    c = {
+        "agent": "\033[94m",
+        "llm": "\033[90m",
+        "system": "\033[97m",
+        "debugger": "\033[91m",
+    }.get(role.lower(), "\033[94m")
+    print(
+        f"\033[90m{ts}\033[0m {prefix} {c}{role.upper()}\033[0m: "
+        f"{message[:300]}{'...' if len(message) > 300 else ''}"
+    )
     if _external_log_callback and project_id and role.lower() != "llm":
-        try: _external_log_callback(project_id, role.lower(), message)
-        except Exception: pass
+        try:
+            _external_log_callback(project_id, role.lower(), message)
+        except Exception:
+            pass
+
 
 def _render_token_limit_message() -> str:
     return (
@@ -78,7 +94,7 @@ def _render_token_limit_message() -> str:
         'text-align:center;max-width:400px;margin:20px auto;'
         'box-shadow:0 20px 60px rgba(0,0,0,0.5);">'
         '<h2 style="color:#fff;font-size:24px;font-weight:700;margin:0 0 12px;">'
-        'Token Limit Reached</h2>'
+        "Token Limit Reached</h2>"
         '<p style="color:#94a3b8;font-size:14px;line-height:1.6;margin:0 0 28px;'
         'max-width:280px;">Upgrade to Premium for unlimited access.</p>'
         '<a href="/pricing" style="background:linear-gradient(135deg,#d946ef,#a855f7);'
@@ -86,62 +102,88 @@ def _render_token_limit_message() -> str:
         'font-size:14px;font-weight:600;">Upgrade to Premium</a></div>'
     )
 
+
 # ---------------------------------------------------------------------------
 # Legacy shims (kept for app.py compatibility)
 # ---------------------------------------------------------------------------
 _HISTORY: Dict[str, list] = {}
 HISTORY_CAP = 100
 
+
 def _norm_role(r: str) -> str:
     return "user" if (r or "").strip().lower() in ("user", "you") else "assistant"
 
+
 def _append_history(project_id: str, role: str, content: str) -> None:
-    if not project_id or not content: return
+    if not project_id or not content:
+        return
     _HISTORY.setdefault(project_id, []).append(
-        {"role": _norm_role(role), "content": content.strip()})
+        {"role": _norm_role(role), "content": content.strip()}
+    )
     if len(_HISTORY[project_id]) > HISTORY_CAP:
         _HISTORY[project_id] = _HISTORY[project_id][-HISTORY_CAP:]
+
 
 def _get_history(project_id: str, max_items: int = 20) -> list:
     return list(_HISTORY.get(project_id, []))[-max_items:]
 
+
 def clear_history(project_id: str) -> None:
     _HISTORY.pop(project_id, None)
+
 
 # ---------------------------------------------------------------------------
 # Token substitution (for images/blobs in file tree)
 # ---------------------------------------------------------------------------
 class TokenSubstitution:
     THRESHOLD = 500
+
     def __init__(self):
         self._vault: Dict[str, str] = {}
         self._reverse: Dict[str, str] = {}
         self._n = 0
+
     def _mk(self) -> str:
-        self._n += 1; return f"__BLOB_{self._n:04d}__"
+        self._n += 1
+        return f"__BLOB_{self._n:04d}__"
+
     @staticmethod
     def _is_b64(s: str) -> bool:
-        if len(s) < 100: return False
+        if len(s) < 100:
+            return False
         sample = s[:200].strip()
-        return (sum(1 for c in sample if c.isalnum() or c in "+/=") / len(sample)) > 0.9 and "\n" not in sample[:100]
+        return (
+            sum(1 for c in sample if c.isalnum() or c in "+/=") / len(sample)
+        ) > 0.9 and "\n" not in sample[:100]
+
     def compress_tree(self, tree: Dict[str, str]) -> Dict[str, str]:
         out: Dict[str, str] = {}
         for path, content in tree.items():
             if content and len(content) > self.THRESHOLD:
-                if (path.endswith(".b64") or self._is_b64(content)
-                        or (path.endswith(".json") and len(content) > 5000)
-                        or (path.endswith(".svg") and len(content) > 3000)):
+                if (
+                    path.endswith(".b64")
+                    or self._is_b64(content)
+                    or (path.endswith(".json") and len(content) > 5000)
+                    or (path.endswith(".svg") and len(content) > 3000)
+                ):
                     h = hashlib.md5(content[:200].encode()).hexdigest()
-                    if h in self._reverse: out[path] = self._reverse[h]
+                    if h in self._reverse:
+                        out[path] = self._reverse[h]
                     else:
-                        pid = self._mk(); self._vault[pid] = content; self._reverse[h] = pid; out[path] = pid
+                        pid = self._mk()
+                        self._vault[pid] = content
+                        self._reverse[h] = pid
+                        out[path] = pid
                     continue
             out[path] = content
         return out
+
     def expand(self, text: str) -> str:
         for ph, original in self._vault.items():
-            if ph in text: text = text.replace(ph, original)
+            if ph in text:
+                text = text.replace(ph, original)
         return text
+
 
 # ---------------------------------------------------------------------------
 # Context management (#9 — history compression)
@@ -150,12 +192,15 @@ def _estimate_tokens(messages: list) -> int:
     total = 0
     for m in messages:
         c = m.get("content", "")
-        if isinstance(c, str): total += len(c) // CHARS_PER_TOKEN
+        if isinstance(c, str):
+            total += len(c) // CHARS_PER_TOKEN
         elif isinstance(c, list):
             for item in c:
                 if isinstance(item, dict):
-                    if item.get("type") == "text": total += len(item.get("text", "")) // CHARS_PER_TOKEN
-                    elif item.get("type") == "image_url": total += 1000
+                    if item.get("type") == "text":
+                        total += len(item.get("text", "")) // CHARS_PER_TOKEN
+                    elif item.get("type") == "image_url":
+                        total += 1000
     return total
 
 
@@ -171,11 +216,9 @@ def _compress_history(messages: list, max_tokens: int = MAX_CONTEXT_TOKENS) -> l
     sys_msg = messages[0] if messages and messages[0].get("role") == "system" else None
     first_user = messages[1] if len(messages) > 1 else None
 
-    # Keep last 10 messages (5 turns) fully intact
     keep_full = 10
     recent = messages[-keep_full:]
 
-    # Middle messages get compressed
     middle_start = 2 if first_user else 1
     middle_end = len(messages) - keep_full
     compressed_middle = []
@@ -184,15 +227,14 @@ def _compress_history(messages: list, max_tokens: int = MAX_CONTEXT_TOKENS) -> l
         role = m.get("role", "")
         content = m.get("content", "")
         if isinstance(content, list):
-            # Vision message — drop the image, keep text summary
             text_parts = [p.get("text", "")[:100] for p in content if p.get("type") == "text"]
             content = " ".join(text_parts)
         if role == "user" and content.startswith("OBSERVATION:"):
-            # Collapse observation to first line
             first_line = content.split("\n")[1] if "\n" in content else content
-            compressed_middle.append({"role": "user", "content": f"OBSERVATION: {first_line[:120]}..."})
+            compressed_middle.append(
+                {"role": "user", "content": f"OBSERVATION: {first_line[:120]}..."}
+            )
         elif role == "assistant":
-            # Collapse assistant to just the discussion (no bash block)
             lines = content.split("```")[0].strip().split("\n")
             summary = lines[0][:120] if lines else "..."
             compressed_middle.append({"role": "assistant", "content": summary})
@@ -200,15 +242,17 @@ def _compress_history(messages: list, max_tokens: int = MAX_CONTEXT_TOKENS) -> l
             compressed_middle.append({"role": role, "content": content[:200]})
 
     result = []
-    if sys_msg: result.append(sys_msg)
-    if first_user and first_user not in recent: result.append(first_user)
+    if sys_msg:
+        result.append(sys_msg)
+    if first_user and first_user not in recent:
+        result.append(first_user)
     result.extend(compressed_middle)
     result.extend(recent)
 
-    # If still over budget, drop the compressed middle entirely
     if _estimate_tokens(result) > max_tokens:
-        result = ([sys_msg] if sys_msg else [])
-        if first_user: result.append(first_user)
+        result = [sys_msg] if sys_msg else []
+        if first_user:
+            result.append(first_user)
         result.extend(recent)
 
     return result
@@ -224,7 +268,7 @@ SYSTEM_PROMPT = r"""You are Gor://a, an autonomous software engineer. You work i
 
 You interact with the sandbox in a loop. Each step you provide:
 
-1. DISCUSSION — your reasoning about what to do next (always include this and just speak naturally, never say Discussion: or working on it...)
+1. DISCUSSION — your reasoning about what to do next (always include this and just speak naturally, NEVER EVER say Discussion: or working on it...)
 2. A fenced bash code block with the command(s) to execute
 
 Example response (NEVER EVER TALK ANYTHING RELATED TO LINT ERRORS):
@@ -266,6 +310,7 @@ Layout: src/ (React), src/components/ui/ (shadcn), src/utils/auth.ts (auth gatew
 9. If something fails, read /tmp/dev.log, fix the issue, restart, verify again
 10. Create ONE file per step. Do NOT write multiple files in a single bash block.
 11. NEVER say GORILLA_DONE before turn 5. You have not built enough yet!
+12. ALWAYS REPLACE THE BOILERPLATE Index.tsx and try to go over the top with the app.
 
 ## Auth gateway
 ```tsx
@@ -286,7 +331,6 @@ A FEW IMPORTANT ISSUES TO LOOK OUT FOR:
 - Always list packages in package.json
 - Never render App.tsx with a browser router as a browser router inside the main.tsx (this causes react errors)
 - Be extremely cautious about react errors as they may not be relayed to you, but you must find a way to check them
-- NEVER BE TO AMBTITIOUS UNLESS EXPLICITLY ASKED, AND TRY TO BE HIGHLY TOKEN EFFECEINT 
 """
 
 SUPABASE_ADDON = r"""
@@ -378,29 +422,49 @@ Examples of BAD specs (brochure sites):
 
 IF IT IS A MINOR TASK FOR AN EXISTING APP OR A DEBUGGING TASK, SIMPLY STATE THE NESSACARY TASK.
 
+If an image is provided, treat it as a UI reference or mockup. Describe what you see and incorporate it into the spec — layout structure, color palette, component patterns, and any visible content or flows.
+
 Output ONLY the spec. No preamble."""
 
 
-async def expand_prompt(short_prompt: str, has_supabase: bool = False) -> str:
+async def expand_prompt(
+    short_prompt: str,
+    has_supabase: bool = False,
+    image_b64: Optional[str] = None,
+) -> str:
     """
     #1 — Turn "coffee shop site" into a 200-word detailed spec.
     Uses the same model — one cheap call, no extra cost.
     Injects Supabase guidance only when has_supabase is True.
+    Accepts optional image_b64 from .gorilla/prompt_image.b64.
     """
     if len(short_prompt) > 300:
-        # Already detailed enough, skip expansion
         return short_prompt
 
     system = EXPANDER_SYSTEM
     if has_supabase:
         system += "\n" + EXPANDER_SUPABASE_ADDON
 
+    user_content: Any
+    if image_b64:
+        img_url = (
+            image_b64 if image_b64.startswith("data:")
+            else f"data:image/jpeg;base64,{image_b64}"
+        )
+        user_content = [
+            {"type": "text", "text": short_prompt},
+            {"type": "image_url", "image_url": {"url": img_url}},
+        ]
+    else:
+        user_content = short_prompt
+
     messages = [
         {"role": "system", "content": system},
-        {"role": "user", "content": short_prompt},
+        {"role": "user", "content": user_content},
     ]
     try:
-        raw, _ = await _call_llm(messages, model=PLANNER_MODEL, temperature=0.8)
+        model = VISION_MODEL if image_b64 else PLANNER_MODEL
+        raw, _ = await _call_llm(messages, model=model, temperature=0.8)
         expanded = raw.strip()
         if len(expanded) > len(short_prompt) * 2:
             log_agent("agent", f"Expanded prompt: {expanded[:150]}...")
@@ -477,27 +541,49 @@ Rules:
 - Include image generation steps where the app needs visuals.
 - Include backend routes if the app has any interactivity.
 - Don't overspecify component internals — the developer knows React.
+- If an image reference was provided, use it to inform component layout and visual decisions.
 - Output ONLY the checklist."""
 
 
-async def generate_plan(expanded_prompt: str, file_tree_summary: str, has_supabase: bool = False) -> Optional[str]:
+async def generate_plan(
+    expanded_prompt: str,
+    file_tree_summary: str,
+    has_supabase: bool = False,
+    image_b64: Optional[str] = None,
+) -> Optional[str]:
     """
     #2 + #5 — Generate a todo.md checklist with per-file specs.
     Uses the same model. Returns the raw markdown or None on failure.
     Injects Supabase guidance only when has_supabase is True.
+    Accepts optional image_b64 from .gorilla/prompt_image.b64.
     """
     system = PLANNER_SYSTEM
     if has_supabase:
         system += "\n" + PLANNER_SUPABASE_ADDON
 
+    user_text = f"Existing files:\n{file_tree_summary}\n\nSpec:\n{expanded_prompt}"
+
+    user_content: Any
+    if image_b64:
+        img_url = (
+            image_b64 if image_b64.startswith("data:")
+            else f"data:image/jpeg;base64,{image_b64}"
+        )
+        user_content = [
+            {"type": "text", "text": user_text},
+            {"type": "image_url", "image_url": {"url": img_url}},
+        ]
+    else:
+        user_content = user_text
+
     messages = [
         {"role": "system", "content": system},
-        {"role": "user", "content": f"Existing files:\n{file_tree_summary}\n\nSpec:\n{expanded_prompt}"},
+        {"role": "user", "content": user_content},
     ]
     try:
-        raw, _ = await _call_llm(messages, model=PLANNER_MODEL, temperature=0.4)
+        model = VISION_MODEL if image_b64 else PLANNER_MODEL
+        raw, _ = await _call_llm(messages, model=model, temperature=0.4)
         plan = raw.strip()
-        # Validate it looks like a checklist
         if "- [ ]" in plan:
             log_agent("agent", f"Plan generated: {plan[:200]}...")
             return plan
@@ -531,7 +617,10 @@ async def review_output(file_tree_summary: str, last_output: str) -> Optional[st
     """
     messages = [
         {"role": "system", "content": REVIEWER_SYSTEM},
-        {"role": "user", "content": f"Files:\n{file_tree_summary}\n\nRecent output:\n{last_output[:3000]}"},
+        {
+            "role": "user",
+            "content": f"Files:\n{file_tree_summary}\n\nRecent output:\n{last_output[:3000]}",
+        },
     ]
     try:
         raw, _ = await _call_llm(messages, model=MODEL, temperature=0.2)
@@ -557,7 +646,7 @@ def _parse_response(raw: str) -> Dict[str, Any]:
     message = ""
 
     if not raw:
-        return
+        return {"thought": "", "bash": "", "done": False, "message": "Working on it."}
 
     # Check for GORILLA_DONE
     if "GORILLA_DONE" in raw:
@@ -568,23 +657,27 @@ def _parse_response(raw: str) -> Dict[str, Any]:
         m = re.search(r"```(?:bash|sh|shell)?\n(.*?)```", parts[0], re.DOTALL)
         if m:
             bash_block = m.group(1).strip()
-            thought = parts[0][:m.start()].strip()
+            thought = parts[0][: m.start()].strip()
         if not message and thought:
             message = thought.split("\n")[0][:300]
-        return {"thought": thought, "bash": bash_block, "done": done, "message": message or "Done."}
+        return {
+            "thought": thought,
+            "bash": bash_block,
+            "done": done,
+            "message": message or "Done.",
+        }
 
     # Extract fenced bash block
     m = re.search(r"```(?:bash|sh|shell)?\n(.*?)```", raw, re.DOTALL)
     if m:
         bash_block = m.group(1).strip()
-        thought = raw[:m.start()].strip()
+        thought = raw[: m.start()].strip()
     else:
         thought = raw.strip()
 
     # #4 — Narration fix: pass FULL thought to UI, not just first line
-    # Take up to first 3 sentences or 300 chars, whichever is shorter
     if thought:
-        sentences = re.split(r'(?<=[.!?])\s+', thought)
+        sentences = re.split(r"(?<=[.!?])\s+", thought)
         message = " ".join(sentences[:3])[:300]
 
     return {
@@ -600,10 +693,16 @@ def _parse_response(raw: str) -> Dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 _DANGEROUS = [
-    r"\brm\s+-rf\s+/($|\s)", r"\bsudo\b", r"\bshutdown\b", r"\breboot\b",
-    r">\s*/dev/(sda|nvme|hda)", r"\bmkfs\b", r":\(\)\s*{\s*:\|:",
+    r"\brm\s+-rf\s+/($|\s)",
+    r"\bsudo\b",
+    r"\bshutdown\b",
+    r"\breboot\b",
+    r">\s*/dev/(sda|nvme|hda)",
+    r"\bmkfs\b",
+    r":\(\)\s*{\s*:\|:",
     r"\bdd\s+if=.*\s+of=/dev/",
 ]
+
 
 def _is_safe(cmd: str) -> bool:
     return not any(re.search(p, cmd, re.IGNORECASE) for p in _DANGEROUS)
@@ -613,16 +712,25 @@ def _is_safe(cmd: str) -> bool:
 #  LLM call
 # ═══════════════════════════════════════════════════════════════════════════
 
-async def _call_llm(messages: list, model: str = MODEL, temperature: float = 0.6) -> Tuple[str, int]:
+async def _call_llm(
+    messages: list, model: str = MODEL, temperature: float = 0.6
+) -> Tuple[str, int]:
     messages = _compress_history(messages)
     payload = {
-        "model": model, "messages": messages,
-        "temperature": temperature, "max_tokens": 16000,
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": 16000,
+        "provider": {
+            "order": ["deepseek"],
+            "allow_fallbacks": False,
+        },
     }
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": SITE_URL, "X-Title": SITE_NAME,
+        "HTTP-Referer": SITE_URL,
+        "X-Title": SITE_NAME,
     }
     async with httpx.AsyncClient(timeout=180.0) as client:
         resp = await client.post(OPENROUTER_URL, json=payload, headers=headers)
@@ -632,7 +740,6 @@ async def _call_llm(messages: list, model: str = MODEL, temperature: float = 0.6
     u = data.get("usage", {})
     p = u.get("prompt_tokens", 0)
     c = u.get("completion_tokens", 0)
-    # Weighted cost: frontier models cost more per token
     is_frontier = any(x in model for x in ["claude", "gpt-4", "gemini"])
     weight = (p * 0.6 + c * 2.4) if is_frontier else (p * 0.14 + c * 0.3)
     return content, int(weight)
@@ -646,6 +753,11 @@ class LineageAgent:
     """
     mini-SWE-agent with planner pipeline.
     Linear message history. Persisted on SandboxSession.agent.
+
+    Image threading:
+      If .gorilla/prompt_image.b64 (or prompt_image.b64) exists in the file
+      tree on the first turn, it is passed to the expander, the planner, and
+      included in the first agent message so all three stages have visual context.
     """
 
     def __init__(self, project_id: str):
@@ -657,10 +769,15 @@ class LineageAgent:
         self._plan_injected = False
         self._prompt_expanded = False
 
-    def _ensure_system_prompt(self, gorilla_proxy_url: str, has_supabase: bool, is_debug: bool):
+    def _ensure_system_prompt(
+        self, gorilla_proxy_url: str, has_supabase: bool, is_debug: bool
+    ):
         if self._system_prompt_set:
             return
-        prompt = SYSTEM_PROMPT.replace("{GORILLA_PROXY}", gorilla_proxy_url or "https://your-proxy.ngrok-free.dev")
+        prompt = SYSTEM_PROMPT.replace(
+            "{GORILLA_PROXY}",
+            gorilla_proxy_url or "https://your-proxy.ngrok-free.dev",
+        )
         if has_supabase:
             prompt += "\n" + SUPABASE_ADDON
         if is_debug:
@@ -668,11 +785,31 @@ class LineageAgent:
         self.messages = [{"role": "system", "content": prompt}]
         self._system_prompt_set = True
 
+    def _extract_prompt_image(self, file_tree: Dict[str, str]) -> Optional[str]:
+        """
+        Pull .gorilla/prompt_image.b64 (or root-level fallback) from the file
+        tree and normalise it to a data URI.  Returns None if not present.
+        """
+        raw = file_tree.get(".gorilla/prompt_image.b64") or file_tree.get(
+            "prompt_image.b64"
+        )
+        if not raw:
+            return None
+        stripped = raw.strip()
+        if stripped.startswith("data:"):
+            return stripped
+        return f"data:image/jpeg;base64,{stripped}"
+
     async def run(
-        self, user_request: str, file_tree: Dict[str, str],
-        chat_history: Optional[list] = None, gorilla_proxy_url: str = "",
-        has_supabase: bool = False, is_debug: bool = False,
-        error_context: str = "", image_b64: Optional[str] = None,
+        self,
+        user_request: str,
+        file_tree: Dict[str, str],
+        chat_history: Optional[list] = None,
+        gorilla_proxy_url: str = "",
+        has_supabase: bool = False,
+        is_debug: bool = False,
+        error_context: str = "",
+        image_b64: Optional[str] = None,
         previous_command_output: Optional[str] = None,
     ) -> Dict[str, Any]:
         self._ensure_system_prompt(gorilla_proxy_url, has_supabase, is_debug)
@@ -687,24 +824,47 @@ class LineageAgent:
             if len(pkg) < 3000:
                 pkg_snippet = f"\n\npackage.json:\n{pkg}"
 
+        # ── Pull prompt image from file tree (first turn only) ─────────────
+        prompt_image_b64: Optional[str] = None
+        if not previous_command_output:
+            prompt_image_b64 = self._extract_prompt_image(file_tree)
+            if prompt_image_b64:
+                log_agent(
+                    "agent",
+                    "prompt_image.b64 found — feeding to expander, planner, and first turn",
+                    self.project_id,
+                )
+
         if previous_command_output:
-            user_content = f"OBSERVATION:\n{previous_command_output[:8000]}"
+            user_content: Any = f"OBSERVATION:\n{previous_command_output[:8000]}"
             self.messages.append({"role": "user", "content": user_content})
         else:
-            # ── First turn: expand prompt + generate plan ──────────
+            # ── First turn: expand prompt + generate plan ──────────────────
             effective_request = user_request
 
-            # #1 — Prompt expander (passes has_supabase for conditional addon)
+            # #1 — Prompt expander (passes image if available)
             if not is_debug and not self._prompt_expanded and user_request:
-                effective_request = await expand_prompt(user_request, has_supabase=has_supabase)
+                effective_request = await expand_prompt(
+                    user_request,
+                    has_supabase=has_supabase,
+                    image_b64=prompt_image_b64,
+                )
                 self._prompt_expanded = True
 
-            # #2 + #5 — Generate plan with per-file specs (passes has_supabase)
+            # #2 + #5 — Generate plan (passes image if available)
             plan_text = ""
             if not is_debug and not self._plan_injected and file_tree:
-                plan = await generate_plan(effective_request, tree_str, has_supabase=has_supabase)
+                plan = await generate_plan(
+                    effective_request,
+                    tree_str,
+                    has_supabase=has_supabase,
+                    image_b64=prompt_image_b64,
+                )
                 if plan:
-                    plan_text = f"\n\nHere is your plan — follow it step by step, one file per bash block:\n{plan}"
+                    plan_text = (
+                        f"\n\nHere is your plan — follow it step by step, "
+                        f"one file per bash block:\n{plan}"
+                    )
                     self._plan_injected = True
 
             parts = [f"Project files in /home/user/app:\n{tree_str}{pkg_snippet}"]
@@ -718,43 +878,67 @@ class LineageAgent:
                 recent = chat_history[-6:]
                 history_text = "\n".join(
                     f"{m.get('role','user').upper()}: {m.get('content','')[:200]}"
-                    for m in recent if m.get('content')
+                    for m in recent
+                    if m.get("content")
                 )
                 if history_text:
                     parts.append(f"\nRecent conversation:\n{history_text}")
 
-            user_content = "\n".join(parts)
+            user_text = "\n".join(parts)
 
-            if image_b64:
-                img_url = image_b64 if image_b64.startswith("data:") else f"data:image/jpeg;base64,{image_b64}"
-                self.messages.append({"role": "user", "content": [
-                    {"type": "text", "text": user_content},
-                    {"type": "image_url", "image_url": {"url": img_url}},
-                ]})
+            # ── Compose first-turn user message ───────────────────────────
+            # Explicit upload (image_b64 arg) wins the image slot.
+            # prompt_image_b64 is already baked into the expanded spec; we
+            # still attach it here so the agent also has direct visual context.
+            first_turn_image = image_b64 or prompt_image_b64
+
+            if first_turn_image:
+                img_url = (
+                    first_turn_image
+                    if first_turn_image.startswith("data:")
+                    else f"data:image/jpeg;base64,{first_turn_image}"
+                )
+                self.messages.append({
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_text},
+                        {"type": "image_url", "image_url": {"url": img_url}},
+                    ],
+                })
             else:
-                self.messages.append({"role": "user", "content": user_content})
+                self.messages.append({"role": "user", "content": user_text})
 
-        # Call the LLM
-        model = VISION_MODEL if (image_b64 and not previous_command_output) else MODEL
-        log_agent("agent", f"v10 ({model}, turns={len(self.messages)//2})", self.project_id)
+        # ── Model selection ────────────────────────────────────────────────
+        # Use vision model on the first turn whenever any image is involved.
+        first_turn_has_image = bool(
+            (image_b64 or prompt_image_b64) and not previous_command_output
+        )
+        model = VISION_MODEL if first_turn_has_image else MODEL
+        log_agent(
+            "agent",
+            f"v10 ({model}, turns={len(self.messages) // 2})",
+            self.project_id,
+        )
 
         try:
             raw, tokens = await _call_llm(self.messages, model=model, temperature=0.6)
             self.total_tokens += tokens
         except Exception as e:
             log_agent("agent", f"LLM error: {e}", self.project_id)
-            return {"message": f"AI error: {str(e)[:150]}", "commands": [], "done": True, "tokens": 0}
+            return {
+                "message": f"AI error: {str(e)[:150]}",
+                "commands": [],
+                "done": True,
+                "tokens": 0,
+            }
 
-        # Append raw assistant response to message thread
         self.messages.append({"role": "assistant", "content": raw})
 
-        # Parse
         parsed = _parse_response(raw)
 
         if parsed["thought"]:
             log_agent("agent", f"THOUGHT: {parsed['thought'][:300]}", self.project_id)
 
-        # Extract commands
         commands: List[str] = []
         if parsed["bash"]:
             bash_content = self.token_sub.expand(parsed["bash"])
@@ -779,15 +963,28 @@ class LineageAgent:
         }
 
 
+# ---------------------------------------------------------------------------
 # Legacy shim
+# ---------------------------------------------------------------------------
 class Agent:
-    def __init__(self, timeout_s: float = 120.0): self.timeout_s = timeout_s
-    def remember(self, project_id: str, role: str, text: str) -> None: _append_history(project_id, role, text)
+    def __init__(self, timeout_s: float = 120.0):
+        self.timeout_s = timeout_s
+
+    def remember(self, project_id: str, role: str, text: str) -> None:
+        _append_history(project_id, role, text)
 
 
 __all__ = [
-    "LineageAgent", "Agent", "set_log_callback", "log_agent",
-    "_render_token_limit_message", "_append_history", "_get_history",
-    "clear_history", "TokenSubstitution",
-    "expand_prompt", "generate_plan", "review_output",
+    "LineageAgent",
+    "Agent",
+    "set_log_callback",
+    "log_agent",
+    "_render_token_limit_message",
+    "_append_history",
+    "_get_history",
+    "clear_history",
+    "TokenSubstitution",
+    "expand_prompt",
+    "generate_plan",
+    "review_output",
 ]

@@ -3512,7 +3512,7 @@ async def proxy_image_generations(request: Request, auth=Depends(verify_gorilla_
     payload = await request.json()
     
     openrouter_payload = {
-        "model": "sourceful/riverflow-v2-fast",
+        "model": "black-forest-labs/flux.2-klein-4b",
         "messages": [
             {
                 "role": "user",
@@ -3546,7 +3546,7 @@ async def proxy_image_generations(request: Request, auth=Depends(verify_gorilla_
             for image in message.get("images", []):
                 images.append({"url": image["image_url"]["url"]})
         
-        _deduct_proxy_tokens(user_id, 10000, "image_gen")
+        _deduct_proxy_tokens(user_id, 8000, "image_gen")
         
         return JSONResponse({"data": images})
 
@@ -3612,7 +3612,7 @@ async def proxy_chat_completions_bargain(request: Request, auth=Depends(verify_g
     payload = await request.json()
     
     # Force the model to OpenRouter's massive 120b model as requested
-    payload["model"] = "deepseek/deepseek-v3.2" # Replace with your exact OpenRouter model string
+    payload["model"] = "deepseek/deepseek-v4-flash" # Replace with your exact OpenRouter model string
     
     # Ask OpenRouter to send usage stats back even if it's a stream
     if "stream_options" not in payload:
