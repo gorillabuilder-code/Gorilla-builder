@@ -608,6 +608,21 @@ const activityRefs = new Map(); // id -> {cardEl, outputEl}
 const $ = (id) => document.getElementById(id);
 const chat = $("chat");
 
+// --- PROMPT CLEANER ---
+const PREFIXES = [
+  /TAKE YOUR TIME AND THINK DEEPLY\. Before writing any code, carefully plan your architecture, reason through edge cases, and think about potential failure points\. Quality and thoroughness over speed and do this:\s*/gi,
+  /BE TOKEN EFFICIENT AND FAST AND DO THIS:\s*/gi
+];
+
+function cleanPromptText(text) {
+  if (!text) return text;
+  let cleaned = text;
+  for (const regex of PREFIXES) {
+    cleaned = cleaned.replace(regex, '');
+  }
+  return cleaned.trim();
+}
+
 // -------------------- VERB ICONS --------------------
 const VERB_ICONS = {
   edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
@@ -773,7 +788,8 @@ function loadChatHistory() {
     hist.forEach(m => {
       const text = m.content || '';
       if (!text) return;
-      if (m.role === 'user') addUserMessage(text);
+      // Strip mode prefixes from the user's historical messages
+      if (m.role === 'user') addUserMessage(cleanPromptText(text));
       else if (m.role === 'assistant') {
         const el = document.createElement('div');
         el.className = 'narration';
@@ -1117,7 +1133,11 @@ async function triggerAgent(promptText) {
   if (isDbReq && !PROJECT_HAS_DB) formData.append("is_db_request", "true");
   
   setInputState(true);
-  addUserMessage(promptText || "Please update to match this image.");
+  
+  // Show the CLEAN prompt to the user
+  addUserMessage(cleanPromptText(promptText) || "Please update to match this image.");
+  
+  // Send the FULL prompt to the backend
   formData.append("prompt", promptText || "Please update to match this image.");
   if (currentAttachedImage) formData.append("image_base64", currentAttachedImage);
   

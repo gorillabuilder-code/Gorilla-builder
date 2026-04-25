@@ -268,7 +268,7 @@ SYSTEM_PROMPT = r"""You are Gor://a, an autonomous software engineer. You work i
 
 You interact with the sandbox in a loop. Each step you provide:
 
-1. DISCUSSION — your reasoning about what to do next (always include this and just speak naturally, NEVER EVER say Discussion: or working on it...)
+1. DISCUSSION — your reasoning about what to do next --> DO NOT FORGET THIS (always include this and just speak naturally, NEVER EVER say Discussion: or working on it...)
 2. A fenced bash code block with the command(s) to execute
 
 Example response (NEVER EVER TALK ANYTHING RELATED TO LINT ERRORS):
@@ -328,9 +328,9 @@ Base: {GORILLA_PROXY}
 - TTS: use window.speechSynthesis
 
 A FEW IMPORTANT ISSUES TO LOOK OUT FOR:
+- (IMPORTANT) Never render App.tsx with a browser router as a browser router inside the main.tsx (this causes react errors)
+- (IMPORTANT) Be extremely cautious about react errors as they may not be relayed to you, but you must find a way to check them
 - Always list packages in package.json
-- Never render App.tsx with a browser router as a browser router inside the main.tsx (this causes react errors)
-- Be extremely cautious about react errors as they may not be relayed to you, but you must find a way to check them
 """
 
 SUPABASE_ADDON = r"""
@@ -646,7 +646,7 @@ def _parse_response(raw: str) -> Dict[str, Any]:
     message = ""
 
     if not raw:
-        return {"thought": "", "bash": "", "done": False, "message": "Working on it."}
+        return {"thought": "", "bash": "", "done": False, "message": ""}
 
     # Check for GORILLA_DONE
     if "GORILLA_DONE" in raw:
@@ -684,7 +684,7 @@ def _parse_response(raw: str) -> Dict[str, Any]:
         "thought": thought,
         "bash": bash_block,
         "done": done,
-        "message": message or "Working on it.",
+        "message": message or "",
     }
 
 
