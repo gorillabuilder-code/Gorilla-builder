@@ -2621,7 +2621,7 @@ async def app_auth_login_page(request: Request, auth_id: str, return_url: str = 
 @app.get("/api/v1/app-auth/{auth_id}/google")
 async def app_auth_google_init(request: Request, auth_id: str):
     scope = "openid email profile"
-    site_url = os.getenv('SITE_URL', 'https://gorillabuilder.dev')
+    site_url = os.getenv('SITE_URL')
     redirect_uri = urllib.parse.quote(f"{site_url}/api/v1/app-auth/google/callback")
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={GOOGLE_CLIENT_ID}&redirect_uri={redirect_uri}&scope={scope}&state={auth_id}"
     return RedirectResponse(auth_url)
@@ -2629,14 +2629,14 @@ async def app_auth_google_init(request: Request, auth_id: str):
 @app.get("/api/v1/app-auth/{auth_id}/github")
 async def app_auth_github_init(request: Request, auth_id: str):
     scope = "user:email"
-    site_url = os.getenv('SITE_URL', 'https://gorillabuilder.dev')
+    site_url = os.getenv('SITE_URL')
     redirect_uri = urllib.parse.quote(f"{site_url}/api/v1/app-auth/github/callback")
     auth_url = f"https://github.com/login/oauth/authorize?client_id={GITHUB_CLIENT_ID}&redirect_uri={redirect_uri}&scope={scope}&state={auth_id}"
     return RedirectResponse(auth_url)
 
 @app.get("/api/v1/app-auth/google/callback")
 async def app_auth_google_callback(request: Request, code: str, state: str):
-    site_url = os.getenv('SITE_URL', 'https://gorillabuilder.dev')
+    site_url = os.getenv('SITE_URL')
     async with httpx.AsyncClient() as client:
         res = await client.post("https://oauth2.googleapis.com/token", data={
             "code": code,
@@ -2670,7 +2670,7 @@ async def app_auth_google_callback(request: Request, code: str, state: str):
 
 @app.get("/api/v1/app-auth/github/callback")
 async def app_auth_github_callback(request: Request, code: str, state: str):
-    site_url = os.getenv('SITE_URL', 'https://gorillabuilder.dev')
+    site_url = os.getenv('SITE_URL')
     async with httpx.AsyncClient() as client:
         res = await client.post(
             "https://github.com/login/oauth/access_token", 
@@ -3381,7 +3381,7 @@ REMBG_API_URL = os.getenv("REMBG_API_URL", "http://localhost:5000/api/remove")
 # Add these missing OpenRouter variables!
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_URL = os.getenv("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
-SITE_URL = os.getenv("SITE_URL", "https://gorillabuilder.dev")
+OPENROUTER_SITE_URL = "https://gorillabuilder.dev"
 SITE_NAME = os.getenv("SITE_NAME", "Gorilla Builder")
 
 import math
@@ -3456,7 +3456,7 @@ async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_k
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": SITE_URL,
+        "HTTP-Referer": OPENROUTER_SITE_URL,
         "X-Title": SITE_NAME
     }
     
@@ -3621,7 +3621,7 @@ async def proxy_chat_completions_bargain(request: Request, auth=Depends(verify_g
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": SITE_URL,
+        "HTTP-Referer": OPENROUTER_SITE_URL,
         "X-Title": SITE_NAME
     }
     
