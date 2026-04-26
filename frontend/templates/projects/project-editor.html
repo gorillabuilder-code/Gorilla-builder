@@ -549,8 +549,13 @@
     <div class="stage">
       <div id="editor"></div>
       <div id="imageViewer" style="display:none;flex:1;align-items:center;justify-content:center;overflow:auto;background:#0a0e18;padding:20px;"></div>
-      <iframe id="preview" sandbox="allow-scripts allow-popups allow-forms" allow="clipboard-write"></iframe>
-      <div class="preview-empty" id="previewEmpty">
+        <iframe 
+          id="preview" 
+          sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals allow-downloads allow-pointer-lock allow-top-navigation-by-user-activation allow-presentation"
+          allow="clipboard-write; clipboard-read; microphone; camera; display-capture; accelerometer; gyroscope; payment"
+          referrerpolicy="no-referrer">
+        </iframe>      
+        <div class="preview-empty" id="previewEmpty">
         <div class="pe-icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         </div>

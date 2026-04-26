@@ -147,15 +147,22 @@ app.add_middleware(
     secret_key=os.getenv("AUTH_SECRET_KEY", secrets.token_hex(32)),
 )
 
-from fastapi.middleware.cors import CORSMiddleware
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=False,   # Must be False for wildcard to be valid
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def add_permissive_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = "frame-src *; frame-ancestors *; child-src *;"
+    response.headers["Cross-Origin-Embedder-Policy"] = "unsafe-none"
+    response.headers["Cross-Origin-Opener-Policy"] = "unsafe-none"
+    response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+    return response
 
 if os.path.isdir(FRONTEND_STYLES_DIR):
     app.mount("/styles", StaticFiles(directory=FRONTEND_STYLES_DIR), name="styles")
@@ -541,22 +548,6 @@ PUBLIC_PAGES = {
 from fastapi.staticfiles import StaticFiles # Make sure this is imported
 
 app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
-
-# In app.py
-
-@app.middleware("http")
-async def add_security_headers(request: Request, call_next):
-    response = await call_next(request)
-    
-    # Force the "Flexible" headers
-    response.headers["Cross-Origin-Embedder-Policy"] = "credentialless"
-    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
-    response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
-    
-    # 🖨️ PRINT THE VALUE TO TERMINAL
-    return response
-
-app.mount("/assets", StaticFiles(directory="frontend/templates/landing/assets"), name="assets")
 
 # 1. ROOT ROUTE REDIRECT LOGIC
 @app.get("/")
