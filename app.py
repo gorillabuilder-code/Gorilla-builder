@@ -2835,11 +2835,15 @@ async def publish_to_github(request: Request, project_id: str):
 # FILE API ROUTES
 # ==========================================================================
 
+LOCKFILE_PATTERNS = [
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "node_modules", ".git"
+]
+
 @app.get("/api/project/{project_id}/files")
 async def get_project_files(request: Request, project_id: str):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
-    
+
     res = (
         supabase.table("files")
         .select("path,content")
@@ -2847,80 +2851,201 @@ async def get_project_files(request: Request, project_id: str):
         .execute()
     )
     if asyncio.iscoroutine(res): res = await res
-    
     rows = getattr(res, "data", [])
     if not rows and isinstance(res, list): rows = res
-        
-    # 🛑 FRONTEND SHARK FILTER: 
-    # Stop the WebContainer from downloading corrupted lockfiles or useless bloat
+
     clean_rows = []
     for r in rows:
         path = r.get("path", "")
-        # If it's a lockfile, git dir, or node_modules, do NOT send it to the browser VM
-        if any(x in path for x in ["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "node_modules", ".git"]):
+        content = r.get("content", "")
+
+        # Skip lockfiles / node_modules / git
+        if any(x in path for x in LOCKFILE_PATTERNS):
             continue
-        clean_rows.append(r)
-        
+
+        # For binary assets: swap Storage URL → empty string so the
+        # editor doesn't try to render a URL as code. The sandbox has
+        # the real file; the frontend should use the URL only for <img>.
+        if _is_binary_path(path) and (content or "").startswith("http"):
+            clean_rows.append({
+                "path": path,
+                "content": "",           # editor gets blank — it's a binary
+                "asset_url": content,    # frontend can use this for previews
+                "is_binary": True,
+            })
+        else:
+            clean_rows.append({"path": path, "content": content})
+
     return {"files": clean_rows}
 
 
 @app.get("/api/project/{project_id}/file")
 async def get_file_content(request: Request, project_id: str, path: str):
-    # 🛑 SHARK FILTER FOR DIRECT FETCH:
-    # Prevent the editor from manually requesting giant lockfiles and crashing
-    if any(x in path for x in ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"]):
-        return JSONResponse({"content": "// Lockfiles are hidden by the system to prevent network truncation."})
+    # Block lockfiles
+    if any(x in path for x in LOCKFILE_PATTERNS):
+        return JSONResponse({
+            "content": "// Lockfiles are hidden by the system.",
+            "is_binary": False,
+        })
 
     try:
-        res = supabase.table("files").select("content").eq("project_id", project_id).eq("path", path).execute()
+        res = (
+            supabase.table("files")
+            .select("content")
+            .eq("project_id", project_id)
+            .eq("path", path)
+            .execute()
+        )
         if asyncio.iscoroutine(res): res = await res
-        
         content = ""
         if res.data and len(res.data) > 0:
             content = res.data[0].get("content", "")
 
-        return JSONResponse({"content": content})
-    except Exception as e:
-        return JSONResponse({"content": f"// Error loading file: {e}"})
+        # Binary asset — return the Storage URL separately
+        # so the frontend can render <img src={asset_url} /> directly
+        if _is_binary_path(path) and content.startswith("http"):
+            return JSONResponse({
+                "content": "",
+                "asset_url": content,
+                "is_binary": True,
+            })
 
+        return JSONResponse({"content": content, "is_binary": False})
+
+    except Exception as e:
+        return JSONResponse({"content": f"// Error loading file: {e}", "is_binary": False})
+
+import os
+import re
+import base64
+import mimetypes
+from fastapi import Request, HTTPException
+
+# ---------------------------------------------------------------------------
+# Binary extension detection
+# ---------------------------------------------------------------------------
+BINARY_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg",
+    ".ico", ".bmp", ".tiff", ".woff", ".woff2", ".ttf",
+    ".eot", ".otf", ".mp3", ".mp4", ".wav", ".ogg",
+    ".pdf", ".zip", ".tar", ".gz",
+}
+
+def _is_binary_path(path: str) -> bool:
+    return os.path.splitext(path)[1].lower() in BINARY_EXTENSIONS
+
+
+async def _upload_asset_to_storage(
+    project_id: str,
+    rel_path: str,
+    file_bytes: bytes,
+) -> str:
+    """
+    Upload binary bytes to Supabase Storage.
+    Returns the public URL.
+    """
+    mime_type, _ = mimetypes.guess_type(rel_path)
+    mime_type = mime_type or "application/octet-stream"
+    storage_path = f"{project_id}/{rel_path}"
+
+    supabase.storage.from_("project-assets").upload(
+        storage_path,
+        file_bytes,
+        {"content-type": mime_type, "upsert": True},
+    )
+    return supabase.storage.from_("project-assets").get_public_url(storage_path)
+
+
+async def _write_binary_to_sandbox(
+    project_id: str,
+    rel_path: str,
+    file_bytes: bytes,
+) -> None:
+    """
+    Write real binary bytes to a live sandbox via base64 pipe.
+    Safe for any binary format — avoids heredoc mangling.
+    """
+    if not (_sandbox_manager and _sandbox_manager.is_running(project_id)):
+        return
+    APP_DIR = "/home/user/app"
+    full_path = f"{APP_DIR}/{rel_path}"
+    dirp = "/".join(full_path.split("/")[:-1])
+    b64 = base64.b64encode(file_bytes).decode()
+    try:
+        await _sandbox_manager._execute_commands_streaming(project_id, [
+            f"mkdir -p '{dirp}' && printf '%s' '{b64}' | base64 -d > '{full_path}'"
+        ])
+    except Exception as e:
+        print(f"⚠️ Sandbox binary write failed for {rel_path}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# /save route
+# ---------------------------------------------------------------------------
 @app.post("/api/project/{project_id}/save")
 async def save_file(request: Request, project_id: str):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
- 
-    # Manual form parse — handles both string content and Blob/File content.
+
     form_data = await request.form()
     file_path = form_data.get("file")
     content_obj = form_data.get("content")
- 
+
     if not file_path or content_obj is None:
         raise HTTPException(status_code=400, detail="Missing file path or content")
- 
-    if hasattr(content_obj, "filename"):
-        # Blob / UploadFile
+
+    rel_path = str(file_path)
+
+    # ── Binary file (PNG, font, etc.) ────────────────────────────────────────
+    if hasattr(content_obj, "filename") and _is_binary_path(rel_path):
         file_bytes = await content_obj.read()
+
+        # 1. Upload real bytes to Supabase Storage, get back public URL
         try:
-            final_content = file_bytes.decode("utf-8")
-        except UnicodeDecodeError:
-            mime_type, _ = mimetypes.guess_type(str(file_path))
-            encoded_str = base64.b64encode(file_bytes).decode("utf-8")
-            final_content = f"data:{mime_type or 'application/octet-stream'};base64,{encoded_str}"
-    else:
-        final_content = str(content_obj)
- 
-    db_upsert(
-        "files",
-        {"project_id": project_id, "path": str(file_path), "content": final_content},
-        on_conflict="project_id,path",
-    )
- 
-    # Mirror to live sandbox if one is running (preserves your e2b bridge)
-    if _sandbox_manager and _sandbox_manager.is_running(project_id):
-        try:
-            await _sandbox_manager.write_file(project_id, str(file_path), final_content)
+            public_url = await _upload_asset_to_storage(project_id, rel_path, file_bytes)
         except Exception as e:
-            print(f"Sandbox write mirror failed: {e}")
- 
+            raise HTTPException(status_code=500, detail=f"Storage upload failed: {e}")
+
+        # 2. Persist the URL in the files table (not base64 — just a pointer)
+        db_upsert(
+            "files",
+            {"project_id": project_id, "path": rel_path, "content": public_url},
+            on_conflict="project_id,path",
+        )
+
+        # 3. Write real binary to sandbox filesystem if a session is live
+        await _write_binary_to_sandbox(project_id, rel_path, file_bytes)
+
+    # ── Text file (JS, TSX, CSS, etc.) ───────────────────────────────────────
+    else:
+        if hasattr(content_obj, "filename"):
+            # UploadFile but not a known binary extension — decode as text
+            file_bytes = await content_obj.read()
+            try:
+                final_content = file_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                # Unknown binary sneaked through — store as data URI fallback
+                mime_type, _ = mimetypes.guess_type(rel_path)
+                b64 = base64.b64encode(file_bytes).decode("utf-8")
+                final_content = f"data:{mime_type or 'application/octet-stream'};base64,{b64}"
+        else:
+            # Plain string content from editor
+            final_content = str(content_obj)
+
+        # 1. Persist text content in files table
+        db_upsert(
+            "files",
+            {"project_id": project_id, "path": rel_path, "content": final_content},
+            on_conflict="project_id,path",
+        )
+
+        # 2. Mirror to live sandbox
+        if _sandbox_manager and _sandbox_manager.is_running(project_id):
+            try:
+                await _sandbox_manager.write_file(project_id, rel_path, final_content)
+            except Exception as e:
+                print(f"⚠️ Sandbox text write mirror failed: {e}")
+
     supabase.table("projects").update({"updated_at": "now()"}).eq("id", project_id).execute()
     return {"success": True}
 
@@ -2929,14 +3054,34 @@ async def delete_project(request: Request, project_id: str):
     user = get_current_user(request)
     _require_project_owner(user, project_id)
     try:
-        # Kill any live sandbox first
+        # Kill live sandbox first
         if _sandbox_manager and _sandbox_manager.is_running(project_id):
             try:
                 await _sandbox_manager.kill(project_id)
             except Exception as e:
                 print(f"Sandbox kill during delete failed: {e}")
+
+        # Pull all file paths so we can remove binary assets from Storage
+        files_res = supabase.table("files").select("path, content").eq("project_id", project_id).execute()
+        rows = getattr(files_res, "data", []) or []
+
+        # Delete any Storage objects that belong to this project
+        storage_paths = [
+            f"{project_id}/{r['path']}"
+            for r in rows
+            if _is_binary_path(r.get("path", ""))
+            and (r.get("content") or "").startswith("http")
+        ]
+        if storage_paths:
+            try:
+                supabase.storage.from_("project-assets").remove(storage_paths)
+            except Exception as e:
+                print(f"Storage cleanup warning: {e}")
+
+        # Delete DB rows
         supabase.table("files").delete().eq("project_id", project_id).execute()
         supabase.table("projects").delete().eq("id", project_id).execute()
+
         return JSONResponse({"status": "success", "detail": "Project deleted."})
     except Exception as e:
         print(f"Project deletion error: {e}")
@@ -3447,7 +3592,7 @@ async def proxy_chat_completions(request: Request, auth=Depends(verify_gorilla_k
     payload = await request.json()
     
     # Force the model to OpenRouter's massive 120b model as requested
-    payload["model"] = "xiaomi/mimo-v2-flash" # Replace with your exact OpenRouter model string
+    payload["model"] = "deepseek/deepseek-v4-flash:nitro" # Replace with your exact OpenRouter model string
     
     # Ask OpenRouter to send usage stats back even if it's a stream
     if "stream_options" not in payload:

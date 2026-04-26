@@ -37,7 +37,7 @@ import httpx
 # Config
 # ---------------------------------------------------------------------------
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("LINEAGE_MODEL", "deepseek/deepseek-v4-flash")
+MODEL = os.getenv("LINEAGE_MODEL", "deepseek/deepseek-v4-flash:nitro")
 PLANNER_MODEL = os.getenv("PLANNER_MODEL", "xiaomi/mimo-v2.5")
 VISION_MODEL = os.getenv("VISION_MODEL", "xiaomi/mimo-v2.5")
 OPENROUTER_URL = os.getenv(
@@ -305,12 +305,13 @@ Layout: src/ (React), src/components/ui/ (shadcn), src/utils/auth.ts (auth gatew
 4. Frontend: `@/` alias. Backend: relative with `.js` ext
 5. Never touch package.json directly, vite.config.ts, .env, src/utils/auth.ts
 6. Start server: `cd /home/user/app && npm run dev > /tmp/dev.log 2>&1 &`
-7. Verify: `sleep 3 && curl -so /dev/null -w '%{http_code}' http://localhost:8080 && curl -so /dev/null -w '%{http_code}' http://localhost:3000`
+7. Verify: ` sleep 3 && curl -so /dev/null -w '%{http_code}' http://localhost:8080 && curl -so /dev/null -w '%{http_code}' http://localhost:3000`
 8. You MUST verify both :8080 and :3000 return 200 before writing GORILLA_DONE, AND ALWAYS FOLLOW THE STRUCTURE FOR RUNNING EXACTLY
 9. If something fails, read /tmp/dev.log, fix the issue, restart, verify again
 10. Create ONE file per step. Do NOT write multiple files in a single bash block.
 11. NEVER say GORILLA_DONE before turn 5. You have not built enough yet!
 12. ALWAYS REPLACE THE BOILERPLATE Index.tsx and try to go over the top with the app.
+13. Refer to the .gorilla/todo.md once every ten turns, and tick of the tasks that has been completed
 
 ## Auth gateway
 ```tsx
@@ -721,10 +722,6 @@ async def _call_llm(
         "messages": messages,
         "temperature": temperature,
         "max_tokens": 16000,
-        "provider": {
-            "order": ["deepseek"],
-            "allow_fallbacks": False,
-        },
     }
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -741,7 +738,7 @@ async def _call_llm(
     p = u.get("prompt_tokens", 0)
     c = u.get("completion_tokens", 0)
     is_frontier = any(x in model for x in ["claude", "gpt-4", "gemini"])
-    weight = (p * 0.6 + c * 2.4) if is_frontier else (p * 0.14 + c * 0.3)
+    weight = (p * 0.6 + c * 2.4) if is_frontier else (p * 0.2 + c * 0.3)
     return content, int(weight)
 
 

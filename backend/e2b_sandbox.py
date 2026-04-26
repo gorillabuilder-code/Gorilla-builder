@@ -62,18 +62,32 @@ READY_PATTERNS = [
 # Path stripping helper
 # ---------------------------------------------------------------------------
 def _strip_app_prefix(p: str) -> str:
-    """Robustly strip /home/user/app/ or home/user/app/ from any path."""
     p = p.strip()
-    # Absolute path variant
-    p = p.replace(f"{APP_DIR}/", "")
-    # Relative path variant (no leading slash)
-    app_rel = APP_DIR.lstrip("/") + "/"
-    if p.startswith(app_rel):
-        p = p[len(app_rel):]
-    # Fallback: regex strip everything up to and including /app/
-    if p.startswith("home/") or p.startswith("/home/"):
-        p = re.sub(r"^/?.*?/app/", "", p)
+    # Try direct prefix removal first (fastest)
+    if p.startswith(APP_DIR + "/"):
+        return p[len(APP_DIR) + 1:]
+    # Handle no-leading-slash variant
+    app_no_slash = APP_DIR.lstrip("/") + "/"
+    if p.startswith(app_no_slash):
+        return p[len(app_no_slash):]
+    # Nuclear option: strip everything up to and including /app/
+    cleaned = re.sub(r"^.*?/app/", "", p)
+    if cleaned != p:  # only return if something was actually stripped
+        return cleaned
     return p
+
+
+# ---------------------------------------------------------------------------
+# Binary path detector
+# ---------------------------------------------------------------------------
+def _is_binary_path(p: str) -> bool:
+    BINARY_EXTS = {
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico",
+        ".svg", ".woff", ".woff2", ".ttf", ".eot", ".otf",
+        ".mp3", ".mp4", ".wav", ".ogg", ".pdf", ".zip",
+    }
+    ext = os.path.splitext(p)[1].lower()
+    return ext in BINARY_EXTS
 
 
 # ---------------------------------------------------------------------------
@@ -206,13 +220,17 @@ class E2BSandboxManager:
             if path in file_tree and file_tree[path]:
                 m = re.search(r"port\s*:\s*(\d+)", file_tree[path])
                 if m:
-                    try: return int(m.group(1))
-                    except ValueError: pass
+                    try:
+                        return int(m.group(1))
+                    except ValueError:
+                        pass
         pkg = file_tree.get("package.json", "")
         m = re.search(r"--port[= ]+(\d+)", pkg)
         if m:
-            try: return int(m.group(1))
-            except ValueError: pass
+            try:
+                return int(m.group(1))
+            except ValueError:
+                pass
         return DEFAULT_PREVIEW_PORT
 
     def _sandbox_url_for_port(self, sbx, port: int) -> str:
@@ -232,10 +250,13 @@ class E2BSandboxManager:
         count = 0
         with tarfile.open(fileobj=buf, mode="w:gz") as tf:
             for path, content in file_tree.items():
-                if not path or content is None: continue
-                if any(x in path for x in ["package-lock.json", "yarn.lock", "node_modules/", ".git/"]): continue
+                if not path or content is None:
+                    continue
+                if any(x in path for x in ["package-lock.json", "yarn.lock", "node_modules/", ".git/"]):
+                    continue
                 data = content.encode("utf-8", errors="replace")
-                if len(data) > 1_000_000: continue
+                if len(data) > 1_000_000:
+                    continue
                 ti = tarfile.TarInfo(name=path)
                 ti.size = len(data)
                 ti.mtime = int(time.time())
@@ -243,7 +264,8 @@ class E2BSandboxManager:
                 hashes[path] = hashlib.md5(data).hexdigest()
                 count += 1
         raw = buf.getvalue()
-        if len(raw) > 5 * 1024 * 1024: return "", 0, {}
+        if len(raw) > 5 * 1024 * 1024:
+            return "", 0, {}
         return base64.b64encode(raw).decode("ascii"), count, hashes
 
     def _upload_files_fast(self, sbx, file_tree: Dict[str, str]) -> Tuple[int, Dict[str, str]]:
@@ -253,7 +275,7 @@ class E2BSandboxManager:
         try:
             sbx.commands.run("rm -f /tmp/bundle.b64 && touch /tmp/bundle.b64", timeout=5)
             for i in range(0, len(b64), 50000):
-                chunk = b64[i:i+50000]
+                chunk = b64[i:i + 50000]
                 meta = base64.b64encode(chunk.encode()).decode()
                 sbx.commands.run(f"echo '{meta}' | base64 -d >> /tmp/bundle.b64", timeout=10)
             result = sbx.commands.run(
@@ -273,8 +295,10 @@ class E2BSandboxManager:
         count = 0
         dirs_created: Set[str] = set()
         for path, content in file_tree.items():
-            if not path or content is None: continue
-            if any(x in path for x in ["package-lock.json", "yarn.lock", "node_modules/", ".git/"]): continue
+            if not path or content is None:
+                continue
+            if any(x in path for x in ["package-lock.json", "yarn.lock", "node_modules/", ".git/"]):
+                continue
             full = f"{APP_DIR}/{path}"
             dirp = "/".join(full.split("/")[:-1])
             if dirp and dirp not in dirs_created:
@@ -304,8 +328,10 @@ class E2BSandboxManager:
             return await self._do_boot(project_id, files, env_vars, owner_id)
 
     async def _do_boot(self, project_id, file_tree, env_vars, owner_id):
-        if not Sandbox: raise RuntimeError("E2B SDK not installed")
-        if not E2B_API_KEY: raise RuntimeError("E2B_API_KEY not set")
+        if not Sandbox:
+            raise RuntimeError("E2B SDK not installed")
+        if not E2B_API_KEY:
+            raise RuntimeError("E2B_API_KEY not set")
 
         self._emit_log(project_id, "sandbox", f"Booting sandbox ({SANDBOX_TEMPLATE})...")
         self._emit_status(project_id, "Booting Sandbox...")
@@ -323,7 +349,12 @@ class E2BSandboxManager:
 
         self._emit_log(project_id, "sandbox", "Uploading project files...")
         file_count, hashes = await asyncio.to_thread(self._upload_files_fast, sbx, file_tree)
-        self._emit_log(project_id, "sandbox", f"Mounted {file_count} files")
+        self._emit_log(project_id, "sandbox", f"Mounted {file_count} text files")
+
+        # ── Restore binary assets from Supabase Storage URLs ──────────────
+        binary_count = await self._restore_binary_files(sbx, project_id, file_tree)
+        if binary_count:
+            self._emit_log(project_id, "sandbox", f"Restored {binary_count} binary assets")
 
         if env_vars:
             try:
@@ -337,9 +368,6 @@ class E2BSandboxManager:
             except Exception as e:
                 self._emit_log(project_id, "sandbox", f"env write warning: {e}")
 
-        # ── Inject browser error reporter into index.html ──────────────
-        # window.onerror + unhandledrejection → POST /api/__gorilla_errors
-        # Agent polls GET /api/__gorilla_errors to see React/Router crashes
         inject_error_reporter = (
             r"grep -q '__gorilla_errors' " + APP_DIR + r"/index.html 2>/dev/null || "
             r"sed -i 's|</head>|<script>"
@@ -406,6 +434,35 @@ class E2BSandboxManager:
         self._emit(project_id, {"type": "sandbox_url", "url": session.url})
         return session
 
+    async def _restore_binary_files(self, sbx, project_id: str, file_tree: Dict[str, str]) -> int:
+        """
+        For every binary path whose content is a Supabase Storage URL,
+        curl the real bytes directly into the sandbox filesystem.
+        Returns count of files restored.
+        """
+        count = 0
+        for path, content in file_tree.items():
+            if not _is_binary_path(path):
+                continue
+            if not content or not content.startswith("http"):
+                continue
+            full_path = f"{APP_DIR}/{path}"
+            dirp = "/".join(full_path.split("/")[:-1])
+            try:
+                result = await asyncio.to_thread(
+                    sbx.commands.run,
+                    f"mkdir -p '{dirp}' && curl -sL --max-time 30 '{content}' -o '{full_path}' && echo OK",
+                    timeout=35,
+                )
+                if "OK" in (result.stdout or ""):
+                    count += 1
+                    log_agent("agent", f"Restored binary: {path}", project_id)
+                else:
+                    log_agent("agent", f"Binary restore may have failed: {path}", project_id)
+            except Exception as e:
+                log_agent("agent", f"Failed to restore binary {path}: {e}", project_id)
+        return count
+
     async def kill(self, project_id: str) -> None:
         session = self._sessions.pop(project_id, None)
         if not session:
@@ -417,12 +474,16 @@ class E2BSandboxManager:
         if elapsed > 0.01:
             prorated = int(BILLING_TOKENS_PER_HOUR * elapsed)
             if prorated > 0:
-                try: self._add_tokens(session.owner_id, prorated)
-                except Exception as e: print(f"⚠️ Billing error: {e}")
+                try:
+                    self._add_tokens(session.owner_id, prorated)
+                except Exception as e:
+                    print(f"⚠️ Billing error: {e}")
         if session._billing_task and not session._billing_task.done():
             session._billing_task.cancel()
-        try: await asyncio.to_thread(session.sandbox.kill)
-        except Exception as e: print(f"⚠️ Kill error: {e}")
+        try:
+            await asyncio.to_thread(session.sandbox.kill)
+        except Exception as e:
+            print(f"⚠️ Kill error: {e}")
         self._boot_locks.pop(project_id, None)
         self._turn_locks.pop(project_id, None)
         self._emit_status(project_id, "Sandbox Offline")
@@ -432,7 +493,8 @@ class E2BSandboxManager:
 
     def get_session(self, project_id: str) -> Optional[SandboxSession]:
         s = self._sessions.get(project_id)
-        if s: s.last_activity = time.time()
+        if s:
+            s.last_activity = time.time()
         return s
 
     def get_preview_url(self, project_id: str) -> Optional[str]:
@@ -594,8 +656,10 @@ class E2BSandboxManager:
                 final_message = msg
                 self._emit_narration(project_id, msg)
                 if on_assistant_message:
-                    try: on_assistant_message(msg)
-                    except Exception: pass
+                    try:
+                        on_assistant_message(msg)
+                    except Exception:
+                        pass
 
             commands = result.get("commands", [])
 
@@ -631,9 +695,12 @@ class E2BSandboxManager:
                 stdout = (r.get("stdout") or "").strip()
                 stderr = (r.get("stderr") or "").strip()
                 exit_code = r.get("exit_code", 0)
-                if stdout: output_parts.append(stdout[:3000])
-                if stderr: output_parts.append(f"STDERR: {stderr[:1500]}")
-                if exit_code != 0: output_parts.append(f"[exit code: {exit_code}]")
+                if stdout:
+                    output_parts.append(stdout[:3000])
+                if stderr:
+                    output_parts.append(f"STDERR: {stderr[:1500]}")
+                if exit_code != 0:
+                    output_parts.append(f"[exit code: {exit_code}]")
 
             raw_output = "\n".join(output_parts)[:6000] if output_parts else "Your command ran successfully and did not produce any output."
             last_raw_output = raw_output
@@ -787,7 +854,8 @@ class E2BSandboxManager:
         results: List[Dict[str, Any]] = []
 
         for cmd in commands[:MAX_COMMANDS_PER_TURN]:
-            if not cmd or not cmd.strip(): continue
+            if not cmd or not cmd.strip():
+                continue
 
             classification = classify_command(cmd)
             activity_id = self._next_activity_id(project_id)
@@ -806,14 +874,16 @@ class E2BSandboxManager:
             stderr_buf: List[str] = []
 
             def on_stdout(line: str):
-                if not line: return
+                if not line:
+                    return
                 stdout_buf.append(line)
                 clean = line.rstrip("\n")[:400]
                 if clean.strip():
                     self._emit_activity_chunk(project_id, activity_id, "stdout", clean)
 
             def on_stderr(line: str):
-                if not line: return
+                if not line:
+                    return
                 stderr_buf.append(line)
                 clean = line.rstrip("\n")[:400]
                 if clean.strip():
@@ -838,7 +908,8 @@ class E2BSandboxManager:
 
         try:
             await asyncio.to_thread(session.sandbox.commands.run, "sync && true")
-        except Exception: pass
+        except Exception:
+            pass
         session.last_activity = time.time()
         return results
 
@@ -847,23 +918,28 @@ class E2BSandboxManager:
         try:
             result = sandbox.commands.run(cmd, on_stdout=on_stdout, on_stderr=on_stderr, timeout=180)
             return getattr(result, "exit_code", 0)
-        except TypeError: pass
+        except TypeError:
+            pass
         try:
             result = sandbox.commands.run(cmd, timeout=180)
             if result.stdout:
-                for line in result.stdout.splitlines(keepends=True): on_stdout(line)
+                for line in result.stdout.splitlines(keepends=True):
+                    on_stdout(line)
             if result.stderr:
-                for line in result.stderr.splitlines(keepends=True): on_stderr(line)
+                for line in result.stderr.splitlines(keepends=True):
+                    on_stderr(line)
             return getattr(result, "exit_code", 0)
         except Exception as e:
-            on_stderr(str(e)); return -1
+            on_stderr(str(e))
+            return -1
 
     # -----------------------------------------------------------
     # Batched tree read — with robust path stripping
     # -----------------------------------------------------------
     async def _read_tree_from_sandbox(self, project_id: str) -> Dict[str, str]:
         session = self._sessions.get(project_id)
-        if not session: return {}
+        if not session:
+            return {}
 
         dump_cmd = (
             f"find {APP_DIR} -type f "
@@ -882,22 +958,27 @@ class E2BSandboxManager:
         except Exception:
             return await self._read_tree_slow(project_id)
 
-        if not output.strip(): return {}
+        if not output.strip():
+            return {}
 
         tree: Dict[str, str] = {}
         for chunk in output.split(FILE_READ_SENTINEL)[1:]:
-            if FILE_CONTENT_SENTINEL not in chunk: continue
+            if FILE_CONTENT_SENTINEL not in chunk:
+                continue
             header, _, body = chunk.partition(FILE_CONTENT_SENTINEL)
             path = _strip_app_prefix(header)
-            if not path: continue
+            if not path:
+                continue
             content = body[:-1] if body.endswith("\n") else body
-            if "\x00" in content[:1000]: continue
+            if "\x00" in content[:1000]:
+                continue
             tree[path] = content
         return tree
 
     async def _read_tree_slow(self, project_id: str) -> Dict[str, str]:
         session = self._sessions.get(project_id)
-        if not session: return {}
+        if not session:
+            return {}
         try:
             listing = await asyncio.to_thread(
                 session.sandbox.commands.run,
@@ -905,8 +986,10 @@ class E2BSandboxManager:
                 f"-not -path '*/.git/*' -not -path '*/dist/*' "
                 f"-not -name 'package-lock.json' -not -name '*.lock' -size -500k",
             )
-        except Exception: return {}
-        if not listing.stdout: return {}
+        except Exception:
+            return {}
+        if not listing.stdout:
+            return {}
 
         paths = [
             _strip_app_prefix(p)
@@ -915,16 +998,19 @@ class E2BSandboxManager:
 
         tree: Dict[str, str] = {}
         for rel in paths[:400]:
-            if not rel: continue
+            if not rel:
+                continue
             try:
                 r = await asyncio.to_thread(
                     session.sandbox.commands.run,
                     f"cat '{APP_DIR}/{rel}' 2>/dev/null"
                 )
                 content = r.stdout or ""
-                if "\x00" in content[:1000]: continue
+                if "\x00" in content[:1000]:
+                    continue
                 tree[rel] = content
-            except Exception: continue
+            except Exception:
+                continue
         return tree
 
     # -----------------------------------------------------------
@@ -932,9 +1018,12 @@ class E2BSandboxManager:
     # -----------------------------------------------------------
     async def _sync_once(self, project_id: str) -> Tuple[int, int]:
         session = self._sessions.get(project_id)
-        if not session: return (0, 0)
-        try: await asyncio.to_thread(session.sandbox.commands.run, "sync")
-        except Exception: pass
+        if not session:
+            return (0, 0)
+        try:
+            await asyncio.to_thread(session.sandbox.commands.run, "sync")
+        except Exception:
+            pass
 
         changed_dump_cmd = (
             f"find {APP_DIR} -type f -newer {SYNC_MARKER} "
@@ -957,20 +1046,25 @@ class E2BSandboxManager:
         changed_files: Dict[str, str] = {}
         if dump.strip():
             for chunk in dump.split(FILE_READ_SENTINEL)[1:]:
-                if FILE_CONTENT_SENTINEL not in chunk: continue
+                if FILE_CONTENT_SENTINEL not in chunk:
+                    continue
                 header, _, body = chunk.partition(FILE_CONTENT_SENTINEL)
                 path = _strip_app_prefix(header)
-                if not path: continue
+                if not path:
+                    continue
                 content = body[:-1] if body.endswith("\n") else body
-                if "\x00" in content[:1000]: continue
-                if len(content) > 500_000: continue
+                if "\x00" in content[:1000]:
+                    continue
+                if len(content) > 500_000:
+                    continue
                 changed_files[path] = content
 
         rows: List[Dict[str, Any]] = []
         current_sandbox_paths: Set[str] = set(changed_files.keys())
         for rel, content in changed_files.items():
             h = hashlib.md5(content.encode("utf-8", errors="replace")).hexdigest()
-            if session.content_hashes.get(rel) == h: continue
+            if session.content_hashes.get(rel) == h:
+                continue
             session.content_hashes[rel] = h
             rows.append({"project_id": project_id, "path": rel, "content": content})
 
@@ -986,7 +1080,8 @@ class E2BSandboxManager:
                     stripped = _strip_app_prefix(p)
                     if stripped:
                         current_sandbox_paths.add(stripped)
-        except Exception: pass
+        except Exception:
+            pass
 
         if rows:
             try:
@@ -1010,12 +1105,15 @@ class E2BSandboxManager:
                     self._emit_file_deleted(project_id, p)
                     session.content_hashes.pop(p, None)
                     deleted_count += 1
-                except Exception: pass
-        except Exception: pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         try:
             await asyncio.to_thread(session.sandbox.commands.run, f"touch {SYNC_MARKER}")
-        except Exception: pass
+        except Exception:
+            pass
 
         return (len(rows), deleted_count)
 
@@ -1024,19 +1122,22 @@ class E2BSandboxManager:
     # -----------------------------------------------------------
     async def start_dev_server(self, project_id: str) -> Tuple[Optional[str], Optional[str]]:
         session = self._sessions.get(project_id)
-        if not session: return (None, None)
+        if not session:
+            return (None, None)
         session.last_activity = time.time()
 
         try:
             await asyncio.to_thread(session.sandbox.commands.run,
                 "pkill -f vite || true; pkill -f 'npm run dev' || true; pkill -f 'node server' || true")
             await asyncio.sleep(1)
-        except Exception: pass
+        except Exception:
+            pass
 
         try:
             await asyncio.to_thread(session.sandbox.commands.run,
                 f"cd {APP_DIR} && nohup npm run dev > /tmp/vite.log 2>&1 &")
-        except Exception: pass
+        except Exception:
+            pass
 
         bound = False
         for _ in range(15):
@@ -1045,8 +1146,10 @@ class E2BSandboxManager:
                 check = await asyncio.to_thread(session.sandbox.commands.run,
                     f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{session.preview_port} || echo fail")
                 if "200" in (check.stdout or "") or "304" in (check.stdout or ""):
-                    bound = True; break
-            except Exception: pass
+                    bound = True
+                    break
+            except Exception:
+                pass
 
         self._emit(project_id, {"type": "sandbox_url", "url": session.url})
         return (session.url, None)
@@ -1056,7 +1159,8 @@ class E2BSandboxManager:
     # -----------------------------------------------------------
     async def write_file(self, project_id: str, rel_path: str, content: str) -> bool:
         session = self._sessions.get(project_id)
-        if not session: return False
+        if not session:
+            return False
         full = f"{APP_DIR}/{rel_path}"
         dirp = "/".join(full.split("/")[:-1])
         try:
@@ -1067,17 +1171,20 @@ class E2BSandboxManager:
             session.last_activity = time.time()
             return True
         except Exception as e:
-            print(f"⚠️ write_file failed: {e}"); return False
+            print(f"⚠️ write_file failed: {e}")
+            return False
 
     async def delete_file(self, project_id: str, rel_path: str) -> bool:
         session = self._sessions.get(project_id)
-        if not session: return False
+        if not session:
+            return False
         try:
             await asyncio.to_thread(session.sandbox.commands.run, f"rm -f '{APP_DIR}/{rel_path}'")
             session.content_hashes.pop(rel_path, None)
             session.last_activity = time.time()
             return True
-        except Exception: return False
+        except Exception:
+            return False
 
     # -----------------------------------------------------------
     # Billing + idle monitor
@@ -1088,12 +1195,15 @@ class E2BSandboxManager:
             while True:
                 await asyncio.sleep(BILLING_TICK_S)
                 session = self._sessions.get(project_id)
-                if not session: return
+                if not session:
+                    return
                 now = time.time()
                 elapsed = (now - session.last_bill_at) / 3600.0
-                if elapsed <= 0: continue
+                if elapsed <= 0:
+                    continue
                 prorated = int(BILLING_TOKENS_PER_HOUR * elapsed)
-                if prorated <= 0: continue
+                if prorated <= 0:
+                    continue
                 accumulated += prorated
                 session.total_billed_tokens += prorated
                 session.last_bill_at = now
@@ -1107,8 +1217,10 @@ class E2BSandboxManager:
             if accumulated > 0:
                 session = self._sessions.get(project_id)
                 if session:
-                    try: self._add_tokens(session.owner_id, accumulated)
-                    except Exception: pass
+                    try:
+                        self._add_tokens(session.owner_id, accumulated)
+                    except Exception:
+                        pass
 
     async def _idle_monitor(self) -> None:
         while True:
@@ -1119,8 +1231,10 @@ class E2BSandboxManager:
                     if (now - s.last_activity) > IDLE_TIMEOUT_S
                 ]:
                     print(f"💤 Idle kill: {pid}")
-                    try: await self._sync_once(pid)
-                    except Exception: pass
+                    try:
+                        await self._sync_once(pid)
+                    except Exception:
+                        pass
                     await self.kill(pid)
             except Exception as e:
                 print(f"Idle monitor error: {e}")
