@@ -133,7 +133,7 @@ _sandbox_manager = None  # ← ADD THIS LINE
 # ==========================================================================
 # APP INITIALIZATION & LIFECYCLE
 # ==========================================================================
-
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
     title="Gorilla Backend",
