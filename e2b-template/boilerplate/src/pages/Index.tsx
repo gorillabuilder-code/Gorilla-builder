@@ -1,3 +1,5 @@
+//CRITICAL: ALWAYS REPLACE THIS BOILERPLATE
+
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Sparkles, Code2, Rocket, Database } from 'lucide-react';

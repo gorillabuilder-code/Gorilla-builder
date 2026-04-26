@@ -21,6 +21,12 @@ Image threading:
   If .gorilla/prompt_image.b64 exists in the file tree, it is fed to the
   prompt expander, the planner, AND the first agent turn so all three stages
   have visual context.
+
+Agent Skills:
+  If agent_skills (dict of skill_key -> bool) is passed to run(), enabled
+  skills are injected into the system prompt on the first turn. Skills are
+  fetched from the DB by the caller (e.g. the sandbox route) and passed in.
+  No other files need to be changed — this file is the only integration point.
 """
 
 from __future__ import annotations
@@ -433,12 +439,6 @@ async def expand_prompt(
     has_supabase: bool = False,
     image_b64: Optional[str] = None,
 ) -> str:
-    """
-    #1 — Turn "coffee shop site" into a 200-word detailed spec.
-    Uses the same model — one cheap call, no extra cost.
-    Injects Supabase guidance only when has_supabase is True.
-    Accepts optional image_b64 from .gorilla/prompt_image.b64.
-    """
     if len(short_prompt) > 300:
         return short_prompt
 
@@ -552,12 +552,6 @@ async def generate_plan(
     has_supabase: bool = False,
     image_b64: Optional[str] = None,
 ) -> Optional[str]:
-    """
-    #2 + #5 — Generate a todo.md checklist with per-file specs.
-    Uses the same model. Returns the raw markdown or None on failure.
-    Injects Supabase guidance only when has_supabase is True.
-    Accepts optional image_b64 from .gorilla/prompt_image.b64.
-    """
     system = PLANNER_SYSTEM
     if has_supabase:
         system += "\n" + PLANNER_SUPABASE_ADDON
@@ -613,9 +607,6 @@ If there are issues, respond with a numbered list of fixes needed (max 3), each 
 
 
 async def review_output(file_tree_summary: str, last_output: str) -> Optional[str]:
-    """
-    #10 — Quick review after agent says done. Returns fix instructions or None if LGTM.
-    """
     messages = [
         {"role": "system", "content": REVIEWER_SYSTEM},
         {
@@ -649,7 +640,6 @@ def _parse_response(raw: str) -> Dict[str, Any]:
     if not raw:
         return {"thought": "", "bash": "", "done": False, "message": ""}
 
-    # Check for GORILLA_DONE
     if "GORILLA_DONE" in raw:
         done = True
         parts = raw.split("GORILLA_DONE", 1)
@@ -668,7 +658,6 @@ def _parse_response(raw: str) -> Dict[str, Any]:
             "message": message or "Done.",
         }
 
-    # Extract fenced bash block
     m = re.search(r"```(?:bash|sh|shell)?\n(.*?)```", raw, re.DOTALL)
     if m:
         bash_block = m.group(1).strip()
@@ -676,7 +665,6 @@ def _parse_response(raw: str) -> Dict[str, Any]:
     else:
         thought = raw.strip()
 
-    # #4 — Narration fix: pass FULL thought to UI, not just first line
     if thought:
         sentences = re.split(r"(?<=[.!?])\s+", thought)
         message = " ".join(sentences[:3])[:300]
@@ -743,6 +731,27 @@ async def _call_llm(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  Agent Skills helpers
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _build_skills_block(agent_skills: Optional[Dict[str, Any]]) -> str:
+    """
+    Given a dict of {skill_key: bool | str}, return a formatted prompt
+    section for enabled skills, or empty string if none are enabled.
+
+    The caller (any route/handler) just needs to pass the raw dict straight
+    from the DB — no pre-processing required.
+    """
+    if not agent_skills:
+        return ""
+    enabled = [k for k, v in agent_skills.items() if v]
+    if not enabled:
+        return ""
+    lines = "\n".join(f"- {skill}" for skill in enabled)
+    return f"\n\n## User-Enabled Agent Skills\nThe user has enabled the following skills/behaviours for this session. Respect them throughout:\n{lines}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  LineageAgent
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -750,6 +759,13 @@ class LineageAgent:
     """
     mini-SWE-agent with planner pipeline.
     Linear message history. Persisted on SandboxSession.agent.
+
+    Agent Skills:
+      Pass agent_skills (dict from DB) to run() on any turn. Skills are
+      baked into the system prompt on the very first turn via
+      _ensure_system_prompt(). Because _system_prompt_set guards re-entry,
+      skills only need to be passed once — but passing them every turn is
+      harmless. No other files need to be modified.
 
     Image threading:
       If .gorilla/prompt_image.b64 (or prompt_image.b64) exists in the file
@@ -767,8 +783,12 @@ class LineageAgent:
         self._prompt_expanded = False
 
     def _ensure_system_prompt(
-        self, gorilla_proxy_url: str, has_supabase: bool, is_debug: bool
-    ):
+        self,
+        gorilla_proxy_url: str,
+        has_supabase: bool,
+        is_debug: bool,
+        agent_skills: Optional[Dict[str, Any]] = None,
+    ) -> None:
         if self._system_prompt_set:
             return
         prompt = SYSTEM_PROMPT.replace(
@@ -779,14 +799,21 @@ class LineageAgent:
             prompt += "\n" + SUPABASE_ADDON
         if is_debug:
             prompt += "\n" + DEBUG_ADDON
+
+        # Inject enabled skills into the system prompt
+        skills_block = _build_skills_block(agent_skills)
+        if skills_block:
+            prompt += skills_block
+            log_agent(
+                "agent",
+                f"Agent skills injected: {[k for k, v in (agent_skills or {}).items() if v]}",
+                self.project_id,
+            )
+
         self.messages = [{"role": "system", "content": prompt}]
         self._system_prompt_set = True
 
     def _extract_prompt_image(self, file_tree: Dict[str, str]) -> Optional[str]:
-        """
-        Pull .gorilla/prompt_image.b64 (or root-level fallback) from the file
-        tree and normalise it to a data URI.  Returns None if not present.
-        """
         raw = file_tree.get(".gorilla/prompt_image.b64") or file_tree.get(
             "prompt_image.b64"
         )
@@ -808,8 +835,13 @@ class LineageAgent:
         error_context: str = "",
         image_b64: Optional[str] = None,
         previous_command_output: Optional[str] = None,
+        agent_skills: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        self._ensure_system_prompt(gorilla_proxy_url, has_supabase, is_debug)
+        # Skills are passed here and forwarded to _ensure_system_prompt.
+        # They are only applied on the first call (when _system_prompt_set is False).
+        # sandbox_manager.py does NOT need to be changed — it already calls
+        # agent.run(...) and can simply add agent_skills as a kwarg.
+        self._ensure_system_prompt(gorilla_proxy_url, has_supabase, is_debug, agent_skills)
 
         compressed = self.token_sub.compress_tree(file_tree)
         clean_paths = sorted(p for p in compressed if not p.endswith(".b64"))
@@ -821,7 +853,7 @@ class LineageAgent:
             if len(pkg) < 3000:
                 pkg_snippet = f"\n\npackage.json:\n{pkg}"
 
-        # ── Pull prompt image from file tree (first turn only) ─────────────
+        # Pull prompt image from file tree (first turn only)
         prompt_image_b64: Optional[str] = None
         if not previous_command_output:
             prompt_image_b64 = self._extract_prompt_image(file_tree)
@@ -836,10 +868,9 @@ class LineageAgent:
             user_content: Any = f"OBSERVATION:\n{previous_command_output[:8000]}"
             self.messages.append({"role": "user", "content": user_content})
         else:
-            # ── First turn: expand prompt + generate plan ──────────────────
             effective_request = user_request
 
-            # #1 — Prompt expander (passes image if available)
+            # #1 — Prompt expander
             if not is_debug and not self._prompt_expanded and user_request:
                 effective_request = await expand_prompt(
                     user_request,
@@ -848,7 +879,7 @@ class LineageAgent:
                 )
                 self._prompt_expanded = True
 
-            # #2 + #5 — Generate plan (passes image if available)
+            # #2 + #5 — Generate plan
             plan_text = ""
             if not is_debug and not self._plan_injected and file_tree:
                 plan = await generate_plan(
@@ -883,10 +914,6 @@ class LineageAgent:
 
             user_text = "\n".join(parts)
 
-            # ── Compose first-turn user message ───────────────────────────
-            # Explicit upload (image_b64 arg) wins the image slot.
-            # prompt_image_b64 is already baked into the expanded spec; we
-            # still attach it here so the agent also has direct visual context.
             first_turn_image = image_b64 or prompt_image_b64
 
             if first_turn_image:
@@ -905,8 +932,6 @@ class LineageAgent:
             else:
                 self.messages.append({"role": "user", "content": user_text})
 
-        # ── Model selection ────────────────────────────────────────────────
-        # Use vision model on the first turn whenever any image is involved.
         first_turn_has_image = bool(
             (image_b64 or prompt_image_b64) and not previous_command_output
         )

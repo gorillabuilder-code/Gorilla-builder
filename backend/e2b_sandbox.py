@@ -542,14 +542,14 @@ class E2BSandboxManager:
         except Exception:
             return ""
 
-    # -----------------------------------------------------------
+# -----------------------------------------------------------
     # Agent turn — mini-SWE-agent loop
     # -----------------------------------------------------------
     async def run_agent_turn(
         self, project_id, user_request, user_id, env_vars,
         chat_history=None, gorilla_proxy_url="", has_supabase=False,
         is_debug=False, error_context="", image_b64=None,
-        on_assistant_message=None,
+        on_assistant_message=None, agent_skills=None,
     ) -> Dict[str, Any]:
         self._turn_locks.setdefault(project_id, asyncio.Lock())
         async with self._turn_locks[project_id]:
@@ -557,12 +557,13 @@ class E2BSandboxManager:
                 project_id, user_request, user_id, env_vars,
                 chat_history, gorilla_proxy_url, has_supabase,
                 is_debug, error_context, image_b64, on_assistant_message,
+                agent_skills,
             )
 
     async def _do_run_agent_turn(
         self, project_id, user_request, user_id, env_vars,
         chat_history, gorilla_proxy_url, has_supabase, is_debug,
-        error_context, image_b64, on_assistant_message,
+        error_context, image_b64, on_assistant_message, agent_skills=None,
     ) -> Dict[str, Any]:
         try:
             session = await self.ensure_running(project_id, env_vars, user_id)
@@ -617,6 +618,7 @@ class E2BSandboxManager:
                 error_context=error_context if turn == 0 else "",
                 image_b64=image_b64 if turn == 0 else None,
                 previous_command_output=previous_output,
+                agent_skills=agent_skills if turn == 0 else None,
             )
             turn_tokens = result.get("tokens", 0) - total_tokens
             total_tokens = result.get("tokens", 0)
@@ -742,7 +744,6 @@ class E2BSandboxManager:
                         )
                         api_resp = (api_check.stdout or "").strip()
                         if "Cannot GET /" in api_resp:
-                            # This is actually fine for Express — means it's running but no root route
                             raw_output += "\n\nNOTE: Express on :3000 is running (no root GET / route is normal)."
                         elif not api_resp:
                             raw_output += "\n\nWARNING: Express on :3000 returned nothing — server.js may have crashed. Check /tmp/dev.log."

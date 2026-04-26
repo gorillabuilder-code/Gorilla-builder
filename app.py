@@ -1304,9 +1304,6 @@ async def spin_wheel(request: Request):
 # ==========================================================================
 # SETTINGS & AGENT SKILLS ROUTES
 # ==========================================================================
-# ==========================================================================
-# SETTINGS & AGENT SKILLS ROUTES
-# ==========================================================================
 import secrets
 from fastapi import Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -2097,12 +2094,12 @@ async def run_agent_loop(
  
         user_data = db_select_one(
             "users", {"id": user_id},
-            "gorilla_api_key, supabase_access_token",
+            "gorilla_api_key, supabase_access_token, agent_skills",
         ) or {}
         supa_token = user_data.get("supabase_access_token")
+        agent_skills = user_data.get("agent_skills")  # ← add this line
         is_db_request = (agent_type == "supabase")
-        has_supabase = bool(project_ref)
- 
+    
         # ---- MID-CHAT SUPABASE PROVISIONING (unchanged from old code) ----
         if is_db_request and not project_ref and supa_token:
             emit_status(project_id, "Provisioning Remote Database...")
@@ -2241,8 +2238,9 @@ async def run_agent_loop(
             error_context=prompt if skip_planner else "",
             image_b64=image_b64 if not skip_planner else None,
             on_assistant_message=on_assistant_message,
+            agent_skills=agent_skills,  # ← add this line
         )
- 
+
         # Charge tokens
         total_tokens = result.get("tokens", 0)
         if total_tokens and user_id:
