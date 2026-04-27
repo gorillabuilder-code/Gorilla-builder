@@ -430,7 +430,7 @@ class E2BSandboxManager:
             self._idle_monitor_task = asyncio.create_task(self._idle_monitor())
 
         self._emit_log(project_id, "sandbox", f"Sandbox ready: {session.url}")
-        self._emit_status(project_id, "Agent Started..")
+        self._emit_status(project_id, "Session Started..")
         self._emit(project_id, {"type": "sandbox_url", "url": session.url})
         return session
 

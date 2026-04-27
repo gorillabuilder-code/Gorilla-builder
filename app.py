@@ -2064,6 +2064,7 @@ async def run_agent_loop(
         ) or {}
         project_name = proj.get("name", "Gorilla App")
         project_ref = proj.get("supabase_project_ref")
+        has_supabase = bool(project_ref)  # ← add this line here
         db_history = proj.get("chat_history") or []
  
         # Append user message to chat history and persist
@@ -3746,7 +3747,7 @@ async def proxy_chat_completions_bargain(request: Request, auth=Depends(verify_g
     payload = await request.json()
     
     # Force the model to OpenRouter's massive 120b model as requested
-    payload["model"] = "deepseek/deepseek-v4-flash" # Replace with your exact OpenRouter model string
+    payload["model"] = "deepseek/deepseek-v4-flash:nitro" # Replace with your exact OpenRouter model string
     
     # Ask OpenRouter to send usage stats back even if it's a stream
     if "stream_options" not in payload:

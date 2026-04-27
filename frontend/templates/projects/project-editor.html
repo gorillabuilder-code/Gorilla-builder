@@ -812,6 +812,14 @@ function setInputState(locked) {
   const p = $("prompt"), b = $("runAgent");
   if (p) p.disabled = locked;
   if (b) b.disabled = locked;
+
+  // ← add: dim editor and block pointer events
+  const ed = $("editor");
+  if (ed) {
+    ed.style.opacity = locked ? "0.4" : "1";
+    ed.style.pointerEvents = locked ? "none" : "auto";
+  }
+
   if (locked) {
     if (p) p.placeholder = "Gorilla is thinking...";
     if (b) b.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 0.9s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
@@ -1007,8 +1015,8 @@ function switchTab(tab) {
   if (tab === "preview") {
     $("tabPreview").classList.add("active"); $("tabCode").classList.remove("active");
     $("editor").style.display = "none"; $("imageViewer").style.display = "none";
+    document.querySelector(".files").style.display = "none"; // ← add
     
-    // Only attempt to show the iframe if we are actually confident it's Live
     if (sandboxUrl && $("sandboxStatus").textContent.toLowerCase().includes("live")) {
       $("preview").src = sandboxUrl;
       $("preview").style.display = "block";
@@ -1020,6 +1028,7 @@ function switchTab(tab) {
     }
   } else {
     $("tabCode").classList.add("active"); $("tabPreview").classList.remove("active");
+    document.querySelector(".files").style.display = "flex"; // ← add
     $("preview").style.display = "none"; $("previewEmpty").style.display = "none";
     if (currentFile && (currentFile.endsWith('.b64') || currentFile.endsWith('.png'))) {
       $("editor").style.display = "none"; $("imageViewer").style.display = "flex";
@@ -1083,12 +1092,36 @@ function startStream() {
       if (/Sandbox Offline/i.test(m.text)) { sandboxUrl = null; updateSandboxStatus("Offline"); }
     }
     else if (m.type === "progress") setProgress(m.text, m.pct);
-    else if (m.type === "sandbox_url") {
+else if (m.type === "sandbox_url") {
       sandboxUrl = m.url; updateSandboxStatus("Live");
       if ($("tabPreview").classList.contains("active")) {
-        $("preview").src = sandboxUrl;
-        $("preview").style.display = "block";
+        const iframe = $("preview");
+        iframe.style.display = "block";
         $("previewEmpty").style.display = "none";
+
+        // If the port isn't open yet the iframe loads a blank/error page
+        // — detect that and fall back to the "not live" message.
+        iframe.onload = () => {
+          try {
+            // If we can read contentDocument it loaded same-origin blank
+            const doc = iframe.contentDocument;
+            if (doc && (doc.body.innerHTML === "" || doc.title === "")) {
+              iframe.style.display = "none";
+              $("previewEmpty").style.display = "flex";
+              $("previewEmpty").querySelector(".pe-sub").textContent =
+                "The dev server port isn't open yet. It will appear once npm run dev starts.";
+            }
+          } catch(e) {
+            // Cross-origin means it actually loaded something real — good
+          }
+        };
+        iframe.onerror = () => {
+          iframe.style.display = "none";
+          $("previewEmpty").style.display = "flex";
+          $("previewEmpty").querySelector(".pe-sub").textContent =
+            "The dev server port isn't open yet. It will appear once npm run dev starts.";
+        };
+        iframe.src = sandboxUrl;
       }
     }
     else if (m.type === "narration") {
