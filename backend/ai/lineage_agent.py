@@ -45,7 +45,7 @@ import httpx
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 MODEL = os.getenv("LINEAGE_MODEL", "deepseek/deepseek-v4-flash:nitro")
 PLANNER_MODEL = os.getenv("PLANNER_MODEL", "xiaomi/mimo-v2.5")
-VISION_MODEL = os.getenv("VISION_MODEL", "xiaomi/mimo-v2.5")
+VISION_MODEL = os.getenv("VISION_MODEL", "qwen/qwen3.6-flash")
 OPENROUTER_URL = os.getenv(
     "OPENROUTER_URL",
     "https://openrouter.ai/api/v1/chat/completions",
@@ -335,6 +335,7 @@ Base: {GORILLA_PROXY}
 - TTS: use window.speechSynthesis
 
 A FEW IMPORTANT ISSUES TO LOOK OUT FOR:
+- API keys are located in app/.env do not look anywhere else
 - (IMPORTANT) Never render App.tsx with a browser router as a browser router inside the main.tsx (this causes react errors)
 - (IMPORTANT) Be extremely cautious about react errors as they may not be relayed to you, but you must find a way to check them
 - Always list packages in package.json

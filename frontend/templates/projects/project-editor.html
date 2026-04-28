@@ -1096,32 +1096,35 @@ else if (m.type === "sandbox_url") {
       sandboxUrl = m.url; updateSandboxStatus("Live");
       if ($("tabPreview").classList.contains("active")) {
         const iframe = $("preview");
-        iframe.style.display = "block";
-        $("previewEmpty").style.display = "none";
+        
+        // 1. Immediately hide iframe and show custom "Not Live" message
+        iframe.style.display = "none";
+        $("previewEmpty").style.display = "flex";
+        $("previewEmpty").querySelector(".pe-sub").textContent =
+          "The dev server port isn't open yet. It will appear once npm run dev starts.";
 
-        // If the port isn't open yet the iframe loads a blank/error page
-        // — detect that and fall back to the "not live" message.
-        iframe.onload = () => {
+        // 2. Poll the sandbox URL in the background to check for the error page
+        const checkPort = setInterval(async () => {
           try {
-            // If we can read contentDocument it loaded same-origin blank
-            const doc = iframe.contentDocument;
-            if (doc && (doc.body.innerHTML === "" || doc.title === "")) {
-              iframe.style.display = "none";
-              $("previewEmpty").style.display = "flex";
-              $("previewEmpty").querySelector(".pe-sub").textContent =
-                "The dev server port isn't open yet. It will appear once npm run dev starts.";
+            const res = await fetch(sandboxUrl);
+            const text = await res.text();
+            
+            // 3. If E2B's "Closed Port Error" text is GONE, the app is running!
+            if (!text.includes("Closed Port Error") && !text.includes("no service running on port")) {
+              clearInterval(checkPort);
+              iframe.src = sandboxUrl;
+              iframe.style.display = "block";
+              $("previewEmpty").style.display = "none";
             }
-          } catch(e) {
-            // Cross-origin means it actually loaded something real — good
+          } catch (err) {
+            // A CORS error means the user's app (React/Vite) booted up and is blocking our fetch.
+            // This is a good thing! It means it's ready.
+            clearInterval(checkPort);
+            iframe.src = sandboxUrl;
+            iframe.style.display = "block";
+            $("previewEmpty").style.display = "none";
           }
-        };
-        iframe.onerror = () => {
-          iframe.style.display = "none";
-          $("previewEmpty").style.display = "flex";
-          $("previewEmpty").querySelector(".pe-sub").textContent =
-            "The dev server port isn't open yet. It will appear once npm run dev starts.";
-        };
-        iframe.src = sandboxUrl;
+        }, 2000); // Check every 2 seconds
       }
     }
     else if (m.type === "narration") {
