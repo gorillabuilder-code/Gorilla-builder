@@ -2,18 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Editor · {{ project_name }} · Gor://a Builder</title>
+  <title>Editor · {{ project_name }} · Gor://a</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Funnel+Display:wght@300..800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 
   <script type="module">
     import { marked } from "https://esm.sh/marked@12.0.1";
     import DOMPurify from "https://esm.sh/dompurify@3.0.9";
-
     import { EditorState } from "https://esm.sh/@codemirror/state@6.4.1";
     import { EditorView, keymap, lineNumbers } from "https://esm.sh/@codemirror/view@6.26.3?deps=@codemirror/state@6.4.1";
     import { defaultKeymap, history, historyKeymap } from "https://esm.sh/@codemirror/commands@6.5.0?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3";
@@ -23,524 +22,504 @@
     import { css } from "https://esm.sh/@codemirror/lang-css@6.2.1?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3";
 
     window.createEditor = (parent, content, onChange, fileName) => {
-      const fixedHeightEditor = EditorView.theme({
-        "&": { height: "100%", fontSize: "13px", backgroundColor: "transparent", fontFamily: "'JetBrains Mono', monospace" },
-        ".cm-scroller": { overflow: "auto", fontFamily: "'JetBrains Mono', monospace" },
-        ".cm-content": { fontFamily: "'JetBrains Mono', monospace" },
-        ".cm-gutters": { backgroundColor: "transparent", borderRight: "1px solid rgba(255,255,255,0.04)", color: "#3f4961" }
+      const theme = EditorView.theme({
+        "&": { height: "100%", fontSize: "13px", backgroundColor: "transparent", fontFamily: "'DM Mono', monospace" },
+        ".cm-scroller": { overflow: "auto", fontFamily: "'DM Mono', monospace" },
+        ".cm-content": { fontFamily: "'DM Mono', monospace", padding: "16px 0" },
+        ".cm-gutters": { backgroundColor: "transparent", borderRight: "1px solid rgba(0,102,255,0.07)", color: "#2a3050", minWidth: "44px" },
+        ".cm-activeLineGutter": { backgroundColor: "rgba(0,102,255,0.05)" },
+        ".cm-activeLine": { backgroundColor: "rgba(0,102,255,0.04)" },
       });
       let extensions = [
-          fixedHeightEditor, lineNumbers(), history(),
-          keymap.of([...defaultKeymap, ...historyKeymap]),
-          oneDark, EditorView.lineWrapping,
-          EditorView.updateListener.of((v) => {
-            if (v.docChanged && typeof onChange === "function") onChange(v.state.doc.toString());
-          })
+        theme, lineNumbers(), history(),
+        keymap.of([...defaultKeymap, ...historyKeymap]),
+        oneDark, EditorView.lineWrapping,
+        EditorView.updateListener.of((v) => {
+          if (v.docChanged && typeof onChange === "function") onChange(v.state.doc.toString());
+        })
       ];
       if (fileName) {
-          if (fileName.endsWith('.js') || fileName.endsWith('.tsx') || fileName.endsWith('.ts') || fileName.endsWith('.json')) extensions.push(javascript());
-          else if (fileName.endsWith('.html')) extensions.push(html());
-          else if (fileName.endsWith('.css')) extensions.push(css());
-          else if (fileName.endsWith('.sql')) extensions.push(javascript());
+        if (fileName.endsWith('.js') || fileName.endsWith('.tsx') || fileName.endsWith('.ts') || fileName.endsWith('.json')) extensions.push(javascript());
+        else if (fileName.endsWith('.html')) extensions.push(html());
+        else if (fileName.endsWith('.css')) extensions.push(css());
       }
       return new EditorView({ state: EditorState.create({ doc: content, extensions }), parent });
     };
   </script>
 
   <style>
-  :root {
-    --bg: #020408;
-    --bg-2: #050810;
-    --panel: rgba(11, 15, 24, 0.85);
-    --panel-solid: #0a0e18;
-    --panel-light: rgba(18, 23, 36, 0.6);
-    --card: rgba(15, 20, 32, 0.5);
-    --card-hover: rgba(20, 27, 42, 0.7);
-    --card-active: rgba(30, 40, 60, 0.6);
-    --border: rgba(255, 255, 255, 0.06);
-    --border-strong: rgba(255, 255, 255, 0.1);
-    --rail: rgba(255, 255, 255, 0.08);
+    :root {
+      --bg: #000000;
+      --sidebar-bg: #03030a;
+      --panel-bg: rgba(4, 4, 12, 0.98);
+      --surface: rgba(6, 6, 16, 0.95);
+      --border: rgba(0, 102, 255, 0.07);
+      --border-hover: rgba(0, 102, 255, 0.22);
+      --accent: #0066ff;
+      --accent-dim: rgba(0, 102, 255, 0.12);
+      --accent-glow: rgba(0, 102, 255, 0.18);
+      --accent-light: #3385ff;
+      --text: #d0d8f0;
+      --text-muted: #2a3050;
+      --text-mid: #6070a0;
+      --ok: #3ECF8E;
+      --warn: #f5b544;
+      --danger: #e05555;
+      --radius: 8px;
+      --radius-sm: 5px;
+      --radius-lg: 10px;
+      --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    }
 
-    --text: #e8ecf4;
-    --text-muted: #6b7589;
-    --text-dim: #4a5368;
-    --text-faint: #2e3545;
+    * { box-sizing: border-box; font-family: 'DM Sans', system-ui, sans-serif; outline: none; margin: 0; padding: 0; }
 
-    --accent: #3b82f6;
-    --accent-soft: #6ea6ff;
-    --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-    --accent-glow: rgba(59, 130, 246, 0.25);
+    body {
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      font-weight: 300;
+      font-size: 13.5px;
+      -webkit-font-smoothing: antialiased;
+    }
 
-    --ok: #22c48e;
-    --warn: #f5b544;
-    --danger: #ef4867;
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.012'/%3E%3C/svg%3E");
+      pointer-events: none; z-index: 0;
+    }
 
-    --radius: 10px;
-    --radius-sm: 6px;
-    --radius-lg: 14px;
-  }
+    /* ─── LAYOUT ─── */
+    .shell { display: flex; width: 100%; height: 100vh; position: relative; z-index: 1; }
 
-  * { box-sizing: border-box; font-family: 'Funnel Display', system-ui, -apple-system, sans-serif; outline: none; }
-  body {
-    margin: 0; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden;
-    background-image:
-      radial-gradient(circle at 10% -10%, rgba(59, 130, 246, 0.06) 0%, transparent 45%),
-      radial-gradient(circle at 110% 110%, rgba(99, 102, 241, 0.05) 0%, transparent 50%);
-    font-size: 13.5px; font-weight: 400;
-    -webkit-font-smoothing: antialiased;
-  }
-  .shell { display: flex; height: 100vh; width: 100%; overflow: hidden; }
+    /* ─── LEFT PANEL ─── */
+    .left {
+      width: 420px; min-width: 380px;
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      position: relative;
+    }
+    .left::after {
+      content: ''; position: absolute; top: 0; right: 0; width: 1px; height: 100%;
+      background: linear-gradient(to bottom, rgba(0,102,255,0.15), rgba(0,102,255,0.03) 50%, rgba(0,102,255,0.06));
+      pointer-events: none;
+    }
 
-  body.premium { --accent: #ffd700; --accent-gradient: linear-gradient(135deg, #ffd700 0%, #ffb700 100%); --accent-glow: rgba(255, 215, 0, 0.2); }
+    /* ─── TOPBAR ─── */
+    .topbar {
+      height: 48px; padding: 0 14px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
 
-  /* ==================== LEFT SIDEBAR ==================== */
-  .left {
-    width: 440px; min-width: 400px;
-    background: var(--panel); border-right: 1px solid var(--border);
-    display: flex; flex-direction: column; backdrop-filter: blur(14px) saturate(180%);
-    position: relative; z-index: 20;
-  }
-  .left header {
-    padding: 14px 20px; border-bottom: 1px solid var(--border);
-    display: flex; gap: 12px; align-items: center; justify-content: space-between;
-    background: rgba(0,0,0,0.2);
-  }
-  .hgroup .t {
-    font-size: 15px; font-weight: 600; letter-spacing: -0.3px;
-    display: flex; align-items: center; gap: 8px; color: #fff;
-  }
-  .header-actions { display: flex; gap: 6px; }
-  .pill {
-    border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text-muted);
-    padding: 5px 10px; border-radius: var(--radius-sm); font-size: 11px; cursor: pointer;
-    text-decoration: none; display: inline-flex; gap: 6px; align-items: center;
-    transition: all 0.18s; font-weight: 500;
-  }
-  .pill:hover { border-color: var(--border-strong); color: #fff; background: rgba(255,255,255,0.06); }
-  .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--text-muted); }
-  .dot.ok { background: var(--ok); box-shadow: 0 0 6px rgba(34, 196, 142, 0.5); }
-  .dot.warn { background: var(--warn); }
-  .dot.bad { background: var(--danger); }
+    .logo {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 15px; font-weight: 400; color: var(--text);
+      text-decoration: none; letter-spacing: -0.3px;
+    }
+    .logo svg { width: 22px; height: 22px; }
 
-  /* Progress bar */
-  .progress {
-    padding: 10px 20px; border-bottom: 1px solid var(--border);
-    display: flex; flex-direction: column; gap: 8px;
-    background: rgba(0, 0, 0, 0.08);
-  }
-  .progress-row { display: flex; align-items: center; justify-content: space-between; }
-  .progress-title {
-    font-size: 10px; font-weight: 600; color: var(--text-dim);
-    text-transform: uppercase; letter-spacing: 1px;
-    display: flex; align-items: center; gap: 10px;
-  }
-  .progress-status { font-size: 11px; color: var(--accent); font-weight: 500; }
-  .bar-bg { height: 2px; border-radius: 999px; background: rgba(255,255,255,0.04); overflow: hidden; }
-  .bar-fill {
-    height: 100%; width: 0%; background: var(--accent-gradient);
-    border-radius: 999px; transition: width 0.4s ease-out;
-    box-shadow: 0 0 8px var(--accent-glow);
-  }
-  .loading-wave { display: flex; align-items: center; gap: 2px; height: 10px; opacity: 0; transition: opacity 0.3s; }
-  .loading-wave.active { opacity: 1; }
-  .loading-bar { width: 2px; height: 8px; background: var(--accent); border-radius: 2px; animation: wave 1s infinite ease-in-out; }
-  .loading-bar:nth-child(2) { animation-delay: 0.1s; } .loading-bar:nth-child(3) { animation-delay: 0.2s; }
-  @keyframes wave { 0%, 100% { transform: scaleY(1); opacity: 0.5; } 50% { transform: scaleY(2); opacity: 1; } }
+    .topbar-actions { display: flex; align-items: center; gap: 4px; }
 
-  /* ==================== CHAT / ACTIVITY STREAM ==================== */
-  .chat {
-    flex: 1; padding: 24px 22px; overflow-y: auto;
-    display: flex; flex-direction: column; gap: 14px;
-    scroll-behavior: smooth;
-  }
+    .icon-btn {
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s var(--ease);
+      background: transparent;
+      font-size: 16px;
+      text-decoration: none;
+    }
+    .icon-btn:hover { color: var(--text); border-color: var(--border-hover); background: var(--accent-dim); }
+    .icon-btn.accent { color: var(--accent-light); background: var(--accent-dim); border-color: rgba(0,102,255,0.2); }
+    .icon-btn.accent:hover { background: rgba(0,102,255,0.2); }
 
-  /* User message bubble */
-  .msg-user {
-    align-self: flex-end; max-width: 85%;
-    padding: 10px 14px; border-radius: 14px 14px 4px 14px;
-    background: var(--accent-gradient); color: #fff;
-    font-size: 13px; line-height: 1.55;
-    box-shadow: 0 4px 18px rgba(37, 99, 235, 0.22);
-    animation: slideInRight 0.35s cubic-bezier(0.22, 1, 0.36, 1);
-  }
-  @keyframes slideInRight { from { opacity:0; transform:translateX(16px); } to { opacity:1; transform:translateX(0); } }
+    /* ─── STATUS STRIP ─── */
+    .status-strip {
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .status-left { display: flex; align-items: center; gap: 8px; }
+    .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--warn); transition: all 0.3s; }
+    .dot.ok { background: var(--ok); box-shadow: 0 0 5px rgba(62,207,142,0.4); }
+    .dot.bad { background: var(--danger); }
+    .status-label { font-size: 11px; color: var(--text-muted); font-weight: 400; letter-spacing: 0.3px; }
 
-  body.premium .msg-user { color: #1a1300; font-weight: 600; }
+    .prog-wrap { width: 80px; height: 1.5px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; }
+    .prog-bar { height: 100%; width: 0%; background: var(--accent); transition: width 0.4s var(--ease); }
 
-  /* Agent narration (prose block) */
-  .narration {
-    align-self: stretch; color: var(--text);
-    font-size: 13.5px; line-height: 1.65; padding: 2px 4px 2px 6px;
-    animation: fadeIn 0.3s ease-out;
-  }
-  .narration p { margin: 0 0 8px; }
-  .narration p:last-child { margin: 0; }
-  .narration code {
-    background: rgba(59,130,246,0.1); padding: 1px 6px; border-radius: 4px;
-    font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent-soft);
-    border: 1px solid rgba(59, 130, 246, 0.15);
-  }
-  .narration .caret {
-    display: inline-block; width: 2px; height: 1em; vertical-align: -2px;
-    background: var(--accent); margin-left: 2px;
-    animation: blink 1s step-end infinite;
-  }
-  @keyframes blink { 50% { opacity: 0; } }
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    /* ─── CHAT ─── */
+    .chat {
+      flex: 1; overflow-y: auto;
+      padding: 20px 16px;
+      display: flex; flex-direction: column; gap: 12px;
+      scroll-behavior: smooth;
+    }
+    .chat::-webkit-scrollbar { width: 3px; }
+    .chat::-webkit-scrollbar-thumb { background: rgba(0,102,255,0.15); border-radius: 2px; }
 
-  /* Activity group — container of cards sharing a timeline rail */
-  .activity-group {
-    align-self: stretch;
-    position: relative;
-    padding: 4px 0 4px 14px;
-    display: flex; flex-direction: column; gap: 4px;
-  }
-  .activity-group::before {
-    content: ""; position: absolute; left: 4px; top: 14px; bottom: 14px;
-    width: 1px; background: var(--rail);
-    background-image: linear-gradient(to bottom, var(--rail) 50%, transparent 50%);
-    background-size: 1px 6px;
-  }
+    .msg-user {
+      align-self: flex-end; max-width: 82%;
+      padding: 9px 13px;
+      border-radius: 12px 12px 3px 12px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 13px; line-height: 1.55;
+      font-weight: 300;
+      animation: slideR 0.3s var(--ease);
+    }
+    @keyframes slideR { from { opacity:0; transform:translateX(10px); } to { opacity:1; transform:translateX(0); } }
 
-  /* Activity card — one command = one card */
-  .act {
-    position: relative;
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 12px 10px 10px;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 13px; color: var(--text);
-    transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
-    animation: actIn 0.35s cubic-bezier(0.22, 1, 0.36, 1);
-    cursor: default;
-  }
-  .act::before {
-    content: ""; position: absolute; left: -14px; top: 50%;
-    width: 9px; height: 9px; border-radius: 50%;
-    background: var(--bg); border: 2px solid var(--rail);
-    transform: translateY(-50%);
-    transition: all 0.25s;
-  }
-  .act.running::before {
-    background: var(--accent); border-color: var(--accent);
-    box-shadow: 0 0 0 4px rgba(59,130,246,0.15), 0 0 14px var(--accent-glow);
-    animation: pulse 1.6s ease-in-out infinite;
-  }
-  .act.done::before { background: var(--ok); border-color: var(--ok); }
-  .act.failed::before { background: var(--danger); border-color: var(--danger); }
+    .narration {
+      align-self: stretch;
+      font-size: 13px; line-height: 1.7;
+      color: var(--text-mid);
+      padding: 2px 0;
+      animation: fadeUp 0.25s var(--ease);
+    }
+    .narration p { margin: 0 0 6px; }
+    .narration p:last-child { margin: 0; }
+    .narration code {
+      background: var(--accent-dim); padding: 1px 5px; border-radius: 3px;
+      font-family: 'DM Mono', monospace; font-size: 11.5px; color: var(--accent-light);
+    }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
 
-  .act.running { background: var(--card-active); border-color: rgba(59,130,246,0.25); }
-  .act.done { opacity: 0.82; }
-  .act.done:hover { opacity: 1; background: var(--card-hover); }
-  .act.failed { border-color: rgba(239, 72, 103, 0.3); background: rgba(239, 72, 103, 0.04); }
+    /* ─── ACTIVITY ─── */
+    .activity-group {
+      display: flex; flex-direction: column; gap: 2px;
+      padding-left: 10px;
+      border-left: 1px solid rgba(0,102,255,0.1);
+    }
 
-  .act .act-icon {
-    width: 26px; height: 26px; border-radius: var(--radius-sm);
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(255,255,255,0.03); color: var(--text-muted);
-    flex-shrink: 0; border: 1px solid var(--border);
-    transition: all 0.2s;
-  }
-  .act.running .act-icon { background: rgba(59,130,246,0.12); color: var(--accent-soft); border-color: rgba(59,130,246,0.25); }
-  .act.failed .act-icon { background: rgba(239, 72, 103, 0.1); color: var(--danger); border-color: rgba(239, 72, 103, 0.2); }
+    .act {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: rgba(4,4,12,0.8);
+      font-size: 12px; color: var(--text-mid);
+      cursor: default;
+      transition: all 0.15s var(--ease);
+      animation: fadeUp 0.25s var(--ease);
+    }
+    .act:hover { border-color: var(--border-hover); }
+    .act.running { border-color: rgba(0,102,255,0.2); background: rgba(0,102,255,0.04); color: var(--text); }
+    .act.done { opacity: 0.6; }
+    .act.done:hover { opacity: 0.9; }
+    .act.failed { border-color: rgba(224,85,85,0.25); color: var(--danger); }
 
-  .act .act-body { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
-  .act .act-verb {
-    font-size: 13px; font-weight: 500; color: var(--text);
-    text-transform: capitalize; flex-shrink: 0;
-  }
-  .act .act-sep { color: var(--text-faint); flex-shrink: 0; }
-  .act .act-target {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px; color: var(--text-muted);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
-  }
-  .act .act-chev { color: var(--text-dim); flex-shrink: 0; transition: transform 0.2s; font-size: 10px; }
-  .act.expanded .act-chev { transform: rotate(90deg); }
+    .act-icon { font-size: 14px; flex-shrink: 0; color: var(--text-muted); }
+    .act.running .act-icon { color: var(--accent-light); }
+    .act.failed .act-icon { color: var(--danger); }
 
-  .act-output {
-    display: none;
-    margin-left: -14px; padding-left: 14px;
-    position: relative;
-  }
-  .act.expanded .act-output { display: block; animation: fadeIn 0.2s; }
-  .act-output::before {
-    content: ""; position: absolute; left: -14px; top: 0; bottom: 0;
-    width: 1px; background: var(--rail);
-    background-image: linear-gradient(to bottom, var(--rail) 50%, transparent 50%);
-    background-size: 1px 6px;
-  }
-  .act-output-inner {
-    background: #04060c; border: 1px solid var(--border);
-    border-radius: var(--radius-sm); padding: 10px 12px;
-    font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.55;
-    color: #a5b3ce; max-height: 180px; overflow-y: auto;
-    margin: 6px 0 8px;
-  }
-  .act-output-inner .stream-out { color: #a5b3ce; }
-  .act-output-inner .stream-err { color: #f5a2b3; }
+    .act-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 400; }
+    .act-target { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); margin-left: 4px; }
 
-  .act-group-wrap {
-    /* wrapper so act-output can visually attach to the rail */
-    display: flex; flex-direction: column;
-  }
+    .act-status { flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
+    .act.running .act-status { background: var(--accent); animation: pulse 1.5s ease-in-out infinite; }
+    .act.done .act-status { background: var(--ok); }
+    .act.failed .act-status { background: var(--danger); }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
 
-  @keyframes actIn {
-    from { opacity: 0; transform: translateY(6px) scale(0.98); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
-  }
-  @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 4px rgba(59,130,246,0.15), 0 0 14px var(--accent-glow); }
-    50% { box-shadow: 0 0 0 6px rgba(59,130,246,0.2), 0 0 18px var(--accent-glow); }
-  }
+    .act-output { display: none; padding: 0 0 4px 22px; }
+    .act.expanded .act-output { display: block; }
+    .act-output-inner {
+      background: #02020a; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 8px 10px;
+      font-family: 'DM Mono', monospace; font-size: 11px; line-height: 1.5;
+      color: #6070a0; max-height: 140px; overflow-y: auto;
+    }
 
-  /* ==================== AGENT INPUT ==================== */
-  .agent-input {
-    padding: 14px 20px; border-top: 1px solid var(--border);
-    display: flex; gap: 10px; align-items: flex-end;
-    background: rgba(8, 10, 16, 0.95);
-  }
-  .agent-input .attach-btn {
-    color: var(--text-muted); cursor: pointer; font-size: 18px;
-    background: rgba(255,255,255,0.03); border: 1px solid var(--border);
-    border-radius: var(--radius); width: 40px; height: 40px;
-    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-    transition: all 0.18s;
-  }
-  .agent-input .attach-btn:hover { color: var(--text); border-color: var(--border-strong); background: rgba(255,255,255,0.06); }
-  .agent-input textarea {
-    flex: 1; min-height: 40px; max-height: 140px; resize: none;
-    border-radius: var(--radius); border: 1px solid var(--border);
-    background: rgba(0,0,0,0.3); color: #fff; padding: 10px 14px;
-    font-size: 13.5px; font-family: 'Funnel Display', sans-serif;
-    transition: all 0.18s; line-height: 1.4;
-  }
-  .agent-input textarea:focus {
-    border-color: var(--accent); background: rgba(0,0,0,0.5);
-    box-shadow: 0 0 0 3px var(--accent-glow);
-  }
-  .agent-input textarea::placeholder { color: rgba(255,255,255,0.25); }
-  .agent-input button {
-    background: var(--accent-gradient); border: none; color: #fff;
-    border-radius: var(--radius); width: 40px; height: 40px;
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer; transition: all 0.2s;
-    box-shadow: 0 3px 12px var(--accent-glow); flex-shrink: 0;
-  }
-  .agent-input button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 5px 18px var(--accent-glow); }
-  .agent-input button:disabled { opacity: 0.5; cursor: not-allowed; }
+    /* ─── INPUT ─── */
+    .input-area {
+      padding: 12px 14px;
+      border-top: 1px solid var(--border);
+      background: rgba(2,2,10,0.9);
+      flex-shrink: 0;
+    }
+    .input-row {
+      display: flex; align-items: flex-end; gap: 8px;
+      background: rgba(4,4,14,0.95);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 10px;
+      transition: border-color 0.2s;
+    }
+    .input-row:focus-within { border-color: rgba(0,102,255,0.35); }
 
-  /* ==================== MAIN AREA ==================== */
-  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg-2); }
-  .topbar {
-    height: 50px; padding: 0 18px; display: flex; align-items: center;
-    justify-content: space-between;
-    border-bottom: 1px solid var(--border); background: var(--panel-solid);
-  }
-  .tabs {
-    display: flex; gap: 2px; padding: 3px; background: rgba(0,0,0,0.3);
-    border-radius: var(--radius-sm); border: 1px solid var(--border);
-  }
-  .tab {
-    padding: 5px 14px; border-radius: var(--radius-sm); cursor: pointer;
-    font-size: 12px; font-weight: 500; color: var(--text-muted);
-    transition: all 0.18s; border: 1px solid transparent;
-  }
-  .tab:hover { color: #fff; }
-  .tab.active {
-    background: rgba(255,255,255,0.06); color: #fff;
-    border-color: rgba(255,255,255,0.04);
-  }
-  .badge {
-    font-size: 11px; color: var(--text-muted);
-    display: flex; align-items: center; gap: 6px;
-    padding: 4px 9px; background: rgba(255,255,255,0.03);
-    border-radius: var(--radius-sm); border: 1px solid var(--border);
-    font-weight: 500;
-  }
-  .badge.live { color: var(--ok); background: rgba(34, 196, 142, 0.08); border-color: rgba(34, 196, 142, 0.2); }
-  .badge.warn { color: var(--warn); background: rgba(245, 181, 68, 0.08); border-color: rgba(245, 181, 68, 0.2); }
+    .input-row textarea {
+      flex: 1; min-height: 22px; max-height: 120px; resize: none;
+      background: transparent; border: none; color: var(--text);
+      font-size: 13px; font-family: 'DM Sans', sans-serif; font-weight: 300;
+      line-height: 1.5;
+    }
+    .input-row textarea::placeholder { color: var(--text-muted); }
 
-  /* Content grid */
-  .content { flex: 1; display: flex; min-height: 0; }
-  .files {
-    width: 230px; min-width: 190px;
-    background: var(--panel-light); border-right: 1px solid var(--border);
-    display: flex; flex-direction: column; backdrop-filter: blur(10px);
-  }
-  .tree-header {
-    padding: 11px 14px; display: flex; justify-content: space-between;
-    align-items: center; border-bottom: 1px solid var(--border);
-  }
-  .treeTitle {
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    color: var(--text-dim); letter-spacing: 1.2px;
-  }
-  .upload-btn {
-    background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.18);
-    color: var(--accent-soft); cursor: pointer; font-size: 11px;
-    padding: 4px 9px; border-radius: 5px; transition: all 0.18s; font-weight: 500;
-  }
-  .upload-btn:hover { background: var(--accent); color: #fff; }
-  .file-list { padding: 8px 6px; overflow-y: auto; flex: 1; }
-  .node {
-    display: flex; align-items: center; gap: 8px;
-    padding: 5px 8px; border-radius: 5px; cursor: pointer;
-    font-size: 12.5px; color: var(--text-muted); transition: all 0.14s;
-    margin-bottom: 1px;
-  }
-  .node:hover { background: rgba(255,255,255,0.03); color: var(--text); }
-  .node.active {
-    background: rgba(59,130,246,0.12); color: #fff; font-weight: 500;
-    box-shadow: inset 2px 0 0 var(--accent);
-  }
-  .ico { opacity: 0.85; font-size: 13px; flex-shrink: 0; display: flex; align-items: center; }
+    .attach-btn {
+      width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+      color: var(--text-muted); cursor: pointer; border-radius: 5px; flex-shrink: 0;
+      transition: all 0.15s; font-size: 16px;
+    }
+    .attach-btn:hover { color: var(--accent-light); background: var(--accent-dim); }
 
-  /* Stage */
-  .stage { flex: 1; min-width: 0; background: #0a0e18; position: relative; display: flex; flex-direction: column; }
-  #editor { flex: 1; height: 100%; overflow: hidden; }
-  #preview { width: 100%; height: 100%; border: 0; display: none; background: #fff; }
+    .send-btn {
+      width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+      background: var(--accent); color: #fff; border: none; border-radius: 6px;
+      cursor: pointer; flex-shrink: 0; font-size: 14px;
+      transition: all 0.15s var(--ease);
+    }
+    .send-btn:hover:not(:disabled) { background: #0055ee; transform: translateY(-1px); }
+    .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  /* Preview empty state */
-  .preview-empty {
-    display: none; flex: 1; align-items: center; justify-content: center;
-    flex-direction: column; gap: 16px; color: var(--text-dim); text-align: center;
-    padding: 40px; animation: fadeIn 0.4s;
-  }
-  .preview-empty .pe-icon {
-    width: 48px; height: 48px; border-radius: 50%;
-    background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.15);
-    display: flex; align-items: center; justify-content: center;
-    color: var(--accent-soft);
-  }
-  .preview-empty .pe-title { font-size: 14px; color: var(--text); font-weight: 500; }
-  .preview-empty .pe-sub { font-size: 12px; color: var(--text-muted); max-width: 280px; line-height: 1.5; }
+    #editorImagePreview {
+      display: none; height: 36px; width: 36px;
+      border-radius: 5px; object-fit: cover;
+      border: 1px solid var(--border); flex-shrink: 0; cursor: pointer;
+    }
 
-  /* Scrollbar */
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+    /* ─── RIGHT SIDE ─── */
+    .main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
 
-  /* ==================== LOADER ==================== */
-  #editor-loading-overlay {
-    position: fixed; inset: 0; z-index: 9999;
-    background: var(--bg);
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    transition: opacity 0.5s ease;
-  }
-  #editor-loading-overlay img {
-    width: 220px; height: 220px; object-fit: contain;
-    filter: drop-shadow(0 10px 30px rgba(59, 130, 246, 0.2));
-  }
-  #editor-loading-overlay h2 {
-    color: #fff; font-size: 16px; margin-top: -10px;
-    font-weight: 300; letter-spacing: 3px;
-  }
+    .main-topbar {
+      height: 48px; padding: 0 14px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      background: var(--sidebar-bg);
+      flex-shrink: 0;
+    }
 
-  /* Image preview chip */
-  #editorImagePreview {
-    display: none; height: 40px; width: 40px;
-    border-radius: var(--radius-sm); object-fit: cover;
-    border: 1px solid var(--border); flex-shrink: 0; cursor: pointer;
-  }
+    .tab-group {
+      display: flex; gap: 1px; padding: 3px;
+      background: rgba(0,0,0,0.4); border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }
+    .tab {
+      padding: 4px 12px; border-radius: 4px; cursor: pointer;
+      font-size: 12px; font-weight: 400; color: var(--text-muted);
+      transition: all 0.15s; display: flex; align-items: center; gap: 5px;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { background: rgba(0,102,255,0.1); color: var(--text); border: 1px solid rgba(0,102,255,0.15); }
+
+    .right-actions { display: flex; align-items: center; gap: 4px; }
+
+    .badge {
+      font-size: 11px; color: var(--text-muted);
+      padding: 3px 8px; background: rgba(255,255,255,0.02);
+      border-radius: var(--radius-sm); border: 1px solid var(--border);
+      font-weight: 400; display: flex; align-items: center; gap: 5px;
+    }
+    .badge.live { color: var(--ok); background: rgba(62,207,142,0.07); border-color: rgba(62,207,142,0.18); }
+
+    .pill-btn {
+      border: 1px solid var(--border); background: rgba(255,255,255,0.02); color: var(--text-muted);
+      padding: 4px 10px; border-radius: var(--radius-sm); font-size: 11.5px; cursor: pointer;
+      text-decoration: none; display: inline-flex; gap: 5px; align-items: center;
+      transition: all 0.15s; font-weight: 400;
+    }
+    .pill-btn:hover { border-color: var(--border-hover); color: var(--text); background: var(--accent-dim); }
+    .pill-btn.warn { background: rgba(239,154,70,0.08); border-color: rgba(239,154,70,0.2); color: #ef9a46; }
+    .pill-btn.warn:hover { background: rgba(239,154,70,0.15); }
+    .pill-btn.gh { background: rgba(255,255,255,0.03); color: var(--text); border-color: rgba(255,255,255,0.08); }
+
+    /* ─── CONTENT AREA ─── */
+    .content { flex: 1; display: flex; min-height: 0; }
+
+    /* ─── FILE TREE ─── */
+    .files {
+      width: 210px; min-width: 170px;
+      background: rgba(2,2,8,0.6);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+    }
+    .tree-head {
+      padding: 8px 10px;
+      display: flex; justify-content: space-between; align-items: center;
+      border-bottom: 1px solid var(--border);
+    }
+    .tree-title { font-size: 10px; font-weight: 500; text-transform: uppercase; color: var(--text-muted); letter-spacing: 1px; }
+    .upload-btn {
+      width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+      border-radius: 4px; color: var(--text-muted); cursor: pointer; font-size: 15px;
+      transition: all 0.15s; border: 1px solid transparent;
+    }
+    .upload-btn:hover { color: var(--accent-light); border-color: rgba(0,102,255,0.2); background: var(--accent-dim); }
+
+    .file-list { padding: 6px 4px; overflow-y: auto; flex: 1; }
+    .file-list::-webkit-scrollbar { width: 3px; }
+    .file-list::-webkit-scrollbar-thumb { background: rgba(0,102,255,0.1); }
+
+    .node {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 8px; border-radius: 4px;
+      font-size: 12px; color: var(--text-mid); cursor: pointer;
+      transition: all 0.12s; margin-bottom: 1px; border: 1px solid transparent;
+    }
+    .node:hover { background: rgba(0,102,255,0.05); color: var(--text); border-color: var(--border); }
+    .node.active { background: rgba(0,102,255,0.1); color: var(--text); font-weight: 400; border-color: rgba(0,102,255,0.15); }
+    .node .ico { font-size: 13px; flex-shrink: 0; display: flex; align-items: center; opacity: 0.8; }
+
+    /* ─── STAGE ─── */
+    .stage { flex: 1; min-width: 0; background: #01010a; display: flex; flex-direction: column; }
+    #editor { flex: 1; height: 100%; overflow: hidden; }
+    #preview { width: 100%; height: 100%; border: 0; display: none; background: #fff; }
+
+    .preview-empty {
+      display: none; flex: 1; align-items: center; justify-content: center;
+      flex-direction: column; gap: 12px; color: var(--text-muted); text-align: center; padding: 40px;
+    }
+    .preview-empty i { font-size: 28px; color: var(--text-muted); }
+    .preview-empty p { font-size: 13px; color: var(--text-muted); max-width: 240px; line-height: 1.5; }
+
+    /* ─── LOADER ─── */
+    #editor-loading-overlay {
+      position: fixed; inset: 0; z-index: 9999;
+      background: var(--bg);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+      transition: opacity 0.5s ease;
+    }
+    #editor-loading-overlay img { width: 256px; height: 256px; object-fit: contain; opacity: 0.9; }
+    #editor-loading-overlay p { color: var(--text-muted); font-size: 11px; letter-spacing: 2px; font-weight: 400; }
+
+    /* ─── WAVE LOADER ─── */
+    .wave { display: flex; gap: 2px; align-items: center; opacity: 0; transition: opacity 0.3s; }
+    .wave.active { opacity: 1; }
+    .wave span { width: 2px; height: 10px; background: var(--accent); border-radius: 2px; animation: wv 1s infinite ease-in-out; }
+    .wave span:nth-child(2) { animation-delay: 0.12s; }
+    .wave span:nth-child(3) { animation-delay: 0.24s; }
+    @keyframes wv { 0%,100%{transform:scaleY(0.5);opacity:0.4;} 50%{transform:scaleY(1.8);opacity:1;} }
+
+    /* ─── SCROLLBAR ─── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,102,255,0.1); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(0,102,255,0.22); }
+
+    /* ─── SPIN ─── */
+    @keyframes spin { 100%{ transform: rotate(360deg); } }
   </style>
 </head>
 
 <body class="{% if user.plan == 'premium' %}premium{% endif %}">
 
 <div id="editor-loading-overlay">
-  <img src="/static/gorilla.gif" alt="Loading..." />
-  <h2>WAKING UP GORILLA</h2>
+  <img src="/static/gorilla.gif" alt="" />
+  <p>WAKING UP GORILLA</p>
 </div>
 
 <div class="shell">
 
+<!-- ──────────────── LEFT PANEL ──────────────── -->
 <aside class="left">
-  <header>
-    <div class="hgroup">
-      <div class="t">
-      <svg version="1.0" xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 600 550" preserveAspectRatio="xMidYMid meet"> <g transform="translate(0.000000,603.000000) scale(0.100000,-0.100000)" fill="#ffffff" stroke="none"> <path d="M1497 6023 c827 -2 2179 -2 3005 0 827 1 151 2 -1502 2 -1653 0 -2329 -1 -1503 -2z"/> <path d="M2802 5273 c-43 -24 -131 -143 -182 -246 -99 -202 -106 -410 -19 -598 59 -128 153 -189 246 -158 56 18 81 37 108 84 34 57 32 112 -6 216 -54 145 -51 327 7 490 41 113 27 176 -46 214 -38 20 -68 19 -108 -2z"/> <path d="M3290 5268 c-74 -50 -185 -230 -228 -369 -44 -142 -37 -293 19 -440 52 -134 141 -208 234 -195 131 20 194 151 136 281 -67 150 -67 316 0 522 26 80 29 98 20 126 -28 83 -116 119 -181 75z"/> <path d="M685 4560 c-171 -34 -283 -139 -331 -306 -15 -50 -18 -129 -23 -519 -4 -321 -10 -466 -18 -480 -32 -56 -64 -70 -205 -90 -26 -4 -46 -17 -72 -45 -33 -36 -36 -45 -36 -99 0 -98 62 -161 157 -161 59 0 119 -26 146 -64 22 -31 22 -35 28 -496 5 -424 8 -471 26 -531 11 -37 31 -87 46 -111 72 -124 228 -198 418 -198 125 0 200 111 151 223 -26 59 -64 82 -148 90 -73 7 -116 27 -148 70 -20 28 -21 41 -27 490 -6 505 -8 526 -68 632 l-28 50 28 50 c60 106 62 128 68 630 6 427 7 462 25 491 26 44 68 65 139 71 81 7 131 35 157 88 26 53 25 91 -2 145 -32 61 -73 80 -168 79 -41 -1 -93 -5 -115 -9z"/> <path d="M5102 4550 c-68 -42 -92 -135 -54 -209 26 -52 60 -72 140 -81 83 -9 128 -32 157 -80 19 -33 20 -56 26 -500 6 -505 6 -513 66 -621 l26 -45 -26 -45 c-59 -103 -61 -113 -67 -619 -5 -461 -5 -465 -28 -501 -28 -45 -72 -67 -156 -77 -111 -14 -160 -66 -153 -165 4 -66 26 -103 78 -130 28 -15 50 -18 124 -13 218 12 351 101 416 278 22 61 23 74 28 533 6 503 6 500 58 547 19 18 78 34 155 43 33 4 56 15 78 35 29 27 30 31 30 118 0 88 -1 91 -31 116 -33 28 -45 32 -127 40 -66 7 -110 31 -137 76 -19 33 -20 56 -26 505 -6 496 -6 500 -55 598 -70 138 -221 217 -414 217 -57 0 -83 -5 -108 -20z"/> <path d="M1965 3849 c-113 -9 -166 -24 -280 -79 -312 -150 -493 -462 -471 -810 13 -209 89 -379 238 -529 161 -163 321 -236 545 -248 269 -14 478 70 667 267 61 65 95 111 130 179 70 136 89 217 89 386 0 124 -3 151 -27 230 -53 176 -145 314 -282 425 -174 139 -372 197 -609 179z m214 -324 c173 -46 319 -185 372 -354 23 -76 28 -212 9 -282 -50 -186 -208 -340 -391 -384 -181 -42 -372 15 -499 152 -100 106 -144 218 -143 363 1 290 228 517 518 519 44 0 104 -6 134 -14z"/> <path d="M3880 3849 c-190 -17 -341 -86 -488 -224 -112 -104 -200 -249 -239 -395 -25 -92 -25 -339 0 -430 78 -281 316 -519 597 -597 101 -28 339 -25 443 5 152 44 285 128 397 250 146 158 211 332 212 557 0 244 -82 436 -259 606 -181 175 -402 251 -663 228z m213 -324 c282 -73 454 -362 382 -640 -45 -171 -179 -312 -355 -371 -80 -27 -243 -25 -324 5 -202 73 -337 252 -353 466 -17 243 150 475 388 539 71 19 191 20 262 1z"/> </g> </svg>
-        <span>Gor://a</span>
-      </div>
-    </div>
-    <div class="header-actions">
-      <a class="pill" href="/projects/{{ project_id }}/settings" title="Settings">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-      </a>
-      {% if user.plan == 'premium' %}
-      <button class="pill" style="color:#ffd700;" onclick="window.open('/api/project/{{ project_id }}/export')">⬇ ZIP</button>
-      {% endif %}
-      <span class="pill" id="connPill" style="cursor:default;"><span class="dot warn" id="connDot"></span></span>
-    </div>
-  </header>
 
-  <div class="progress">
-    <div class="progress-row">
-      <div class="progress-title">
-        Status
-        <div class="loading-wave" id="loadingWave"><div class="loading-bar"></div><div class="loading-bar"></div><div class="loading-bar"></div></div>
-      </div>
-      <div class="progress-status" id="progressText">Ready</div>
+  <div class="topbar">
+    <a class="logo" href="/dashboard">
+      <svg version="1.0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 550" preserveAspectRatio="xMidYMid meet">
+        <g transform="translate(0,603) scale(0.1,-0.1)" fill="currentColor" stroke="none">
+          <path d="M2802 5273 c-43 -24 -131 -143 -182 -246 -99 -202 -106 -410 -19 -598 59 -128 153 -189 246 -158 56 18 81 37 108 84 34 57 32 112 -6 216 -54 145 -51 327 7 490 41 113 27 176 -46 214 -38 20 -68 19 -108 -2z"/>
+          <path d="M3290 5268 c-74 -50 -185 -230 -228 -369 -44 -142 -37 -293 19 -440 52 -134 141 -208 234 -195 131 20 194 151 136 281 -67 150 -67 316 0 522 26 80 29 98 20 126 -28 83 -116 119 -181 75z"/>
+          <path d="M685 4560 c-171 -34 -283 -139 -331 -306 -15 -50 -18 -129 -23 -519 -4 -321 -10 -466 -18 -480 -32 -56 -64 -70 -205 -90 -26 -4 -46 -17 -72 -45 -33 -36 -36 -45 -36 -99 0 -98 62 -161 157 -161 59 0 119 -26 146 -64 22 -31 22 -35 28 -496 5 -424 8 -471 26 -531 11 -37 31 -87 46 -111 72 -124 228 -198 418 -198 125 0 200 111 151 223 -26 59 -64 82 -148 90 -73 7 -116 27 -148 70 -20 28 -21 41 -27 490 -6 505 -8 526 -68 632 l-28 50 28 50 c60 106 62 128 68 630 6 427 7 462 25 491 26 44 68 65 139 71 81 7 131 35 157 88 26 53 25 91 -2 145 -32 61 -73 80 -168 79 -41 -1 -93 -5 -115 -9z"/>
+          <path d="M5102 4550 c-68 -42 -92 -135 -54 -209 26 -52 60 -72 140 -81 83 -9 128 -32 157 -80 19 -33 20 -56 26 -500 6 -505 6 -513 66 -621 l26 -45 -26 -45 c-59 -103 -61 -113 -67 -619 -5 -461 -5 -465 -28 -501 -28 -45 -72 -67 -156 -77 -111 -14 -160 -66 -153 -165 4 -66 26 -103 78 -130 28 -15 50 -18 124 -13 218 12 351 101 416 278 22 61 23 74 28 533 6 503 6 500 58 547 19 18 78 34 155 43 33 4 56 15 78 35 29 27 30 31 30 118 0 88 -1 91 -31 116 -33 28 -45 32 -127 40 -66 7 -110 31 -137 76 -19 33 -20 56 -26 505 -6 496 -6 500 -55 598 -70 138 -221 217 -414 217 -57 0 -83 -5 -108 -20z"/>
+          <path d="M1965 3849 c-113 -9 -166 -24 -280 -79 -312 -150 -493 -462 -471 -810 13 -209 89 -379 238 -529 161 -163 321 -236 545 -248 269 -14 478 70 667 267 61 65 95 111 130 179 70 136 89 217 89 386 0 124 -3 151 -27 230 -53 176 -145 314 -282 425 -174 139 -372 197 -609 179z m214 -324 c173 -46 319 -185 372 -354 23 -76 28 -212 9 -282 -50 -186 -208 -340 -391 -384 -181 -42 -372 15 -499 152 -100 106 -144 218 -143 363 1 290 228 517 518 519 44 0 104 -6 134 -14z"/>
+          <path d="M3880 3849 c-190 -17 -341 -86 -488 -224 -112 -104 -200 -249 -239 -395 -25 -92 -25 -339 0 -430 78 -281 316 -519 597 -597 101 -28 339 -25 443 5 152 44 285 128 397 250 146 158 211 332 212 557 0 244 -82 436 -259 606 -181 175 -402 251 -663 228z m213 -324 c282 -73 454 -362 382 -640 -45 -171 -179 -312 -355 -371 -80 -27 -243 -25 -324 5 -202 73 -337 252 -353 466 -17 243 150 475 388 539 71 19 191 20 262 1z"/>
+        </g>
+      </svg>
+      Gor://a
+    </a>
+
+    <div class="topbar-actions">
+      <a class="icon-btn" href="/projects/{{ project_id }}/settings" title="Settings"><i class="ph ph-gear"></i></a>
+      {% if user.plan == 'premium' %}
+      <button class="icon-btn accent" onclick="window.open('/api/project/{{ project_id }}/export')" title="Export ZIP"><i class="ph ph-download-simple"></i></button>
+      {% endif %}
+      <span class="icon-btn" id="connPill" style="cursor:default;" title="Connection">
+        <span class="dot" id="connDot"></span>
+      </span>
     </div>
-    <div class="bar-bg"><div class="bar-fill" id="progressBar"></div></div>
+  </div>
+
+  <div class="status-strip">
+    <div class="status-left">
+      <div class="wave" id="loadingWave"><span></span><span></span><span></span></div>
+      <span class="status-label" id="progressText">Ready</span>
+    </div>
+    <div class="prog-wrap"><div class="prog-bar" id="progressBar"></div></div>
   </div>
 
   <div class="chat" id="chat"></div>
 
-  <div class="agent-input">
+  <div class="input-area">
     <input type="file" id="editorImageInput" accept="image/png,image/jpeg,image/webp" hidden />
-    <label for="editorImageInput" class="attach-btn" title="Attach Image">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-    </label>
-    <img id="editorImagePreview" alt="" />
-    <textarea id="prompt" placeholder="What shall we build?" rows="1"></textarea>
-    <button id="runAgent" title="Run agent">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576zm6.787-8.201L1.591 6.602l4.339 2.76z"/></svg>
-    </button>
+    <div class="input-row">
+      <label for="editorImageInput" class="attach-btn" title="Attach image"><i class="ph ph-paperclip"></i></label>
+      <img id="editorImagePreview" alt="" />
+      <textarea id="prompt" placeholder="What shall we build?" rows="1"></textarea>
+      <button id="runAgent" class="send-btn" title="Send">
+        <i class="ph-fill ph-paper-plane-tilt"></i>
+      </button>
+    </div>
   </div>
+
 </aside>
 
+<!-- ──────────────── MAIN AREA ──────────────── -->
 <section class="main">
-  <div class="topbar">
-    <div class="tabs">
-      <div class="tab active" id="tabCode">Code</div>
-      <div class="tab" id="tabPreview">Preview</div>
+
+  <div class="main-topbar">
+    <div class="tab-group">
+      <div class="tab active" id="tabCode"><i class="ph ph-code" style="font-size:13px;"></i></div>
+      <div class="tab" id="tabPreview"><i class="ph ph-eye" style="font-size:13px;"></i></div>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;">
+
+    <div class="right-actions">
       <span class="badge" id="sandboxStatus">Sandbox Offline</span>
       {% if user and user.tokens %}
-      <span class="badge" title="Tokens">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M13 3L4 14h7l-1 7 9-11h-7l1-7z"/></svg>
+      <span class="badge" title="Tokens used">
+        <i class="ph ph-lightning" style="font-size:11px;"></i>
         <span id="tokenDisplay">{{ "{:,}".format(user.tokens.used) }}</span>
       </span>
       {% endif %}
       <span class="badge" id="saveStatus">Saved</span>
-      <a class="pill" href="/dashboard" target="_blank">Dashboard</a>
+
+      <a class="pill-btn" href="/dashboard" title="Dashboard"><i class="ph ph-squares-four"></i></a>
+
       {% if user.plan != 'premium' %}
-      <a class="pill" style="background: var(--accent-gradient); color:#fff; border-color: transparent;" href="/pricing" target="_blank">Upgrade</a>
+      <a class="pill-btn" href="/pricing" style="background:var(--accent);border-color:transparent;color:#fff;">Upgrade</a>
       {% endif %}
+
       {% if not has_github %}
-      <a class="pill" href="/auth/github/link" style="background:#24292e;color:#fff;border-color:#374151;">
+      <a class="pill-btn gh" href="/auth/github/link" title="Connect GitHub">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
         GitHub
       </a>
       {% else %}
-      <button class="pill" onclick="commitToGithub()" style="background:#24292e;color:#fff;border-color:#374151;cursor:pointer;" id="btn-github-action">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      <button class="pill-btn gh" onclick="commitToGithub()" id="btn-github-action" title="{% if project.github_repo_url %}Sync{% else %}Push{% endif %} to GitHub">
+        <i class="ph ph-git-branch" style="font-size:12px;"></i>
         {% if project.github_repo_url %}Sync{% else %}Push{% endif %}
       </button>
       {% endif %}
-      <a class="pill" href="/projects/{{ project_id }}/deploy" target="_blank" style="background:rgba(239, 154, 70, 0.1);border-color:rgba(239, 154, 70, 0.3);color:#ef9a46;">Deploy</a>
+
+      <a class="pill-btn warn" href="/projects/{{ project_id }}/deploy" target="_blank" title="Deploy">
+        <i class="ph ph-rocket-launch" style="font-size:12px;"></i> Deploy
+      </a>
     </div>
   </div>
 
   <div class="content">
     <aside class="files">
-      <div class="tree-header">
-        <div class="treeTitle">Explorer</div>
-        <button class="upload-btn" id="btnUpload">+ Upload</button>
+      <div class="tree-head">
+        <span class="tree-title">Explorer</span>
+        <button class="upload-btn" id="btnUpload" title="Upload file"><i class="ph ph-upload-simple"></i></button>
         <input type="file" id="uploadInput" hidden />
       </div>
       <div class="file-list" id="filetree"></div>
@@ -548,37 +527,32 @@
 
     <div class="stage">
       <div id="editor"></div>
-      <div id="imageViewer" style="display:none;flex:1;align-items:center;justify-content:center;overflow:auto;background:#0a0e18;padding:20px;"></div>
-        <iframe 
-          id="preview" 
-          sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals allow-downloads allow-pointer-lock allow-top-navigation-by-user-activation allow-presentation"
-          allow="clipboard-write; clipboard-read; microphone; camera; display-capture; accelerometer; gyroscope; payment"
-          referrerpolicy="no-referrer">
-        </iframe>      
-        <div class="preview-empty" id="previewEmpty">
-        <div class="pe-icon">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        </div>
-        <div class="pe-title">Preview is not live yet...</div>
-        <div class="pe-sub">The sandbox environment is starting up. It will appear here once ready.</div>
+      <div id="imageViewer" style="display:none;flex:1;align-items:center;justify-content:center;overflow:auto;background:#01010a;padding:20px;"></div>
+      <iframe
+        id="preview"
+        sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals allow-downloads allow-pointer-lock allow-top-navigation-by-user-activation allow-presentation"
+        allow="clipboard-write; clipboard-read; microphone; camera; display-capture"
+        referrerpolicy="no-referrer">
+      </iframe>
+      <div class="preview-empty" id="previewEmpty">
+        <i class="ph ph-timer"></i>
+        <p>Preview will appear once the sandbox is live.</p>
       </div>
     </div>
   </div>
-</section>
 
+</section>
 </div>
 
 <script>
 async function commitToGithub() {
-  const btn = document.getElementById("btn-github-action");
-  if (!btn) return;
-  const orig = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = 'Syncing...'; btn.style.opacity = "0.7";
+  const btn = document.getElementById("btn-github-action"); if (!btn) return;
+  const orig = btn.innerHTML; btn.disabled = true; btn.style.opacity = "0.5";
   try {
     const res = await fetch(`/projects/{{ project_id }}/github/publish`, { method: 'POST' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Failed");
-    btn.innerHTML = '✓ Synced';
+    btn.innerHTML = '<i class="ph ph-check"></i> Synced';
     setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; btn.style.opacity = "1"; }, 3000);
   } catch (err) {
     btn.innerHTML = 'Error';
@@ -597,248 +571,147 @@ const HAS_SUPABASE = {{ 'true' if has_supabase else 'false' }};
 const PROJECT_HAS_DB = {{ 'true' if project_has_db else 'false' }};
 
 window.isAgentWorking = false;
-let editorView = null;
-let currentFile = "index.html";
-let currentContent = "";
-let dirty = false;
-let es = null;
-let saveTimer = null;
-let sandboxUrl = null;
-let currentAttachedImage = null;
-
-// Tracks current activity group + running card refs
+let editorView = null, currentFile = "index.html", currentContent = "", dirty = false;
+let es = null, saveTimer = null, sandboxUrl = null, currentAttachedImage = null;
 let currentGroup = null;
-const activityRefs = new Map(); // id -> {cardEl, outputEl}
+const activityRefs = new Map();
 
-const $ = (id) => document.getElementById(id);
+const $ = id => document.getElementById(id);
 const chat = $("chat");
 
-// --- PROMPT CLEANER ---
 const PREFIXES = [
   /TAKE YOUR TIME AND THINK DEEPLY\. Before writing any code, carefully plan your architecture, reason through edge cases, and think about potential failure points\. Quality and thoroughness over speed and do this:\s*/gi,
   /BE TOKEN EFFICIENT AND FAST AND DO THIS:\s*/gi
 ];
-
-function cleanPromptText(text) {
-  if (!text) return text;
-  let cleaned = text;
-  for (const regex of PREFIXES) {
-    cleaned = cleaned.replace(regex, '');
-  }
-  return cleaned.trim();
+function cleanPromptText(t) {
+  if (!t) return t;
+  for (const r of PREFIXES) t = t.replace(r, '');
+  return t.trim();
 }
 
-// -------------------- VERB ICONS --------------------
 const VERB_ICONS = {
-  edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
-  create: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
-  delete: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>',
-  install: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>',
-  execute: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
-  fetch: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
-  database: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>',
-  read: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
-  scan: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-  git: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>',
+  edit: 'ph-pencil-simple', create: 'ph-plus', delete: 'ph-trash',
+  install: 'ph-package', execute: 'ph-terminal', fetch: 'ph-globe',
+  database: 'ph-database', read: 'ph-eye', scan: 'ph-magnifying-glass', git: 'ph-git-branch'
 };
-function iconFor(verb) { return VERB_ICONS[verb] || VERB_ICONS.execute; }
+function iconFor(verb) { return VERB_ICONS[verb] || 'ph-terminal'; }
 
-// -------------------- LOADER --------------------
-function hideEditorLoader() {
+function hideLoader() {
   const l = $('editor-loading-overlay');
   if (l) { l.style.opacity = '0'; setTimeout(() => l.style.display = 'none', 500); }
 }
 
-// -------------------- CHAT / ACTIVITY HELPERS --------------------
-function resetGroup() {
-  currentGroup = null;
-}
-
+function resetGroup() { currentGroup = null; }
 function ensureGroup() {
-  if (!currentGroup) {
-    currentGroup = document.createElement('div');
-    currentGroup.className = 'activity-group';
-    chat.appendChild(currentGroup);
-  }
+  if (!currentGroup) { currentGroup = document.createElement('div'); currentGroup.className = 'activity-group'; chat.appendChild(currentGroup); }
   return currentGroup;
 }
 
 function addUserMessage(text) {
   resetGroup();
-  const el = document.createElement('div');
-  el.className = 'msg-user';
-  el.textContent = text;
-  chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
-}
-
-// Typing animation for narration blocks
-async function typeInto(el, html, speed = 67) {
-  // We type the plain text but restore HTML afterward
-  const plain = new DOMParser().parseFromString(html, 'text/html').body.textContent || "";
-  el.innerHTML = '<span class="typed"></span><span class="caret"></span>';
-  const typedEl = el.querySelector('.typed');
-  for (let i = 0; i < plain.length; i++) {
-    typedEl.textContent += plain[i];
-    chat.scrollTop = chat.scrollHeight;
-    // Variable speed: slower on punctuation
-    let d = speed + Math.random() * 10;
-    if (plain[i] === '.' || plain[i] === ',' || plain[i] === '!') d += 80;
-    await new Promise(r => setTimeout(r, d));
-  }
-  // Replace with real HTML (removes caret)
-  el.innerHTML = html;
+  const el = document.createElement('div'); el.className = 'msg-user'; el.textContent = text;
+  chat.appendChild(el); chat.scrollTop = chat.scrollHeight;
 }
 
 async function addNarration(text, withTyping = true) {
   resetGroup();
-  const el = document.createElement('div');
-  el.className = 'narration';
+  const el = document.createElement('div'); el.className = 'narration';
   chat.appendChild(el);
   const html = DOMPurify.sanitize(marked.parse(text));
   if (withTyping) {
-    await typeInto(el, html, 10);
-  } else {
+    const plain = new DOMParser().parseFromString(html, 'text/html').body.textContent || "";
+    el.innerHTML = '<span class="typed"></span>';
+    const typed = el.querySelector('.typed');
+    for (let i = 0; i < plain.length; i++) {
+      typed.textContent += plain[i];
+      chat.scrollTop = chat.scrollHeight;
+      let d = 8 + Math.random() * 6;
+      if (plain[i] === '.' || plain[i] === ',') d += 60;
+      await new Promise(r => setTimeout(r, d));
+    }
     el.innerHTML = html;
-  }
+  } else { el.innerHTML = html; }
   chat.scrollTop = chat.scrollHeight;
 }
 
 function addActivityCard(id, verb, target, short) {
   const group = ensureGroup();
-  const wrap = document.createElement('div');
-  wrap.className = 'act-group-wrap';
-
   const card = document.createElement('div');
   card.className = 'act running';
-  card.dataset.actId = id;
+  card.innerHTML = `
+    <i class="ph ${iconFor(verb)} act-icon"></i>
+    <span class="act-label">${short || verb}${target ? `<span class="act-target">${target}</span>` : ''}</span>
+    <span class="act-status"></span>
+  `;
 
-  const iconEl = document.createElement('div');
-  iconEl.className = 'act-icon';
-  iconEl.innerHTML = iconFor(verb);
+  const outputWrap = document.createElement('div'); outputWrap.className = 'act-output';
+  const inner = document.createElement('div'); inner.className = 'act-output-inner';
+  outputWrap.appendChild(inner);
 
-  const body = document.createElement('div');
-  body.className = 'act-body';
-
-  const verbEl = document.createElement('span');
-  verbEl.className = 'act-verb';
-  verbEl.textContent = short || verb;
-
-  body.appendChild(verbEl);
-
-  // Only show target if not already in `short`
-  if (target && !((short || '').includes(target))) {
-    const sep = document.createElement('span');
-    sep.className = 'act-sep';
-    sep.textContent = '·';
-    const t = document.createElement('span');
-    t.className = 'act-target';
-    t.textContent = target;
-    body.appendChild(sep);
-    body.appendChild(t);
-  }
-
-  const chev = document.createElement('span');
-  chev.className = 'act-chev';
-  chev.textContent = '›';
-
-  card.appendChild(iconEl);
-  card.appendChild(body);
-  card.appendChild(chev);
-
-  const output = document.createElement('div');
-  output.className = 'act-output';
-  const inner = document.createElement('div');
-  inner.className = 'act-output-inner';
-  output.appendChild(inner);
-
-  wrap.appendChild(card);
-  wrap.appendChild(output);
+  const wrap = document.createElement('div');
+  wrap.appendChild(card); wrap.appendChild(outputWrap);
   group.appendChild(wrap);
 
   activityRefs.set(id, { cardEl: card, outputEl: inner, hasOutput: false });
-
   card.onclick = () => {
-    const has = activityRefs.get(id)?.hasOutput;
-    if (!has) return;
-    card.classList.toggle('expanded');
+    if (activityRefs.get(id)?.hasOutput) card.classList.toggle('expanded');
   };
-
   chat.scrollTop = chat.scrollHeight;
 }
 
 function appendActivityChunk(id, stream, text) {
-  const ref = activityRefs.get(id);
-  if (!ref) return;
+  const ref = activityRefs.get(id); if (!ref) return;
   const line = document.createElement('div');
   line.className = stream === 'stderr' ? 'stream-err' : 'stream-out';
-  line.textContent = text;
-  ref.outputEl.appendChild(line);
-  ref.hasOutput = true;
+  line.textContent = text; line.style.color = stream === 'stderr' ? 'var(--danger)' : '';
+  ref.outputEl.appendChild(line); ref.hasOutput = true;
   ref.outputEl.scrollTop = ref.outputEl.scrollHeight;
 }
 
 function endActivity(id, ok) {
-  const ref = activityRefs.get(id);
-  if (!ref) return;
+  const ref = activityRefs.get(id); if (!ref) return;
   ref.cardEl.classList.remove('running');
   ref.cardEl.classList.add(ok ? 'done' : 'failed');
 }
 
-// -------------------- CHAT HISTORY LOAD --------------------
 function loadChatHistory() {
   try {
     const hist = {{ chat_history | safe }};
     if (!Array.isArray(hist)) return;
     hist.forEach(m => {
-      const text = m.content || '';
-      if (!text) return;
-      // Strip mode prefixes from the user's historical messages
+      const text = m.content || ''; if (!text) return;
       if (m.role === 'user') addUserMessage(cleanPromptText(text));
       else if (m.role === 'assistant') {
-        const el = document.createElement('div');
-        el.className = 'narration';
+        const el = document.createElement('div'); el.className = 'narration';
         el.innerHTML = DOMPurify.sanitize(marked.parse(text));
         chat.appendChild(el);
       }
     });
     chat.scrollTop = chat.scrollHeight;
-  } catch(e) { console.error('Chat load err:', e); }
+  } catch(e) {}
 }
 
-// -------------------- INPUT STATE --------------------
 function setInputState(locked) {
   window.isAgentWorking = locked;
   const p = $("prompt"), b = $("runAgent");
   if (p) p.disabled = locked;
   if (b) b.disabled = locked;
-
-  // ← add: dim editor and block pointer events
   const ed = $("editor");
-  if (ed) {
-    ed.style.opacity = locked ? "0.4" : "1";
-    ed.style.pointerEvents = locked ? "none" : "auto";
-  }
-
+  if (ed) { ed.style.opacity = locked ? "0.4" : "1"; ed.style.pointerEvents = locked ? "none" : "auto"; }
   if (locked) {
     if (p) p.placeholder = "Gorilla is thinking...";
-    if (b) b.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 0.9s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
+    if (b) b.innerHTML = '<i class="ph ph-spinner" style="animation:spin 0.9s linear infinite;"></i>';
   } else {
     if (p) p.placeholder = "What shall we build?";
-    if (b) b.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576zm6.787-8.201L1.591 6.602l4.339 2.76z"/></svg>';
+    if (b) b.innerHTML = '<i class="ph-fill ph-paper-plane-tilt"></i>';
   }
 }
-const spinStyle = document.createElement('style');
-spinStyle.textContent = '@keyframes spin{100%{transform:rotate(360deg)}}';
-document.head.appendChild(spinStyle);
 
-// Auto-grow textarea
 $("prompt").addEventListener('input', function() {
   this.style.height = 'auto';
-  this.style.height = Math.min(this.scrollHeight, 140) + 'px';
+  this.style.height = Math.min(this.scrollHeight, 120) + 'px';
 });
 
-// -------------------- IMAGE ATTACH --------------------
 const imgInput = $("editorImageInput"), imgPreview = $("editorImagePreview");
 if (imgInput) imgInput.addEventListener("change", function(e) {
   const file = e.target.files[0]; if (!file) return;
@@ -857,16 +730,14 @@ if (imgInput) imgInput.addEventListener("change", function(e) {
   img.src = url;
 });
 if (imgPreview) imgPreview.onclick = () => {
-  currentAttachedImage = null;
-  imgPreview.style.display = 'none'; imgPreview.src = '';
+  currentAttachedImage = null; imgPreview.style.display = 'none'; imgPreview.src = '';
   document.querySelector('label[for="editorImageInput"]').style.display = 'flex';
   if (imgInput) imgInput.value = '';
 };
 
-// -------------------- STATUS UI --------------------
 function setConn(state) {
   const dot = $("connDot"); if (!dot) return;
-  dot.className = "dot " + (state === "ok" ? "ok" : state === "bad" ? "bad" : "warn");
+  dot.className = "dot" + (state === "ok" ? " ok" : state === "bad" ? " bad" : "");
 }
 function setProgress(text, pct) {
   if (text) $("progressText").textContent = text;
@@ -877,18 +748,15 @@ function setProgress(text, pct) {
 function updateSandboxStatus(status) {
   const el = $("sandboxStatus"); if (!el) return;
   el.textContent = "Sandbox " + status;
-  el.className = "badge" + (status === "Live" ? " live" : (status === "Booting" ? " warn" : ""));
+  el.className = "badge" + (status === "Live" ? " live" : "");
 }
-function updateTokens(val) {
-  const el = $("tokenDisplay"); if (el) el.textContent = Number(val).toLocaleString();
-}
+function updateTokens(val) { const el = $("tokenDisplay"); if (el) el.textContent = Number(val).toLocaleString(); }
 function setSaveStatus() {
   const el = $("saveStatus"); if (!el) return;
-  if (dirty) { el.textContent = "Unsaved"; el.style.color = "var(--warn)"; }
-  else { el.textContent = "Saved"; el.style.color = "var(--text-muted)"; }
+  el.textContent = dirty ? "Unsaved" : "Saved";
+  el.style.color = dirty ? "var(--warn)" : "var(--text-muted)";
 }
 
-// -------------------- FILE TREE --------------------
 async function fetchJSON(url, opts) { try { return await (await fetch(url, opts)).json(); } catch(e) { return { ok: false }; } }
 
 function buildTree(paths) {
@@ -905,10 +773,23 @@ function buildTree(paths) {
   return root;
 }
 
+function fileIcon(name) {
+  if (name.endsWith('.js') || name.endsWith('.ts')) return '<i class="ph ph-file-ts ico" style="color:#f5c542;"></i>';
+  if (name.endsWith('.tsx') || name.endsWith('.jsx')) return '<i class="ph ph-atom ico" style="color:#53c1de;"></i>';
+  if (name.endsWith('.html')) return '<i class="ph ph-file-html ico" style="color:#e65100;"></i>';
+  if (name.endsWith('.css')) return '<i class="ph ph-file-css ico" style="color:#0277bd;"></i>';
+  if (name.endsWith('.env') || name.endsWith('config')) return '<i class="ph ph-gear ico" style="color:#6070a0;"></i>';
+  if (name.endsWith('.json')) return '<i class="ph ph-file-code ico" style="color:#6070a0;"></i>';
+  if (name.endsWith('.sql')) return '<i class="ph ph-database ico" style="color:#3b82f6;"></i>';
+  if (name.endsWith('.md')) return '<i class="ph ph-file-text ico" style="color:#6070a0;"></i>';
+  if (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.b64')) return '<i class="ph ph-image ico" style="color:#3b82f6;"></i>';
+  return '<i class="ph ph-file ico"></i>';
+}
+
 function renderTree(container, nodeObj, depth) {
   const entries = Object.entries(nodeObj).sort(([a, ma], [b, mb]) => {
     const fa = !!ma.__file, fb = !!mb.__file;
-    if (fa !== fb) return fa - fb; // folders first
+    if (fa !== fb) return fa - fb;
     return a.localeCompare(b);
   });
   for (const [name, meta] of entries) {
@@ -916,24 +797,9 @@ function renderTree(container, nodeObj, depth) {
     const isFile = !!meta.__file;
     const row = document.createElement("div");
     row.className = "node" + ((isFile && meta.__path === currentFile) ? " active" : "");
-    row.style.paddingLeft = (8 + (depth * 14)) + "px";
-
-    const ico = document.createElement("span"); ico.className = "ico";
-    if (isFile) {
-      if (name.endsWith('.js')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 48 48"><path fill="#ffd600" d="M6,42V6h36v36H6z"/><path fill="none" stroke="#000" stroke-width="3.3" d="M23.8,22.3v9.8c0,3.7-4.4,4-6.3,0.8"/><path fill="none" stroke="#000" stroke-width="3.3" d="M34.7,25.3c-1.7-2.7-5.7-2.3-5.8,0.6c-0.2,3.7,6.8,2.9,6.2,7.1c-0.4,2.9-4.9,3.9-7.2-0.1"/></svg>`;
-      else if (name.endsWith('.html')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 48 48"><path fill="#E65100" d="M41,5H7l3,34l14,4l14-4L41,5z"/><path fill="#FF6D00" d="M24 8L24 39.9 35.2 36.7 37.7 8z"/><path fill="#FFF" d="M24,25v-4h8.6l-0.7,11.5L24,35.1v-4.2l4.1-1.4l0.3-4.5H24z M32.9,17l0.3-4H24v4H32.9z"/><path fill="#EEE" d="M24,30.9v4.2l-7.9-2.6L15.7,27h4l0.2,2.5L24,30.9z M19.1,17H24v-4h-9.1l0.7,12H24v-4h-4.6L19.1,17z"/></svg>`;
-      else if (name.endsWith('.css')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 48 48"><path fill="#0277BD" d="M41,5H7l3,34l14,4l14-4L41,5z"/><path fill="#039BE5" d="M24 8L24 39.9 35.2 36.7 37.7 8z"/><path fill="#FFF" d="M33.1 13L24 13 24 17 28.9 17 28.6 21 24 21 24 25 28.4 25 28.1 29.5 24 30.9 24 35.1 31.9 32.5 32.6 21z"/><path fill="#EEE" d="M24,13v4h-8.9l-0.3-4H24z M19.4,21l0.2,4H24v-4H19.4z M19.8,27h-4l0.3,5.5l7.9,2.6v-4.2l-4.1-1.4L19.8,27z"/></svg>`;
-      else if (name.endsWith('.tsx') || name.endsWith('.jsx')) ico.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 32 32" fill="none"><path d="M18.6789 15.9759C18.6789 14.5415 17.4796 13.3785 16 13.3785C14.5206 13.3785 13.3211 14.5415 13.3211 15.9759C13.3211 17.4105 14.5206 18.5734 16 18.5734C17.4796 18.5734 18.6789 17.4105 18.6789 15.9759Z" fill="#53C1DE"/><path fill-rule="evenodd" clip-rule="evenodd" d="M24.7004 11.1537C25.2661 8.92478 25.9772 4.79148 23.4704 3.39016C20.9753 1.99495 17.7284 4.66843 16.0139 6.27318C14.3044 4.68442 10.9663 2.02237 8.46163 3.42814C5.96751 4.82803 6.73664 8.8928 7.3149 11.1357C4.98831 11.7764 1 13.1564 1 15.9759C1 18.7874 4.98416 20.2888 7.29698 20.9289C6.71658 23.1842 5.98596 27.1909 8.48327 28.5877C10.9973 29.9932 14.325 27.3945 16.0554 25.7722C17.7809 27.3864 20.9966 30.0021 23.4922 28.6014C25.9956 27.1963 25.3436 23.1184 24.7653 20.8625C27.0073 20.221 31 18.7523 31 15.9759C31 13.1835 26.9903 11.7923 24.7004 11.1537ZM24.4162 19.667C24.0365 18.5016 23.524 17.2623 22.8971 15.9821C23.4955 14.7321 23.9881 13.5088 24.3572 12.3509C26.0359 12.8228 29.7185 13.9013 29.7185 15.9759C29.7185 18.07 26.1846 19.1587 24.4162 19.667ZM22.85 27.526C20.988 28.571 18.2221 26.0696 16.9478 24.8809C17.7932 23.9844 18.638 22.9422 19.4625 21.7849C20.9129 21.6602 22.283 21.4562 23.5256 21.1777C23.9326 22.7734 24.7202 26.4763 22.85 27.526ZM9.12362 27.5111C7.26143 26.47 8.11258 22.8946 8.53957 21.2333C9.76834 21.4969 11.1286 21.6865 12.5824 21.8008C13.4123 22.9332 14.2816 23.9741 15.1576 24.8857C14.0753 25.9008 10.9945 28.557 9.12362 27.5111ZM2.28149 15.9759C2.28149 13.874 5.94207 12.8033 7.65904 12.3326C8.03451 13.5165 8.52695 14.7544 9.12123 16.0062C8.51925 17.2766 8.01977 18.5341 7.64085 19.732C6.00369 19.2776 2.28149 18.0791 2.28149 15.9759ZM9.1037 4.50354C10.9735 3.45416 13.8747 6.00983 15.1159 7.16013C14.2444 8.06754 13.3831 9.1006 12.5603 10.2265C11.1494 10.3533 9.79875 10.5569 8.55709 10.8297C8.09125 9.02071 7.23592 5.55179 9.1037 4.50354ZM20.3793 11.5771C21.3365 11.6942 22.2536 11.85 23.1147 12.0406C22.8562 12.844 22.534 13.6841 22.1545 14.5453C21.6044 13.5333 21.0139 12.5416 20.3793 11.5771ZM16.0143 8.0481C16.6054 8.66897 17.1974 9.3623 17.7798 10.1145C16.5985 10.0603 15.4153 10.0601 14.234 10.1137C14.8169 9.36848 15.414 8.67618 16.0143 8.0481ZM9.8565 14.5444C9.48329 13.6862 9.16398 12.8424 8.90322 12.0275C9.75918 11.8418 10.672 11.69 11.623 11.5748C10.9866 12.5372 10.3971 13.5285 9.8565 14.5444ZM11.6503 20.4657C10.6679 20.3594 9.74126 20.2153 8.88556 20.0347C9.15044 19.2055 9.47678 18.3435 9.85796 17.4668C10.406 18.4933 11.0045 19.4942 11.6503 20.4657ZM16.0498 23.9915C15.4424 23.356 14.8365 22.6531 14.2448 21.8971C15.4328 21.9423 16.6231 21.9424 17.811 21.891C17.2268 22.6608 16.6369 23.3647 16.0498 23.9915ZM22.1667 17.4222C22.5677 18.3084 22.9057 19.1657 23.1742 19.9809C22.3043 20.1734 21.3652 20.3284 20.3757 20.4435C21.015 19.4607 21.6149 18.4536 22.1667 17.4222ZM18.7473 20.5941C16.9301 20.72 15.1016 20.7186 13.2838 20.6044C12.2509 19.1415 11.3314 17.603 10.5377 16.0058C11.3276 14.4119 12.2404 12.8764 13.2684 11.4158C15.0875 11.2825 16.9178 11.2821 18.7369 11.4166C19.7561 12.8771 20.6675 14.4086 21.4757 15.9881C20.6771 17.5812 19.7595 19.1198 18.7473 20.5941ZM22.8303 4.4666C24.7006 5.51254 23.8681 9.22726 23.4595 10.8426C22.2149 10.5641 20.8633 10.3569 19.4483 10.2281C18.6239 9.09004 17.7698 8.05518 16.9124 7.15949C18.1695 5.98441 20.9781 3.43089 22.8303 4.4666Z" fill="#53C1DE"/></svg>`;
-      else if (name.endsWith('.sql')) ico.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>`;
-      else if (name.endsWith('.b64')) ico.innerHTML = `<svg fill="#000000" width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="3" width="20" height="18" rx="2" style="fill: transparent; stroke: #3b82f6; stroke-width: 2;"></rect><path d="M2.29,17,7,12.29a1,1,0,0,1,1.42,0l2.09,2.1,4.07-4.08a1,1,0,0,1,1.42,0L21.71,16a1,1,0,0,1,.29.71V19a2,2,0,0,1-2,2H4a2,2,0,0,1-2-2V17.71A1,1,0,0,1,2.29,17ZM7.5,7.5A1.5,1.5,0,1,0,9,6,1.5,1.5,0,0,0,7.5,7.5Z" style="fill: #3b82f6;"></path></svg>`;
-      else if(name.endsWith('.json')) ico.textContent = "{ }";
-      else if(name.endsWith('.env')) ico.textContent = "⚙︎";
-      else if(name.endsWith('.ts')) ico.textContent = "ts";
-    } else {
-      ico.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
-    }
-    const label = document.createElement("span"); label.textContent = name;
-    row.appendChild(ico); row.appendChild(label);
+    row.style.paddingLeft = (8 + depth * 12) + "px";
+    const ico = isFile ? fileIcon(name) : '<i class="ph ph-folder ico" style="color:#2a3a5e;"></i>';
+    row.innerHTML = `${ico}<span>${name}</span>`;
     if (isFile) row.onclick = () => loadFile(meta.__path);
     else {
       let open = true;
@@ -950,9 +816,8 @@ function renderTree(container, nodeObj, depth) {
 async function refreshFiles() {
   const data = await fetchJSON(`/api/project/${PROJECT_ID}/files`);
   const paths = (data.files || []).map(x => x.path);
-  if (paths.length > 0 && !paths.includes(currentFile)) {
+  if (paths.length > 0 && !paths.includes(currentFile))
     currentFile = paths.includes('README.md') ? 'README.md' : paths.includes('package.json') ? 'package.json' : paths[0];
-  }
   const tree = buildTree(paths);
   const mount = $("filetree");
   if (mount) { mount.innerHTML = ""; renderTree(mount, tree, 0); }
@@ -976,12 +841,9 @@ async function loadFile(path) {
     const iv = $("imageViewer");
     let src = content;
     if (path.endsWith('.b64') && !content.startsWith('data:image')) src = `data:image/jpeg;base64,${content}`;
-    iv.innerHTML = `<img src="${src}" style="max-width:100%;max-height:100%;border-radius:12px;">`;
+    iv.innerHTML = `<img src="${src}" style="max-width:100%;max-height:100%;border-radius:8px;">`;
     switchTab("code");
-  } else {
-    buildEditor(content, path);
-    switchTab("code");
-  }
+  } else { buildEditor(content, path); switchTab("code"); }
   await refreshFiles();
 }
 
@@ -994,7 +856,6 @@ async function saveCurrentFile() {
   if (r.ok) { dirty = false; setSaveStatus(); await refreshFiles(); }
 }
 
-// Upload
 const btnUpload = $("btnUpload");
 if (btnUpload) btnUpload.onclick = () => $("uploadInput").click();
 const upInput = $("uploadInput");
@@ -1010,233 +871,134 @@ if (upInput) upInput.onchange = (e) => {
   reader.readAsText(file);
 };
 
-// -------------------- TABS --------------------
 function switchTab(tab) {
   if (tab === "preview") {
     $("tabPreview").classList.add("active"); $("tabCode").classList.remove("active");
     $("editor").style.display = "none"; $("imageViewer").style.display = "none";
-    document.querySelector(".files").style.display = "none"; // ← add
-    
+    document.querySelector(".files").style.display = "none";
     if (sandboxUrl && $("sandboxStatus").textContent.toLowerCase().includes("live")) {
-      $("preview").src = sandboxUrl;
-      $("preview").style.display = "block";
-      $("previewEmpty").style.display = "none";
-    } else {
-      $("preview").style.display = "none";
-      $("previewEmpty").style.display = "flex";
-      bootSandboxIfNeeded();
-    }
+      $("preview").src = sandboxUrl; $("preview").style.display = "block"; $("previewEmpty").style.display = "none";
+    } else { $("preview").style.display = "none"; $("previewEmpty").style.display = "flex"; bootSandboxIfNeeded(); }
   } else {
     $("tabCode").classList.add("active"); $("tabPreview").classList.remove("active");
-    document.querySelector(".files").style.display = "flex"; // ← add
+    document.querySelector(".files").style.display = "flex";
     $("preview").style.display = "none"; $("previewEmpty").style.display = "none";
     if (currentFile && (currentFile.endsWith('.b64') || currentFile.endsWith('.png'))) {
       $("editor").style.display = "none"; $("imageViewer").style.display = "flex";
-    } else {
-      $("editor").style.display = "block"; $("imageViewer").style.display = "none";
-    }
+    } else { $("editor").style.display = "block"; $("imageViewer").style.display = "none"; }
   }
 }
 $("tabCode").onclick = () => switchTab("code");
 $("tabPreview").onclick = () => switchTab("preview");
 
-// -------------------- SANDBOX --------------------
 async function bootSandboxIfNeeded() {
-  if (sandboxUrl && $("sandboxStatus").textContent.toLowerCase().includes("live")) { 
-    $("preview").src = sandboxUrl; 
-    return; 
-  }
+  if (sandboxUrl && $("sandboxStatus").textContent.toLowerCase().includes("live")) { $("preview").src = sandboxUrl; return; }
   updateSandboxStatus("Booting");
   try {
     const res = await fetch(`/api/project/${PROJECT_ID}/sandbox/start`, { method: 'POST' });
     const data = await res.json();
     if (data.url) {
-      sandboxUrl = data.url;
-      updateSandboxStatus("Live");
+      sandboxUrl = data.url; updateSandboxStatus("Live");
       if ($("tabPreview").classList.contains("active")) {
-        $("preview").src = sandboxUrl;
-        $("preview").style.display = "block";
-        $("previewEmpty").style.display = "none";
+        $("preview").src = sandboxUrl; $("preview").style.display = "block"; $("previewEmpty").style.display = "none";
       }
-    } else {
-      updateSandboxStatus("Error");
-    }
+    } else updateSandboxStatus("Error");
   } catch (e) { updateSandboxStatus("Error"); }
 }
 
-// -------------------- SSE --------------------
 function startStream() {
-  if (es) es.close();
-  setConn("warn");
+  if (es) es.close(); setConn("warn");
   es = new EventSource(`/api/project/${PROJECT_ID}/events`);
   es.onopen = () => setConn("ok");
   es.onmessage = async (e) => {
     const m = JSON.parse(e.data);
-
     if (m.type === "status") {
       setProgress(m.text);
-      if (/Done|Ready|Error/i.test(m.text)) {
-        resetGroup();
-        setInputState(false);
-      }
+      if (/Done|Ready|Error/i.test(m.text)) { resetGroup(); setInputState(false); }
       if (/Sandbox Ready|Sandbox: Live/i.test(m.text)) {
         updateSandboxStatus("Live");
         if (sandboxUrl && $("tabPreview").classList.contains("active")) {
-          setTimeout(() => { 
-            $("preview").src = sandboxUrl; 
-            $("preview").style.display = "block";
-            $("previewEmpty").style.display = "none";
-          }, 600);
+          setTimeout(() => { $("preview").src = sandboxUrl; $("preview").style.display = "block"; $("previewEmpty").style.display = "none"; }, 600);
         }
       }
       if (/Sandbox Offline/i.test(m.text)) { sandboxUrl = null; updateSandboxStatus("Offline"); }
     }
     else if (m.type === "progress") setProgress(m.text, m.pct);
-else if (m.type === "sandbox_url") {
+    else if (m.type === "sandbox_url") {
       sandboxUrl = m.url; updateSandboxStatus("Live");
       if ($("tabPreview").classList.contains("active")) {
         const iframe = $("preview");
-        
-        // 1. Immediately hide iframe and show custom "Not Live" message
-        iframe.style.display = "none";
-        $("previewEmpty").style.display = "flex";
-        $("previewEmpty").querySelector(".pe-sub").textContent =
-          "The dev server port isn't open yet. It will appear once npm run dev starts.";
-
-        // 2. Poll the sandbox URL in the background to check for the error page
+        iframe.style.display = "none"; $("previewEmpty").style.display = "flex";
         const checkPort = setInterval(async () => {
           try {
-            const res = await fetch(sandboxUrl);
-            const text = await res.text();
-            
-            // 3. If E2B's "Closed Port Error" text is GONE, the app is running!
+            const res = await fetch(sandboxUrl); const text = await res.text();
             if (!text.includes("Closed Port Error") && !text.includes("no service running on port")) {
-              clearInterval(checkPort);
-              iframe.src = sandboxUrl;
-              iframe.style.display = "block";
-              $("previewEmpty").style.display = "none";
+              clearInterval(checkPort); iframe.src = sandboxUrl; iframe.style.display = "block"; $("previewEmpty").style.display = "none";
             }
           } catch (err) {
-            // A CORS error means the user's app (React/Vite) booted up and is blocking our fetch.
-            // This is a good thing! It means it's ready.
-            clearInterval(checkPort);
-            iframe.src = sandboxUrl;
-            iframe.style.display = "block";
-            $("previewEmpty").style.display = "none";
+            clearInterval(checkPort); iframe.src = sandboxUrl; iframe.style.display = "block"; $("previewEmpty").style.display = "none";
           }
-        }, 2000); // Check every 2 seconds
+        }, 2000);
       }
     }
-    else if (m.type === "narration") {
-      await addNarration(m.text, true);
-    }
-    else if (m.type === "activity_start") {
-      addActivityCard(m.id, m.verb, m.target, m.short);
-    }
-    else if (m.type === "activity_chunk") {
-      appendActivityChunk(m.id, m.stream, m.text);
-    }
-    else if (m.type === "activity_end") {
-      endActivity(m.id, m.ok);
-    }
-    else if (m.type === "log") {
-      // Legacy log events — only show assistant role as narration
-      const role = (m.role || "").toLowerCase();
-      if (role === "assistant") await addNarration(m.text, false);
-      // Silently drop other legacy logs — the activity system handles them now
-    }
-    else if (m.type === "file_changed") {
-      refreshFiles();
-      if (m.path === currentFile) loadFile(currentFile);
-    }
-    else if (m.type === "file_deleted") {
-      refreshFiles();
-      if (m.path === currentFile) currentFile = "README.md";
-    }
+    else if (m.type === "narration") await addNarration(m.text, true);
+    else if (m.type === "activity_start") addActivityCard(m.id, m.verb, m.target, m.short);
+    else if (m.type === "activity_chunk") appendActivityChunk(m.id, m.stream, m.text);
+    else if (m.type === "activity_end") endActivity(m.id, m.ok);
+    else if (m.type === "log") { if ((m.role || "").toLowerCase() === "assistant") await addNarration(m.text, false); }
+    else if (m.type === "file_changed") { refreshFiles(); if (m.path === currentFile) loadFile(currentFile); }
+    else if (m.type === "file_deleted") { refreshFiles(); if (m.path === currentFile) currentFile = "README.md"; }
     else if (m.type === "token_usage") updateTokens(m.used);
   };
   es.onerror = () => setConn("bad");
 }
 
-// -------------------- AGENT TRIGGER --------------------
 async function triggerAgent(promptText) {
   if (!promptText && !currentAttachedImage) return;
   resetGroup();
-  
   const dbKeywords = /\b(db|database|supabase|postgres|sql)\b/i;
   const isDbReq = dbKeywords.test(promptText);
   const formData = new FormData();
   formData.append("agent_type", isDbReq ? "supabase" : "fast");
   if (isDbReq && !PROJECT_HAS_DB && !HAS_SUPABASE) {
-    await addNarration("To use a database, please link your Supabase account from Dashboard settings.", false);
-    return;
+    await addNarration("To use a database, please link your Supabase account from Dashboard settings.", false); return;
   }
   if (isDbReq && !PROJECT_HAS_DB) formData.append("is_db_request", "true");
-  
   setInputState(true);
-  
-  // Show the CLEAN prompt to the user
   addUserMessage(cleanPromptText(promptText) || "Please update to match this image.");
-  
-  // Send the FULL prompt to the backend
   formData.append("prompt", promptText || "Please update to match this image.");
   if (currentAttachedImage) formData.append("image_base64", currentAttachedImage);
-  
   currentAttachedImage = null;
   if (imgPreview) { imgPreview.style.display = "none"; imgPreview.src = ""; }
   document.querySelector('label[for="editorImageInput"]').style.display = 'flex';
   if (imgInput) imgInput.value = "";
-  
-  // ★ FIX: open SSE FIRST, then kick off the agent.
   startStream();
   await new Promise(r => setTimeout(r, 120));
-  
-  fetch(`/api/project/${PROJECT_ID}/agent/start`, {
-    method: "POST",
-    body: formData,
-  }).catch(err => {
-    console.error("Agent start failed:", err);
-    setInputState(false);
-  });
+  fetch(`/api/project/${PROJECT_ID}/agent/start`, { method: "POST", body: formData })
+    .catch(err => { console.error("Agent start failed:", err); setInputState(false); });
 }
 
-// -------------------- EVENT LISTENERS --------------------
 const runBtn = $("runAgent");
-if (runBtn) {
-  runBtn.onclick = () => {
-    const val = $("prompt").value.trim();
-    if (val || currentAttachedImage) {
-      triggerAgent(val);
-      $("prompt").value = "";
-    }
-  };
-}
+if (runBtn) runBtn.onclick = () => {
+  const val = $("prompt").value.trim();
+  if (val || currentAttachedImage) { triggerAgent(val); $("prompt").value = ""; }
+};
 
 const promptEl = $("prompt");
-if (promptEl) {
-  promptEl.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      const val = promptEl.value.trim();
-      if (val || currentAttachedImage) {
-        triggerAgent(val);
-        promptEl.value = "";
-      }
-    }
-  });
-}
+if (promptEl) promptEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    const val = promptEl.value.trim();
+    if (val || currentAttachedImage) { triggerAgent(val); promptEl.value = ""; }
+  }
+});
 
-// -------------------- INIT --------------------
 (async () => {
   loadChatHistory();
   await refreshFiles();
   try { await loadFile(currentFile); } catch(e) {}
-  startStream();
-  setProgress("Ready", 0);
-  hideEditorLoader();
-  if (INITIAL_PROMPT && INITIAL_PROMPT.length > 0) {
-    setTimeout(() => triggerAgent(INITIAL_PROMPT), 800);
-  }
+  startStream(); setProgress("Ready", 0); hideLoader();
+  if (INITIAL_PROMPT && INITIAL_PROMPT.length > 0) setTimeout(() => triggerAgent(INITIAL_PROMPT), 800);
 })();
 </script>
 </body>

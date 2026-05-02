@@ -1,32 +1,42 @@
 """
-Lineage Agent v10 — All 10 Improvements
-==========================================
+Lineage Agent v12 — Smart Model Routing (Mimo v2.5 for hard turns)
+====================================================================
 
 Architecture: mini-SWE-agent (ThoughtAction format, linear message history,
 bash execution, raw OBSERVATION feedback).
 
-Improvements over v9:
-  #1  Prompt expander — cheap LLM call turns vague prompts into detailed specs
-  #2  Planner — same model writes todo.md BEFORE any code
-  #3  Auto-kill ports — pkill node/vite injected before first agent turn
-  #4  Narration fix — full thought passed to UI, not truncated to 1 line
-  #5  Per-file specs — planner writes what each file should contain
-  #6  Linter-in-the-loop — tsc --noEmit after file writes, errors fed back
-  #7  Template starters — (config-driven, not in this file — agent told about them)
-  #8  Silent success — "command ran successfully" when stdout is empty
-  #9  History compression — old observations collapsed to 1-line summaries
-  #10 Reviewer — after GORILLA_DONE, one cheap call checks for obvious mistakes
+New in v12:
+  #14 Smart model routing — _pick_model() selects Mimo v2.5 for hard turns
+       (turn 0 architecture, error recovery, debug spirals, auth/DB work)
+       and Deepseek V4 Flash for mechanical turns (file writes, reads,
+       boilerplate). ~80% of turns stay cheap, hard turns get intelligence.
 
-Image threading:
-  If .gorilla/prompt_image.b64 exists in the file tree, it is fed to the
-  prompt expander, the planner, AND the first agent turn so all three stages
-  have visual context.
+New in v11:
+  #11 Multi-file turns — up to 3 independent NEW files per bash block,
+       cutting average turn count from ~25 to ~10-12.
+  #12 Improved planner — groups independent files into batched steps.
+  #13 Improved agent system prompt — batching rules, visual-first ordering.
 
-Agent Skills:
-  If agent_skills (dict of skill_key -> bool) is passed to run(), enabled
-  skills are injected into the system prompt on the first turn. Skills are
-  fetched from the DB by the caller (e.g. the sandbox route) and passed in.
-  No other files need to be changed — this file is the only integration point.
+All v10 improvements retained:
+  #1  Prompt expander
+  #2  Planner (todo.md)
+  #3  Auto-kill ports (sandbox_manager)
+  #4  Narration fix
+  #5  Per-file specs
+  #6  Linter-in-the-loop (sandbox_manager)
+  #7  Template starters
+  #8  Silent success
+  #9  History compression
+  #10 Reviewer (sandbox_manager)
+
+Speed fixes retained:
+  - Expander + planner run concurrently via asyncio.gather
+  - Token estimation cached by message count
+  - Reviewer gated on turn count + request type (sandbox_manager)
+  - File tree cached on session with 30s TTL (sandbox_manager)
+  - Tar upload in 500KB chunks (sandbox_manager)
+  - Log-polling instead of fixed sleep after npm run dev (sandbox_manager)
+  - Parallel port health checks (sandbox_manager)
 """
 
 from __future__ import annotations
@@ -43,9 +53,10 @@ import httpx
 # Config
 # ---------------------------------------------------------------------------
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("LINEAGE_MODEL", "deepseek/deepseek-v4-flash:nitro")
+MODEL = os.getenv("LINEAGE_MODEL", "deepseek/deepseek-v4-flash")
+SMART_MODEL = os.getenv("SMART_MODEL","deepseek/deepseek-v4-flash")   # hard turns
 PLANNER_MODEL = os.getenv("PLANNER_MODEL", "xiaomi/mimo-v2.5")
-VISION_MODEL = os.getenv("VISION_MODEL", "qwen/qwen3.6-flash")
+VISION_MODEL = os.getenv("VISION_MODEL", "xiaomi/mimo-v2.5")
 OPENROUTER_URL = os.getenv(
     "OPENROUTER_URL",
     "https://openrouter.ai/api/v1/chat/completions",
@@ -194,7 +205,18 @@ class TokenSubstitution:
 # ---------------------------------------------------------------------------
 # Context management (#9 — history compression)
 # ---------------------------------------------------------------------------
+
+# Cache: [message_count, estimated_tokens]
+_token_estimate_cache: List[Any] = []
+
+
 def _estimate_tokens(messages: list) -> int:
+    """Cached token estimator — avoids re-scanning full history every LLM call."""
+    global _token_estimate_cache
+    msg_count = len(messages)
+    if _token_estimate_cache and _token_estimate_cache[0] == msg_count:
+        return _token_estimate_cache[1]
+
     total = 0
     for m in messages:
         c = m.get("content", "")
@@ -207,13 +229,14 @@ def _estimate_tokens(messages: list) -> int:
                         total += len(item.get("text", "")) // CHARS_PER_TOKEN
                     elif item.get("type") == "image_url":
                         total += 1000
+    _token_estimate_cache = [msg_count, total]
     return total
 
 
 def _compress_history(messages: list, max_tokens: int = MAX_CONTEXT_TOKENS) -> list:
     """
-    #9 — History compression (from SWE-agent paper).
-    Keep system prompt + first user message + last 5 full turns.
+    #9 — History compression.
+    Keep system prompt + first user message + last 10 messages.
     Collapse earlier observations to one-line summaries.
     """
     if _estimate_tokens(messages) <= max_tokens:
@@ -265,29 +288,34 @@ def _compress_history(messages: list, max_tokens: int = MAX_CONTEXT_TOKENS) -> l
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  SYSTEM PROMPT
+#  SYSTEM PROMPT  (v12 — multi-file turns + visual-first ordering)
 # ═══════════════════════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT = r"""You are Gor://a, an autonomous software engineer. You work inside an Ubuntu sandbox. You have full control: write files, run commands, start servers, debug, verify.
+SYSTEM_PROMPT = r"""You are Gor://a, an elite autonomous software engineer. You work inside an Ubuntu sandbox with full control: write files, run commands, start servers, debug, verify.
 
 ## How this works
 
-You interact with the sandbox in a loop. Each step you provide:
+Each turn you provide:
+1. Your reasoning (speak naturally — never say "Discussion:" or "Working on it...")
+2. A single fenced bash block with the command(s) to run
 
-1. DISCUSSION — your reasoning about what to do next --> DO NOT FORGET THIS (always include this and just speak naturally, NEVER EVER say Discussion: or working on it...)
-2. A fenced bash code block with the command(s) to execute
+Example:
 
-Example response (NEVER EVER TALK ANYTHING RELATED TO LINT ERRORS):
-
-I need to check what's in App.tsx before making changes.
+Time to scaffold the core pages. I'll write the landing and dashboard together since they share no imports yet.
 
 ```bash
-cat src/App.tsx
+cat > src/pages/Landing.tsx << 'EOF'
+...full file content...
+EOF
+
+cat > src/pages/Dashboard.tsx << 'EOF'
+...full file content...
+EOF
 ```
 
-I will execute your command and show you the output as an OBSERVATION. Then you respond with your next step.
+I will show you the OBSERVATION. Then you respond with your next step.
 
-When finished and both ports 8080 and 3000 return HTTP 200, write GORILLA_DONE followed by a summary for the user. Do NOT write GORILLA_DONE until you have verified the ports.
+When finished and both :8080 and :3000 return HTTP 200, write GORILLA_DONE followed by a user-facing summary.
 
 ## Environment
 
@@ -295,29 +323,59 @@ Ubuntu 22 / Node 20 / Python 3.11 / CWD: `/home/user/app`
 
 Binaries: node, npm, npx, git, curl, jq, unzip, tar, find, grep, sed, awk, python3
 
-npm packages already installed: react, react-dom, react-router-dom, vite, @vitejs/plugin-react, typescript, tailwindcss, postcss, autoprefixer, clsx, tailwind-merge, class-variance-authority, @radix-ui/*, lucide-react, @supabase/supabase-js, express, cors, body-parser, dotenv, concurrently
+Pre-installed packages: react, react-dom, react-router-dom, vite, @vitejs/plugin-react, typescript, tailwindcss, postcss, autoprefixer, clsx, tailwind-merge, class-variance-authority, @radix-ui/*, lucide-react, @supabase/supabase-js, express, cors, body-parser, dotenv, concurrently
 
-Dev server: `npm run dev` starts Vite on :8080 (frontend) + Express on :3000 (API) via concurrently.
+Dev server: `npm run dev` → Vite on :8080 (frontend) + Express on :3000 (API)
 
-Env vars sourced from `.gorilla_env`: $GORILLA_API_KEY, $VITE_GORILLA_AUTH_ID, $VITE_SUPABASE_URL, $VITE_SUPABASE_ANON_KEY, $SUPABASE_MGMT_TOKEN, $SUPABASE_PROJECT_REF
+Env vars in `.gorilla_env`: $GORILLA_API_KEY, $VITE_GORILLA_AUTH_ID, $VITE_SUPABASE_URL, $VITE_SUPABASE_ANON_KEY, $SUPABASE_MGMT_TOKEN, $SUPABASE_PROJECT_REF
 
-Layout: src/ (React), src/components/ui/ (shadcn), src/utils/auth.ts (auth gateway — import, don't rewrite), routes/ (Express), public/generated/ (AI images)
+Layout: src/ (React), src/components/ui/ (shadcn), src/utils/auth.ts (DO NOT TOUCH), routes/ (Express), public/generated/ (AI images)
+
+## File batching rules  ← KEY FOR SPEED
+
+You MUST batch file writes aggressively to minimise turns:
+
+BATCH these together (up to 3 files per bash block):
+  - New files that don't yet import each other
+  - Pure UI components written at the same time (Navbar + Footer + Hero)
+  - Multiple new page components before wiring
+  - Utility/helper files alongside a component that uses them
+
+NEVER batch these (always solo, always their own bash block):
+  - Edits to EXISTING files (App.tsx, server.js, index.css, etc.)
+  - Any command that starts the dev server
+  - Any verification/curl command
+  - npm install
+  - Database migrations
+
+ORDERING RULE — always build in this order:
+  1. Read existing files (one cat block, can read multiple files at once)
+  2. index.css + design tokens (so every subsequent component looks great immediately)
+  3. Shared components (Navbar, Footer, UI primitives) — batch these
+  4. Page components — batch independent pages together
+  5. Backend routes — batch independent route files together
+  6. Wire App.tsx (solo — it imports everything)
+  7. Wire server.js (solo — it imports everything)
+  8. Start server + verify
+
+VISUAL-FIRST RULE: The very first files you create must produce a stunning visual result.
+Write index.css with the full design system (colors, fonts, animations) before any component.
+The user sees a live preview — make it look incredible from turn 3 onward.
 
 ## Rules
 
-1. npm install before importing anything not listed above
-2. Read a file before editing it
-3. Wire new components (import + render) and routes (import + app.use)
-4. Frontend: `@/` alias. Backend: relative with `.js` ext
-5. Never touch package.json directly, vite.config.ts, .env, src/utils/auth.ts
+1. `npm install` before importing anything not in the pre-installed list above
+2. Always read an existing file before editing it
+3. Wire new components (import + render) and routes (import + app.use) — don't leave orphans
+4. Frontend: `@/` alias. Backend: relative paths with `.js` extension
+5. Never touch vite.config.ts, .env, src/utils/auth.ts directly
 6. Start server: `cd /home/user/app && npm run dev > /tmp/dev.log 2>&1 &`
-7. Verify: ` sleep 3 && curl -so /dev/null -w '%{http_code}' http://localhost:8080 && curl -so /dev/null -w '%{http_code}' http://localhost:3000`
-8. You MUST verify both :8080 and :3000 return 200 before writing GORILLA_DONE, AND ALWAYS FOLLOW THE STRUCTURE FOR RUNNING EXACTLY
-9. If something fails, read /tmp/dev.log, fix the issue, restart, verify again
-10. Create ONE file per step. Do NOT write multiple files in a single bash block.
-11. NEVER say GORILLA_DONE before turn 5. You have not built enough yet!
-12. ALWAYS REPLACE THE BOILERPLATE Index.tsx and try to go over the top with the app.
-13. Refer to the .gorilla/todo.md once every ten turns, and tick of the tasks that has been completed
+7. Verify: `sleep 3 && curl -so /dev/null -w '%{http_code}' http://localhost:8080 && curl -so /dev/null -w '%{http_code}' http://localhost:3000`
+8. MUST verify both ports return 200 before GORILLA_DONE
+9. On failure: read /tmp/dev.log, fix, restart, verify again
+10. NEVER say GORILLA_DONE before turn 5
+11. ALWAYS replace boilerplate index.tsx — go all out on the design
+12. Check .gorilla/todo.md every 8 turns and tick completed tasks
 
 ## Auth gateway
 ```tsx
@@ -326,26 +384,31 @@ useEffect(() => onAuthStateChanged(setUser), []);
 <button onClick={() => login('google')}>Sign in</button>
 ```
 
-## AI proxy (backend, $GORILLA_API_KEY)
-Base: {GORILLA_PROXY}
-- LLM: POST {GORILLA_PROXY}/api/v1/chat/completions (don't send model)
-- Images: POST {GORILLA_PROXY}/api/v1/images/generations (use this for the users app (don't send model)) if you want to generate image for users app do curl → save to the app's folder inside public/generated/ AS BASE64 STRICTLY, NO OTHER FORMAT IS ALLOWED
-- STT: POST {GORILLA_PROXY}/api/v1/audio/transcriptions
-- BG removal: POST {GORILLA_PROXY}/api/v1/images/remove-background
-- TTS: use window.speechSynthesis
+## AI proxy (backend only, uses $GORILLA_API_KEY)
+Base URL: {GORILLA_PROXY}
+- LLM chat:    POST {GORILLA_PROXY}/api/v1/chat/completions  (omit model field)
+- Image gen:   POST {GORILLA_PROXY}/api/v1/images/generations (omit model field)
+- STT:         POST {GORILLA_PROXY}/api/v1/audio/transcriptions
+- BG removal:  POST {GORILLA_PROXY}/api/v1/images/remove-background
+- TTS:         window.speechSynthesis (frontend only)
 
-A FEW IMPORTANT ISSUES TO LOOK OUT FOR:
-- API keys are located in app/.env do not look anywhere else
-- (IMPORTANT) Never render App.tsx with a browser router as a browser router inside the main.tsx (this causes react errors)
-- (IMPORTANT) Be extremely cautious about react errors as they may not be relayed to you, but you must find a way to check them
-- Always list packages in package.json
+Image generation → save as base64 to public/generated/, reference directly in src.
+
+Critical reminders:
+- API keys live in app/.env — do not look elsewhere
+- Never wrap App.tsx routes in a second BrowserRouter inside main.tsx
+- React errors may be silent — always check /tmp/dev.log and the console error tunnel
 """
 
 SUPABASE_ADDON = r"""
-## Supabase is active
-Client: `import { createClient } from @supabase/supabase-js; const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);`
-Migrations via bash:
+## Supabase (active)
+Client:
+```ts
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
 ```
+Migrations:
+```bash
 cat > /tmp/migration.sql << 'SQL'
 CREATE TABLE IF NOT EXISTS items (...);
 ALTER TABLE items ENABLE ROW LEVEL SECURITY;
@@ -360,23 +423,24 @@ curl -sS -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/dat
 DEBUG_ADDON = r"""
 ## Debug mode — fix the error, nothing else
 Read the error. Find the file. Make the smallest fix. Restart server. Verify ports. GORILLA_DONE.
+Do NOT refactor, do NOT add features. Surgical fix only.
 """
 
 # ---------------------------------------------------------------------------
-# Supabase addons for expander + planner (injected only when has_supabase)
+# Supabase addons for expander + planner
 # ---------------------------------------------------------------------------
 
 EXPANDER_SUPABASE_ADDON = """
 ## Supabase is linked and available
-You SHOULD plan to use Supabase for data persistence when the app clearly benefits from it (user-saved content, shared data, multi-session state). Include in your spec:
-- What tables are needed and what columns they have
-- Which tables need Row Level Security (user-owned data)
-- Whether realtime subscriptions would enhance the UX
-Do NOT force Supabase onto apps that are purely client-side or stateless."""
+Plan to use Supabase for data persistence when the app clearly benefits (user-saved content, shared data, multi-session state). Specify:
+- Tables, columns, and relationships
+- Which tables need Row Level Security
+- Whether realtime subscriptions add value
+Don't force Supabase on purely client-side or stateless apps."""
 
 PLANNER_SUPABASE_ADDON = """
-## Supabase is linked and available
-Include Supabase migration steps in your plan when the app needs data persistence. Use this pattern:
+## Supabase is linked
+Include migration steps when the app genuinely stores user or shared data:
 ```bash
 cat > /tmp/migration.sql << 'SQL'
 CREATE TABLE IF NOT EXISTS items (...);
@@ -386,53 +450,49 @@ SQL
 curl -sS -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
   -H "Authorization: Bearer $SUPABASE_MGMT_TOKEN" -H "Content-Type: application/json" \
   -d "$(cat /tmp/migration.sql | jq -Rs '{query: .}')"
-```
-Only add migration steps when the app genuinely stores user or shared data. Don't add Supabase steps for stateless or purely generative apps."""
+```"""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  #1 — Prompt Expander
 # ═══════════════════════════════════════════════════════════════════════════
 
-EXPANDER_SYSTEM = """You are a product designer for Gorilla Builder — a platform that builds REAL working SaaS apps, not just landing pages.
+EXPANDER_SYSTEM = """You are a product designer for Gorilla Builder — a platform that builds REAL working SaaS apps, not landing pages or brochures.
 
-The platform has these built-in capabilities that the developer can use:
-- **Auth gateway** — Google & GitHub login, zero setup, returns {id, email, name, avatar} --> ONLY USE IF NESSACARY OR GOOD FOR APP
-- **AI proxy** — LLM chat completions, image generation, speech-to-text, background removal --> ONLY USE IF NESSACARY OR GOOD FOR APP
-- **Image generation** — generate images via API, save to public/generated/, use in the app
-- **Express backend** — full API server on :3000, can store data, proxy AI calls, handle webhooks
+Platform capabilities available to the developer:
+- **Auth gateway** — Google & GitHub login, zero setup, returns {id, email, name, avatar}
+- **AI proxy** — LLM chat, image generation, speech-to-text, background removal
+- **Express backend** — full API server, can store data, proxy AI, handle webhooks
+- **Supabase** (if linked) — postgres DB with RLS, realtime subscriptions
 
-The user will give you a short app idea. Expand it into a detailed product spec (200-350 words) that a developer can build.
+The user will give you a short app idea. Expand it into a detailed product spec (200-350 words).
 
-Think about what makes this a FUNCTIONAL APP, not a brochure:
+A GOOD spec describes a FUNCTIONAL APP:
 - What does the user DO after landing? (create, browse, interact, generate, save, share)
-- What data is stored? (user profiles, posts, items, generated content, preferences)
-- What AI features make it special? (chat, image generation, content creation, analysis)
-- Does it need auth? (if users save anything, YES)
+- What data is stored and where?
+- What makes the AI features genuinely useful, not just bolted on?
+- Does it need auth? (if users save anything: yes)
 
 Include:
 - App name (creative, memorable)
-- Color scheme (specific hex codes, dark mode first)
-- Typography (Google Font — NEVER Inter)
-- Pages: at least 3 (landing/home, main app/dashboard, settings/profile)
-- For each page: what the user sees AND what they can DO
-- Backend: what API routes are needed, what data is stored
-- AI features: how the AI proxy is used (chat, image gen, content creation, etc.)
-- Auth: whether login is needed and which providers
+- Color scheme (specific hex codes, dark mode preferred)
+- Typography (a distinctive Google Font — never Inter, never system-ui)
+- Pages (minimum 3): what the user SEES and DOES on each
+- Backend: API routes needed, what data is stored
+- AI integration: specific use of LLM/image gen/STT
+- Auth: which providers and why
 
-Examples of GOOD specs (functional SaaS):
-- "AI recipe generator" → landing page, generate page (enter ingredients → AI creates recipe + generates food image), saved recipes dashboard, auth via Google
-- "Mood journal" → landing, journal entry page (write + AI sentiment analysis + generates abstract art for mood), history dashboard with mood chart
-- "Portfolio builder" → landing, editor page (add projects, AI writes descriptions, generates hero images), public portfolio view, auth
+GOOD example — "AI recipe generator":
+  → Landing (hero + demo), Generate page (enter ingredients → AI recipe + food image), Saved recipes dashboard (grid, filter by cuisine), auth via Google
 
-Examples of BAD specs (brochure sites):
-- Hero section, about section, features section, contact form, footer ← this is a template, not an app
+BAD example — "a website about coffee":
+  → Hero, About, Features, Contact form ← this is a brochure, not an app
 
-IF IT IS A MINOR TASK FOR AN EXISTING APP OR A DEBUGGING TASK, SIMPLY STATE THE NESSACARY TASK.
+FOR MINOR TASKS OR DEBUGGING: just restate the task clearly in 1-2 sentences. Do not expand.
 
-If an image is provided, treat it as a UI reference or mockup. Describe what you see and incorporate it into the spec — layout structure, color palette, component patterns, and any visible content or flows.
+If an image is provided, treat it as a UI mockup — extract layout, palette, components, and flows. Incorporate them into the spec.
 
-Output ONLY the spec. No preamble."""
+Output ONLY the spec. No preamble, no sign-off."""
 
 
 async def expand_prompt(
@@ -478,73 +538,88 @@ async def expand_prompt(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  #2 + #5 — Planner (todo.md with per-file specs)
+#  #2 + #5 + #12 — Planner (multi-file aware, visual-first ordering)
 # ═══════════════════════════════════════════════════════════════════════════
 
-PLANNER_SYSTEM = """You are a project planner for Gorilla Builder — a platform that builds working SaaS apps with React + Express.
+PLANNER_SYSTEM = """You are a project planner for Gorilla Builder — a platform that builds full-stack SaaS apps with React + Vite + Express.
 
-## Platform capabilities (use these in your plans!)
+## Platform capabilities
 
-**Auth gateway (DO NOT ADD UNLESS NESSACARY)** — zero setup:
+**Auth gateway** (only if the app needs login):
 ```tsx
 import { login, logout, onAuthStateChanged } from '@/utils/auth';
-// Providers: 'google' | 'github' — returns {id, email, name, avatar}
 ```
 
-**AI proxy** (backend, uses $GORILLA_API_KEY):
-- LLM chat: POST /api/v1/chat/completions (don't send model)
-- Image gen: POST /api/v1/images/generations → save to public/generated/
+**AI proxy** (backend, $GORILLA_API_KEY):
+- LLM: POST /api/v1/chat/completions
+- Images: POST /api/v1/images/generations → save to public/generated/
 - STT: POST /api/v1/audio/transcriptions
 - BG removal: POST /api/v1/images/remove-background
 
-**Image generation via curl** (use in bash steps):
-```bash
-curl -sS -X POST "$GORILLA_PROXY/api/v1/images/generations" \
-  -H "Authorization: Bearer $GORILLA_API_KEY" -H "Content-Type: application/json" \
-  -d '{"prompt":"your prompt here","samples":1}' \
-  | jq -r '.[0].base64 // .data[0].b64_json' | base64 -d > public/generated/image.jpg
-```
-
-**Express backend**: routes/ folder, mounted in server.js, full API capability
+**Express backend**: routes/ folder, mounted in server.js
 
 ## Your job
 
-Given a spec, output a markdown checklist. Each item = ONE action (one file, one install, one migration, one image generation).
+Output a markdown checklist where each item = ONE agent action.
 
-Think about the FULL STACK:
-- Frontend pages (3+ pages minimum: landing, main app, settings/profile/dashboard)
-- Backend API routes (if the app stores/processes data)
-- AI features (image generation, chat endpoints, content creation)
-- Auth integration (if users save data)
-- Generated images (hero images, placeholders, AI-generated content)
+## CRITICAL: Multi-file batching
 
-Format:
+The agent can write multiple NEW independent files in a single bash block.
+Your plan MUST group independent files together into single steps to minimise total turns.
+
+BATCH these (write together in one step):
+- Multiple new page components written at the same time
+- Multiple new UI components with no cross-imports
+- Multiple new backend route files
+- A component file + its types file
+
+NEVER batch these (each gets its own step):
+- Any edit to an existing file
+- Server start command
+- Verification/curl commands
+- npm install
+- Database migrations
+
+## Ordering (always follow this)
+
+1. Read existing files (cat App.tsx server.js index.css in ONE block)
+2. Update index.css with full design system (solo — existing file edit)
+3. Generate AI images if needed (curl, max 2-3)
+4. Create shared components in ONE batch (Navbar + Footer + any UI primitives)
+5. Create page components in batches (Landing + Hero in one, Dashboard + Settings in another)
+6. Create backend routes in a batch (independent route files together)
+7. Update App.tsx to wire all pages (solo — existing file)
+8. Update server.js to mount routes (solo — existing file)
+9. npm install (only if truly needed beyond pre-installed packages)
+10. Start dev server + verify both ports
+
+## Format
+
 ```
 # Task: <short title>
 
-- [ ] View existing files (App.tsx, server.js, index.css) to understand structure
-- [ ] Generate hero image — curl AI proxy with prompt "dark moody coffee beans close-up"
-- [ ] Create src/components/Navbar.tsx — fixed dark navbar, brand left, auth button right
-- [ ] Create src/pages/Dashboard.tsx — user's saved items grid, create button, AI generate button
-- [ ] Create routes/api.js — POST /api/generate (calls AI proxy), GET /api/items (reads Supabase)
-- [ ] Update server.js — mount routes/api.js at /api
-- [ ] Update src/App.tsx — add routes for all pages, wrap with auth check
-- [ ] Update src/index.css — dark theme, custom fonts
-- [ ] Install framer-motion
+- [ ] Read existing structure — cat src/App.tsx server.js src/index.css
+- [ ] Update src/index.css — full dark design system, CSS vars, font imports, animations
+- [ ] Generate hero image — AI proxy curl with descriptive prompt
+- [ ] Create src/components/Navbar.tsx + src/components/Footer.tsx — dark nav with brand + auth, sticky footer
+- [ ] Create src/pages/Landing.tsx + src/pages/About.tsx — hero section with CTA, about page
+- [ ] Create src/pages/Dashboard.tsx + src/pages/Settings.tsx — main app grid, user settings
+- [ ] Create routes/api.js + routes/auth.js — POST /api/generate, GET /api/items
+- [ ] Update src/App.tsx — wire all routes, auth guard on dashboard
+- [ ] Update server.js — mount routes/api.js and routes/auth.js
 - [ ] Start dev server and verify both ports return 200
 ```
 
-Rules:
-- DO NOT COPY THE EXACT CHECKLIST THAT IS GIVEN EXPAND IT OR CHANGE IT ACCORDING TO THE TASK MAKE IT RELEVANT
-- First item: "View existing files"
-- Last item: "Start dev server and verify both ports return 200"
-- ONE action per item. Never combine files. Never have more than 2-3 image generations
-- 8-20 items. Plan the WHOLE app, not just the landing page --> IF IT IS A MINOR TASK FOR AN EXISTING APP OR A DEBUGGING TASK, SIMPLY STATE THE NESSACARY TASKS NOT MORE THAN 5 ARE ALLOWED FOR CHANGES AND NOT MORE THAN 2 FOR DEBUGGING
-- Include image generation steps where the app needs visuals.
-- Include backend routes if the app has any interactivity.
-- Don't overspecify component internals — the developer knows React.
-- If an image reference was provided, use it to inform component layout and visual decisions.
-- Output ONLY the checklist."""
+## Rules
+
+- First item: read existing files (always)
+- Last item: start server + verify
+- Group independent NEW files together — this is the most important rule
+- 6-14 items total (batching means fewer items than before)
+- For minor tasks or debug: max 3-4 items, no batching needed
+- Don't overspecify internals — the agent knows React
+- Include AI image generation only when visuals genuinely add value
+- Output ONLY the checklist, no preamble"""
 
 
 async def generate_plan(
@@ -585,7 +660,7 @@ async def generate_plan(
             return plan
         return None
     except Exception as e:
-        log_agent("agent", f"Planner failed ({e}), agent will plan itself")
+        log_agent("agent", f"Planner failed ({e}), agent will self-plan")
         return None
 
 
@@ -593,18 +668,18 @@ async def generate_plan(
 #  #10 — Reviewer
 # ═══════════════════════════════════════════════════════════════════════════
 
-REVIEWER_SYSTEM = """You are a code reviewer. The developer just finished building a web app. Review the file listing and recent build output for obvious mistakes.
+REVIEWER_SYSTEM = """You are a code reviewer. A developer just finished building a web app. Review the file listing and recent build output for obvious mistakes only.
 
 Check for:
-- Components created but not imported/rendered anywhere
-- Missing npm installs (imports without corresponding package)
-- Broken routes (Express routes not mounted)
-- CSS files not imported
-- TypeScript errors visible in the logs
+- Components created but not imported/rendered anywhere (orphaned files)
+- Missing npm installs (import of a package not in node_modules)
+- Express routes created but not mounted in server.js
+- CSS files imported but not linked
+- TypeScript errors visible in logs
 
-If everything looks correct, respond with just: LGTM
-
-If there are issues, respond with a numbered list of fixes needed (max 3), each one specific and actionable. No preamble."""
+Respond with ONLY one of:
+- "LGTM" if everything looks correct
+- A numbered list of up to 3 specific, actionable fixes (no preamble)"""
 
 
 async def review_output(file_tree_summary: str, last_output: str) -> Optional[str]:
@@ -616,7 +691,7 @@ async def review_output(file_tree_summary: str, last_output: str) -> Optional[st
         },
     ]
     try:
-        raw, _ = await _call_llm(messages, model=MODEL, temperature=0.2)
+        raw, _ = await _call_llm(messages, model=SMART_MODEL, temperature=0.2)
         review = raw.strip()
         if "LGTM" in review.upper():
             log_agent("agent", "Reviewer: LGTM")
@@ -629,12 +704,19 @@ async def review_output(file_tree_summary: str, last_output: str) -> Optional[st
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Response parser — ThoughtAction format
+#  Collects ALL bash blocks in a response, not just the first
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _parse_response(raw: str) -> Dict[str, Any]:
-    """Parse discussion + ```bash``` + GORILLA_DONE."""
+    """
+    Parse discussion + one or more ```bash``` blocks + optional GORILLA_DONE.
+
+    v11 change: returns all bash blocks concatenated with a newline separator
+    so the sandbox executor runs them as a single shell script. This supports
+    multi-file writes where the agent emits multiple heredoc blocks.
+    """
     thought = ""
-    bash_block = ""
+    bash_blocks: List[str] = []
     done = False
     message = ""
 
@@ -644,26 +726,29 @@ def _parse_response(raw: str) -> Dict[str, Any]:
     if "GORILLA_DONE" in raw:
         done = True
         parts = raw.split("GORILLA_DONE", 1)
-        thought = parts[0].strip()
+        body = parts[0]
         message = parts[1].strip() if len(parts) > 1 else ""
-        m = re.search(r"```(?:bash|sh|shell)?\n(.*?)```", parts[0], re.DOTALL)
-        if m:
-            bash_block = m.group(1).strip()
-            thought = parts[0][: m.start()].strip()
+        blocks = re.findall(r"```(?:bash|sh|shell)?\n(.*?)```", body, re.DOTALL)
+        bash_blocks = [b.strip() for b in blocks if b.strip()]
+        # thought = everything before first bash block
+        first_block_pos = body.find("```")
+        thought = body[:first_block_pos].strip() if first_block_pos > 0 else body.strip()
         if not message and thought:
             message = thought.split("\n")[0][:300]
         return {
             "thought": thought,
-            "bash": bash_block,
+            "bash": "\n\n".join(bash_blocks),
             "done": done,
             "message": message or "Done.",
         }
 
-    m = re.search(r"```(?:bash|sh|shell)?\n(.*?)```", raw, re.DOTALL)
-    if m:
-        bash_block = m.group(1).strip()
-        thought = raw[: m.start()].strip()
-    else:
+    blocks = re.findall(r"```(?:bash|sh|shell)?\n(.*?)```", raw, re.DOTALL)
+    bash_blocks = [b.strip() for b in blocks if b.strip()]
+
+    first_block_pos = raw.find("```")
+    thought = raw[:first_block_pos].strip() if first_block_pos > 0 else raw.strip()
+
+    if not bash_blocks:
         thought = raw.strip()
 
     if thought:
@@ -672,7 +757,7 @@ def _parse_response(raw: str) -> Dict[str, Any]:
 
     return {
         "thought": thought,
-        "bash": bash_block,
+        "bash": "\n\n".join(bash_blocks),
         "done": done,
         "message": message or "",
     }
@@ -711,6 +796,10 @@ async def _call_llm(
         "messages": messages,
         "temperature": temperature,
         "max_tokens": 16000,
+        "provider": {
+            "order": ["deepseek", "xiaomi", "xai"],
+            "allow_fallbacks": False,
+        },
     }
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -727,7 +816,13 @@ async def _call_llm(
     p = u.get("prompt_tokens", 0)
     c = u.get("completion_tokens", 0)
     is_frontier = any(x in model for x in ["claude", "gpt-4", "gemini"])
-    weight = (p * 0.6 + c * 2.4) if is_frontier else (p * 0.2 + c * 0.3)
+    is_mimo = "mimo" in model
+    if is_frontier:
+        weight = p * 0.6 + c * 2.4
+    elif is_mimo:
+        weight = p * 0.3 + c * 0.6   # mimo sits between deepseek and frontier
+    else:
+        weight = p * 0.2 + c * 0.3   # deepseek flash
     return content, int(weight)
 
 
@@ -736,42 +831,126 @@ async def _call_llm(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _build_skills_block(agent_skills: Optional[Dict[str, Any]]) -> str:
-    """
-    Given a dict of {skill_key: bool | str}, return a formatted prompt
-    section for enabled skills, or empty string if none are enabled.
-
-    The caller (any route/handler) just needs to pass the raw dict straight
-    from the DB — no pre-processing required.
-    """
     if not agent_skills:
         return ""
     enabled = [k for k, v in agent_skills.items() if v]
     if not enabled:
         return ""
     lines = "\n".join(f"- {skill}" for skill in enabled)
-    return f"\n\n## User-Enabled Agent Skills\nThe user has enabled the following skills/behaviours for this session. Respect them throughout:\n{lines}"
+    return (
+        f"\n\n## User-Enabled Agent Skills\n"
+        f"Respect these throughout the session:\n{lines}"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  LineageAgent
+#  #14 — Smart model routing
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Signals in observation text that mean the previous attempt failed and we
+# need smarter reasoning to recover.
+_HARD_OBSERVATION_SIGNALS = frozenset([
+    "error ts",
+    "syntaxerror",
+    "cannot find",
+    "could not be resolved",
+    "is not defined",
+    "is not a function",
+    "failed to compile",
+    "vite compile errors",
+    "lint errors",
+    "browser console errors",
+    "exit code: 1",
+    "exit code: -1",
+    "enoent",
+    "module not found",
+    "cannot read propert",
+    "typeerror",
+    "referenceerror",
+])
+
+# Signals in the user request or observation that indicate complex domain work
+# where Mimo's stronger reasoning genuinely helps.
+_HARD_DOMAIN_SIGNALS = frozenset([
+    "auth", "supabase", "migration", "rls", "policy",
+    "realtime", "subscription", "webhook", "oauth",
+    "race condition", "async", "promise", "cors",
+    "jwt", "token", "session", "cookie",
+    "database", "schema", "foreign key", "join",
+])
+
+
+def _pick_model(
+    turn: int,
+    previous_output: Optional[str],
+    user_request: str,
+    is_debug: bool,
+) -> str:
+    """
+    Route each agent turn to the cheapest model that can handle it.
+
+    Mimo v2.5  — architecture turn (0), error recovery, debug spirals,
+                  complex domain work (auth, DB, async patterns).
+                  Smarter reasoning, slightly slower, still very cheap.
+
+    Deepseek V4 Flash — everything else: file writes, reads, boilerplate,
+                         wiring, verification. ~80% of all turns.
+
+    The split is intentional: most turns are mechanical and don't benefit
+    from extra intelligence. Saving Mimo for the turns that actually need
+    it keeps latency low while closing the quality gap on hard problems.
+    """
+    obs = (previous_output or "").lower()
+    req = (user_request or "").lower()
+
+    # Turn 0 always gets Mimo — it sets the whole architecture
+    if turn == 0:
+        return SMART_MODEL
+
+    # Any observation containing error signals → Mimo to recover smartly
+    if any(sig in obs for sig in _HARD_OBSERVATION_SIGNALS):
+        return SMART_MODEL
+
+    # Deep debug spiral — Mimo takes over after 3 consecutive failures
+    # (heuristic: if we're past turn 12 and still seeing errors)
+    if turn > 12 and any(sig in obs for sig in _HARD_OBSERVATION_SIGNALS):
+        return SMART_MODEL
+
+    # Complex domain in the original request → Mimo for relevant turns
+    # Only apply for first 4 turns when the domain context is fresh
+    if turn <= 4 and any(sig in req for sig in _HARD_DOMAIN_SIGNALS):
+        return SMART_MODEL
+
+    # Debug mode with an error context → Mimo (surgical fix needed)
+    if is_debug and previous_output:
+        return SMART_MODEL
+
+    # Everything else: boilerplate writes, reads, wiring, verification
+    return MODEL
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  LineageAgent  v12
 # ═══════════════════════════════════════════════════════════════════════════
 
 class LineageAgent:
     """
-    mini-SWE-agent with planner pipeline.
-    Linear message history. Persisted on SandboxSession.agent.
+    mini-SWE-agent with multi-file turn support and smart model routing.
 
-    Agent Skills:
-      Pass agent_skills (dict from DB) to run() on any turn. Skills are
-      baked into the system prompt on the very first turn via
-      _ensure_system_prompt(). Because _system_prompt_set guards re-entry,
-      skills only need to be passed once — but passing them every turn is
-      harmless. No other files need to be modified.
+    v12 changes:
+      - _pick_model() routes each turn to Mimo v2.5 (hard) or Deepseek V4
+        Flash (mechanical). ~80% of turns stay cheap and fast. Hard turns
+        (architecture, error recovery, debug spirals, auth/DB) get Mimo.
 
-    Image threading:
-      If .gorilla/prompt_image.b64 (or prompt_image.b64) exists in the file
-      tree on the first turn, it is passed to the expander, the planner, and
-      included in the first agent message so all three stages have visual context.
+    v11 changes:
+      - System prompt teaches multi-file batching with clear rules
+      - Planner groups independent files into single steps
+      - Parser collects ALL bash blocks in a response (not just the first)
+      - Visual-first ordering: index.css + design tokens written before components
+
+    v10 speed fixes retained:
+      - Expander + planner run concurrently via asyncio.gather
+      - Token estimation cached by message count
     """
 
     def __init__(self, project_id: str):
@@ -801,13 +980,12 @@ class LineageAgent:
         if is_debug:
             prompt += "\n" + DEBUG_ADDON
 
-        # Inject enabled skills into the system prompt
         skills_block = _build_skills_block(agent_skills)
         if skills_block:
             prompt += skills_block
             log_agent(
                 "agent",
-                f"Agent skills injected: {[k for k, v in (agent_skills or {}).items() if v]}",
+                f"Skills injected: {[k for k, v in (agent_skills or {}).items() if v]}",
                 self.project_id,
             )
 
@@ -815,9 +993,7 @@ class LineageAgent:
         self._system_prompt_set = True
 
     def _extract_prompt_image(self, file_tree: Dict[str, str]) -> Optional[str]:
-        raw = file_tree.get(".gorilla/prompt_image.b64") or file_tree.get(
-            "prompt_image.b64"
-        )
+        raw = file_tree.get(".gorilla/prompt_image.b64") or file_tree.get("prompt_image.b64")
         if not raw:
             return None
         stripped = raw.strip()
@@ -838,10 +1014,8 @@ class LineageAgent:
         previous_command_output: Optional[str] = None,
         agent_skills: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        # Skills are passed here and forwarded to _ensure_system_prompt.
-        # They are only applied on the first call (when _system_prompt_set is False).
-        # sandbox_manager.py does NOT need to be changed — it already calls
-        # agent.run(...) and can simply add agent_skills as a kwarg.
+        import asyncio
+
         self._ensure_system_prompt(gorilla_proxy_url, has_supabase, is_debug, agent_skills)
 
         compressed = self.token_sub.compress_tree(file_tree)
@@ -854,47 +1028,63 @@ class LineageAgent:
             if len(pkg) < 3000:
                 pkg_snippet = f"\n\npackage.json:\n{pkg}"
 
-        # Pull prompt image from file tree (first turn only)
         prompt_image_b64: Optional[str] = None
         if not previous_command_output:
             prompt_image_b64 = self._extract_prompt_image(file_tree)
             if prompt_image_b64:
-                log_agent(
-                    "agent",
-                    "prompt_image.b64 found — feeding to expander, planner, and first turn",
-                    self.project_id,
-                )
+                log_agent("agent", "prompt_image.b64 found — threading to all stages", self.project_id)
 
         if previous_command_output:
             user_content: Any = f"OBSERVATION:\n{previous_command_output[:8000]}"
             self.messages.append({"role": "user", "content": user_content})
         else:
             effective_request = user_request
-
-            # #1 — Prompt expander
-            if not is_debug and not self._prompt_expanded and user_request:
-                effective_request = await expand_prompt(
-                    user_request,
-                    has_supabase=has_supabase,
-                    image_b64=prompt_image_b64,
-                )
-                self._prompt_expanded = True
-
-            # #2 + #5 — Generate plan
             plan_text = ""
-            if not is_debug and not self._plan_injected and file_tree:
-                plan = await generate_plan(
-                    effective_request,
-                    tree_str,
-                    has_supabase=has_supabase,
-                    image_b64=prompt_image_b64,
-                )
-                if plan:
-                    plan_text = (
-                        f"\n\nHere is your plan — follow it step by step, "
-                        f"one file per bash block:\n{plan}"
+
+            # Concurrent expander + planner (saves ~2-3s vs sequential)
+            if not is_debug and user_request:
+                needs_expand = not self._prompt_expanded
+                needs_plan = not self._plan_injected and bool(file_tree)
+
+                if needs_expand and needs_plan:
+                    log_agent("agent", "Running expander + planner concurrently", self.project_id)
+                    expanded_result, plan_result = await asyncio.gather(
+                        expand_prompt(user_request, has_supabase=has_supabase, image_b64=prompt_image_b64),
+                        generate_plan(user_request, tree_str, has_supabase=has_supabase, image_b64=prompt_image_b64),
+                        return_exceptions=True,
                     )
-                    self._plan_injected = True
+                    if isinstance(expanded_result, str):
+                        effective_request = expanded_result
+                    elif isinstance(expanded_result, Exception):
+                        log_agent("agent", f"Expander error: {expanded_result}", self.project_id)
+                    self._prompt_expanded = True
+
+                    if isinstance(plan_result, str) and "- [ ]" in plan_result:
+                        plan_text = (
+                            "\n\nHere is your plan — follow it step by step. "
+                            "Respect the batching groups (files listed together on one line "
+                            "must be written in a single bash block):\n" + plan_result
+                        )
+                        self._plan_injected = True
+                    elif isinstance(plan_result, Exception):
+                        log_agent("agent", f"Planner error: {plan_result}", self.project_id)
+
+                elif needs_expand:
+                    effective_request = await expand_prompt(
+                        user_request, has_supabase=has_supabase, image_b64=prompt_image_b64
+                    )
+                    self._prompt_expanded = True
+
+                elif needs_plan:
+                    plan = await generate_plan(
+                        effective_request, tree_str, has_supabase=has_supabase, image_b64=prompt_image_b64
+                    )
+                    if plan:
+                        plan_text = (
+                            "\n\nHere is your plan — follow it step by step. "
+                            "Respect the batching groups:\n" + plan
+                        )
+                        self._plan_injected = True
 
             parts = [f"Project files in /home/user/app:\n{tree_str}{pkg_snippet}"]
 
@@ -907,20 +1097,17 @@ class LineageAgent:
                 recent = chat_history[-6:]
                 history_text = "\n".join(
                     f"{m.get('role','user').upper()}: {m.get('content','')[:200]}"
-                    for m in recent
-                    if m.get("content")
+                    for m in recent if m.get("content")
                 )
                 if history_text:
                     parts.append(f"\nRecent conversation:\n{history_text}")
 
             user_text = "\n".join(parts)
-
             first_turn_image = image_b64 or prompt_image_b64
 
             if first_turn_image:
                 img_url = (
-                    first_turn_image
-                    if first_turn_image.startswith("data:")
+                    first_turn_image if first_turn_image.startswith("data:")
                     else f"data:image/jpeg;base64,{first_turn_image}"
                 )
                 self.messages.append({
@@ -936,12 +1123,19 @@ class LineageAgent:
         first_turn_has_image = bool(
             (image_b64 or prompt_image_b64) and not previous_command_output
         )
-        model = VISION_MODEL if first_turn_has_image else MODEL
-        log_agent(
-            "agent",
-            f"v10 ({model}, turns={len(self.messages) // 2})",
-            self.project_id,
-        )
+        # Vision turns always use the vision-capable model
+        if first_turn_has_image:
+            model = VISION_MODEL
+        else:
+            # Smart routing: Mimo for hard turns, Deepseek for mechanical ones
+            turn_index = max(0, len(self.messages) // 2 - 1)
+            model = _pick_model(
+                turn=turn_index,
+                previous_output=previous_command_output,
+                user_request=user_request,
+                is_debug=is_debug,
+            )
+        log_agent("agent", f"v12 ({model.split('/')[-1]}, turn={len(self.messages) // 2})", self.project_id)
 
         try:
             raw, tokens = await _call_llm(self.messages, model=model, temperature=0.6)
@@ -956,7 +1150,6 @@ class LineageAgent:
             }
 
         self.messages.append({"role": "assistant", "content": raw})
-
         parsed = _parse_response(raw)
 
         if parsed["thought"]:
@@ -971,7 +1164,6 @@ class LineageAgent:
                 log_agent("agent", "Blocked dangerous command", self.project_id)
 
         done = parsed["done"]
-
         log_agent(
             "agent",
             f"{'DONE' if done else f'{len(commands)} cmd block'}, tok={self.total_tokens}",

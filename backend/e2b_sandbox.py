@@ -1,13 +1,13 @@
 """
-E2B Sandbox Manager — Final (matches Lineage Agent v9)
+E2B Sandbox Manager — Speed-optimised
 ========================================================
 
-Fixes applied:
-  - Path stripping: robust regex strips home/user/app/ prefix → always src/...
-  - Smart HTTP check: reads actual page content, catches Cannot GET /
-  - Console error tunnel: injects window.onerror into index.html at boot,
-    Express endpoint drains errors, agent sees React Router crashes etc.
-  - Vite log check: also checks Express :3000 for Cannot GET responses
+Speed fixes applied:
+  - Parallel port health checks instead of sequential curl calls
+  - npm run dev readiness detected via log polling (no fixed sleep)
+  - Tar upload chunk size increased 10× (50KB → 500KB, fewer round-trips)
+  - File tree cached on session (30s TTL) to avoid full FS dump every turn
+  - Reviewer gated: only fires on substantial new builds, not edits/debug
 """
 
 from __future__ import annotations
@@ -50,12 +50,19 @@ FILE_CONTENT_SENTINEL = "═══GORILLA_CONTENT_START_9f8c═══"
 DEFAULT_PREVIEW_PORT = 8080
 DEFAULT_SERVER_PORT = 3000
 
-READY_PATTERNS = [
-    r"ready in \d+\s*m?s",
-    r"Local:\s+https?://",
-    r"Server running",
-    r"listening on",
-]
+# Speed fix: poll dev.log for this pattern instead of sleeping a fixed duration
+READY_SIGNAL_CMD = (
+    "timeout 25 bash -c '"
+    "while ! grep -qE \"ready in|Local:|listening on\" /tmp/dev.log 2>/dev/null; "
+    "do sleep 0.4; done; "
+    "tail -5 /tmp/dev.log 2>/dev/null'"
+)
+
+# Keywords that indicate an edit/debug request — reviewer skipped for these
+_EDIT_KEYWORDS = frozenset([
+    "fix", "change", "update", "edit", "debug", "adjust", "tweak",
+    "modify", "rename", "move", "delete", "remove", "add a", "add the",
+])
 
 
 # ---------------------------------------------------------------------------
@@ -63,16 +70,13 @@ READY_PATTERNS = [
 # ---------------------------------------------------------------------------
 def _strip_app_prefix(p: str) -> str:
     p = p.strip()
-    # Try direct prefix removal first (fastest)
     if p.startswith(APP_DIR + "/"):
         return p[len(APP_DIR) + 1:]
-    # Handle no-leading-slash variant
     app_no_slash = APP_DIR.lstrip("/") + "/"
     if p.startswith(app_no_slash):
         return p[len(app_no_slash):]
-    # Nuclear option: strip everything up to and including /app/
     cleaned = re.sub(r"^.*?/app/", "", p)
-    if cleaned != p:  # only return if something was actually stripped
+    if cleaned != p:
         return cleaned
     return p
 
@@ -143,6 +147,9 @@ class SandboxSession:
     content_hashes: Dict[str, str] = field(default_factory=dict)
     _billing_task: Optional[asyncio.Task] = field(default=None, repr=False)
     agent: Optional[Any] = field(default=None, repr=False)
+    # Speed fix: cached file tree to avoid full FS dump every agent turn
+    _cached_tree: Dict[str, str] = field(default_factory=dict, repr=False)
+    _tree_cached_at: float = field(default=0.0, repr=False)
 
 
 class E2BSandboxManager:
@@ -242,6 +249,7 @@ class E2BSandboxManager:
 
     # -----------------------------------------------------------
     # Batched boot-time file upload via tar
+    # Speed fix: chunk size increased from 50KB to 500KB = 10× fewer SSH round-trips
     # -----------------------------------------------------------
     @staticmethod
     def _build_tar_base64(file_tree: Dict[str, str]) -> Tuple[str, int, Dict[str, str]]:
@@ -274,8 +282,9 @@ class E2BSandboxManager:
             return self._upload_files_slow(sbx, file_tree)
         try:
             sbx.commands.run("rm -f /tmp/bundle.b64 && touch /tmp/bundle.b64", timeout=5)
-            for i in range(0, len(b64), 50000):
-                chunk = b64[i:i + 50000]
+            # Speed fix: 500KB chunks instead of 50KB — reduces round-trips by 10×
+            for i in range(0, len(b64), 500_000):
+                chunk = b64[i:i + 500_000]
                 meta = base64.b64encode(chunk.encode()).decode()
                 sbx.commands.run(f"echo '{meta}' | base64 -d >> /tmp/bundle.b64", timeout=10)
             result = sbx.commands.run(
@@ -351,7 +360,6 @@ class E2BSandboxManager:
         file_count, hashes = await asyncio.to_thread(self._upload_files_fast, sbx, file_tree)
         self._emit_log(project_id, "sandbox", f"Mounted {file_count} text files")
 
-        # ── Restore binary assets from Supabase Storage URLs ──────────────
         binary_count = await self._restore_binary_files(sbx, project_id, file_tree)
         if binary_count:
             self._emit_log(project_id, "sandbox", f"Restored {binary_count} binary assets")
@@ -392,10 +400,8 @@ class E2BSandboxManager:
         except Exception as e:
             log_agent("agent", f"Error reporter inject skipped: {e}", project_id)
 
-        check = await asyncio.to_thread(
-            sbx.commands.run, f"test -d {APP_DIR}/node_modules && echo EXISTS || echo MISSING",
-        )
-        deps_cached = "EXISTS" in (check.stdout or "")
+        # node_modules pre-baked in template — always treated as cached
+        deps_cached = True
         preview_port = self._detect_preview_port(file_tree)
 
         session = SandboxSession(
@@ -405,25 +411,6 @@ class E2BSandboxManager:
             deps_installed=deps_cached, content_hashes=hashes,
         )
         self._sessions[project_id] = session
-
-        if not deps_cached:
-            self._emit_log(project_id, "sandbox", "Installing dependencies...")
-            self._emit_status(project_id, "Installing Dependencies...")
-            try:
-                inst = await asyncio.to_thread(
-                    sbx.commands.run,
-                    f"cd {APP_DIR} && npm install --legacy-peer-deps --no-fund --no-audit --prefer-offline",
-                    timeout=360,
-                )
-                if inst.exit_code == 0:
-                    session.deps_installed = True
-                    self._emit_log(project_id, "sandbox", "Dependencies installed")
-                else:
-                    self._emit_log(project_id, "sandbox", f"npm install warning: {(inst.stderr or '')[:200]}")
-            except Exception as e:
-                self._emit_log(project_id, "sandbox", f"npm install error: {e}")
-        else:
-            self._emit_log(project_id, "sandbox", "Dependencies cached")
 
         session._billing_task = asyncio.create_task(self._billing_loop(project_id))
         if not self._idle_monitor_task or self._idle_monitor_task.done():
@@ -435,11 +422,6 @@ class E2BSandboxManager:
         return session
 
     async def _restore_binary_files(self, sbx, project_id: str, file_tree: Dict[str, str]) -> int:
-        """
-        For every binary path whose content is a Supabase Storage URL,
-        curl the real bytes directly into the sandbox filesystem.
-        Returns count of files restored.
-        """
         count = 0
         for path, content in file_tree.items():
             if not _is_binary_path(path):
@@ -505,12 +487,6 @@ class E2BSandboxManager:
     # Console error polling
     # -----------------------------------------------------------
     async def _poll_console_errors(self, project_id: str) -> str:
-        """
-        Drain browser console errors tunnelled via Express
-        POST/GET /api/__gorilla_errors.
-        Returns a formatted string to append to the agent observation,
-        or empty string if no errors.
-        """
         session = self._sessions.get(project_id)
         if not session:
             return ""
@@ -542,7 +518,44 @@ class E2BSandboxManager:
         except Exception:
             return ""
 
-# -----------------------------------------------------------
+    # -----------------------------------------------------------
+    # Speed fix: parallel port health checks
+    # Both ports are checked concurrently, then we merge the results.
+    # Previously: sequential curl calls with up to 30s total wait.
+    # Now: both checks fire at once, total wait = max(fe_wait, api_wait).
+    # -----------------------------------------------------------
+    async def _check_ports_parallel(
+        self, session: SandboxSession, project_id: str
+    ) -> Tuple[bool, str, bool, str]:
+        """
+        Returns (frontend_ok, fe_content, api_ok, api_content).
+        Polls up to ~24s (12 attempts × 2s) per port, concurrently.
+        """
+        async def check_port(port: int) -> Tuple[bool, str]:
+            for _ in range(12):
+                await asyncio.sleep(2)
+                try:
+                    r = await asyncio.to_thread(
+                        session.sandbox.commands.run,
+                        f"curl -s --max-time 3 http://localhost:{port} 2>/dev/null | head -10",
+                        timeout=5,
+                    )
+                    content = (r.stdout or "").strip()
+                    if content and "Cannot GET" not in content:
+                        return True, content
+                    if content:
+                        return False, content  # got a response, but bad
+                except Exception:
+                    pass
+            return False, ""
+
+        (fe_ok, fe_content), (api_ok, api_content) = await asyncio.gather(
+            check_port(session.preview_port),
+            check_port(DEFAULT_SERVER_PORT),
+        )
+        return fe_ok, fe_content, api_ok, api_content
+
+    # -----------------------------------------------------------
     # Agent turn — mini-SWE-agent loop
     # -----------------------------------------------------------
     async def run_agent_turn(
@@ -589,7 +602,6 @@ class E2BSandboxManager:
         except Exception:
             pass
 
-        # Persist agent across user messages
         if session.agent is None:
             session.agent = LineageAgent(project_id)
         agent = session.agent
@@ -601,8 +613,13 @@ class E2BSandboxManager:
         previous_output: Optional[str] = None
         last_raw_output = ""
 
-        # Read file tree once
-        tree = await self._read_tree_from_sandbox(project_id)
+        # Speed fix: use cached file tree (TTL 30s) to avoid a full FS dump
+        # at the start of every agent turn. Cache is invalidated after each sync.
+        now = time.time()
+        if (now - session._tree_cached_at) > 30 or not session._cached_tree:
+            session._cached_tree = await self._read_tree_from_sandbox(project_id)
+            session._tree_cached_at = time.time()
+        tree = session._cached_tree
 
         for turn in range(MAX_TURNS_PER_REQUEST):
             turn_count = turn + 1
@@ -676,7 +693,7 @@ class E2BSandboxManager:
                 )
                 continue
 
-            # Auto-background fix: npm run dev must not block
+            # Auto-background fix
             fixed_commands = []
             for cmd in commands:
                 if re.search(r'npm run dev\s*$', cmd.strip()) and '&' not in cmd:
@@ -707,13 +724,22 @@ class E2BSandboxManager:
             raw_output = "\n".join(output_parts)[:6000] if output_parts else "Your command ran successfully and did not produce any output."
             last_raw_output = raw_output
 
-            # ── Post npm-run-dev: smart health checks ──────────────────
+            # Speed fix: after npm run dev, poll dev.log for the ready signal
+            # instead of sleeping a fixed 5s. Exits as soon as Vite prints
+            # "ready in Xms" — typically 1-3s instead of always waiting 5s+.
             for cmd in commands:
                 if "npm run dev" in cmd:
                     try:
-                        await asyncio.sleep(5)
+                        log_agent("agent", "Waiting for Vite ready signal...", project_id)
+                        ready_result = await asyncio.to_thread(
+                            session.sandbox.commands.run,
+                            READY_SIGNAL_CMD,
+                            timeout=30,
+                        )
+                        ready_output = (ready_result.stdout or "").strip()
+                        log_agent("agent", f"Vite ready: {ready_output[:80]}", project_id)
 
-                        # 1. Vite compile errors from log
+                        # 1. Check Vite compile errors from log
                         error_check = await asyncio.to_thread(
                             session.sandbox.commands.run,
                             "grep -i -E 'error|failed|Cannot find|could not be resolved|SyntaxError' "
@@ -724,31 +750,23 @@ class E2BSandboxManager:
                         if vite_errors:
                             raw_output += f"\n\nVITE COMPILE ERRORS:\n{vite_errors}"
 
-                        # 2. Read actual page content — not just status code
-                        http_check = await asyncio.to_thread(
-                            session.sandbox.commands.run,
-                            f"curl -s --max-time 5 http://localhost:{session.preview_port} | head -10",
-                            timeout=10,
+                        # 2. Speed fix: check both ports concurrently
+                        fe_ok, fe_content, api_ok, api_content = await self._check_ports_parallel(
+                            session, project_id
                         )
-                        page_content = (http_check.stdout or "").strip()
-                        if not page_content:
-                            raw_output += "\n\nWARNING: Frontend port returned empty response — Vite may still be compiling or crashed. Check /tmp/dev.log."
-                        elif "Cannot GET" in page_content:
-                            raw_output += f"\n\nWARNING: Frontend returned 'Cannot GET' — check vite.config and index.html.\nResponse: {page_content[:200]}"
 
-                        # 3. Check Express API on :3000
-                        api_check = await asyncio.to_thread(
-                            session.sandbox.commands.run,
-                            "curl -s --max-time 5 http://localhost:3000 2>/dev/null | head -5",
-                            timeout=8,
-                        )
-                        api_resp = (api_check.stdout or "").strip()
-                        if "Cannot GET /" in api_resp:
+                        if not fe_ok:
+                            if fe_content:
+                                raw_output += f"\n\nWARNING: Frontend returned 'Cannot GET' — check vite.config and index.html.\nResponse: {fe_content[:200]}"
+                            else:
+                                raw_output += "\n\nWARNING: Frontend port returned empty response — Vite may have crashed. Check /tmp/dev.log."
+
+                        if "Cannot GET /" in api_content:
                             raw_output += "\n\nNOTE: Express on :3000 is running (no root GET / route is normal)."
-                        elif not api_resp:
+                        elif not api_content:
                             raw_output += "\n\nWARNING: Express on :3000 returned nothing — server.js may have crashed. Check /tmp/dev.log."
 
-                        # 4. Ensure Express has the console-error drain endpoint
+                        # 3. Ensure Express has the console-error drain endpoint
                         inject_express = (
                             f"grep -q '__gorilla_errors' {APP_DIR}/server.js 2>/dev/null || "
                             f"cat >> {APP_DIR}/server.js << 'GORILLA_EOF'\n"
@@ -767,12 +785,12 @@ class E2BSandboxManager:
                             session.sandbox.commands.run, inject_express, timeout=5
                         )
 
-                        log_agent("agent", f"Health check done. Vite errors: {bool(vite_errors)}", project_id)
+                        log_agent("agent", f"Health check done. fe_ok={fe_ok} api_ok={api_ok} vite_errors={bool(vite_errors)}", project_id)
                     except Exception as e:
                         log_agent("agent", f"Health check failed: {e}", project_id)
                     break
 
-            # Linter-in-the-loop: tsc --noEmit on freshly written .tsx/.ts files
+            # Linter-in-the-loop
             for cmd in commands:
                 m = re.search(r"cat\s+>\s+['\"]?(\S+\.tsx?)['\"]?\s+<<", cmd)
                 if m:
@@ -789,7 +807,7 @@ class E2BSandboxManager:
                     except Exception:
                         pass
 
-            # Poll browser console errors and append to observation
+            # Poll browser console errors
             console_errs = await self._poll_console_errors(project_id)
             if console_errs:
                 raw_output += f"\n\n{console_errs}"
@@ -801,10 +819,24 @@ class E2BSandboxManager:
             if result.get("done", False):
                 break
 
-        # Reviewer pass
-        if not is_debug and turn_count > 1:
+        # Speed fix: reviewer only fires on substantial new builds.
+        # Skipped for debug runs, short sessions, and edit/fix/tweak requests.
+        # This eliminates a full LLM round-trip (~2-4s) for the common case.
+        request_lower = (user_request or "").lower()
+        is_edit_request = any(kw in request_lower for kw in _EDIT_KEYWORDS)
+        should_review = (
+            not is_debug
+            and turn_count > 3
+            and not is_edit_request
+        )
+
+        if should_review:
             try:
                 current_tree = await self._read_tree_from_sandbox(project_id)
+                # Invalidate cache since we just re-read the tree
+                session._cached_tree = current_tree
+                session._tree_cached_at = time.time()
+
                 tree_summary = "\n".join(
                     f"  {p}" for p in sorted(current_tree.keys()) if not p.endswith(".b64")
                 )
@@ -830,6 +862,8 @@ class E2BSandboxManager:
         # Sync to database
         self._emit_status(project_id, "Syncing to database...")
         synced, deleted = await self._sync_once(project_id)
+        # Invalidate tree cache after sync so next turn reads fresh
+        session._tree_cached_at = 0.0
         self._emit_log(project_id, "sync", f"Synced {synced} changed, removed {deleted} deleted")
 
         url = session.url
@@ -1169,6 +1203,8 @@ class E2BSandboxManager:
             await asyncio.to_thread(session.sandbox.commands.run,
                 f"mkdir -p '{dirp}' && cat > '{full}' << 'GORILLA_EOF'\n{safe}\nGORILLA_EOF")
             session.content_hashes[rel_path] = hashlib.md5(content.encode("utf-8", errors="replace")).hexdigest()
+            # Invalidate tree cache so the next agent turn sees the new file
+            session._tree_cached_at = 0.0
             session.last_activity = time.time()
             return True
         except Exception as e:
@@ -1182,6 +1218,8 @@ class E2BSandboxManager:
         try:
             await asyncio.to_thread(session.sandbox.commands.run, f"rm -f '{APP_DIR}/{rel_path}'")
             session.content_hashes.pop(rel_path, None)
+            # Invalidate tree cache
+            session._tree_cached_at = 0.0
             session.last_activity = time.time()
             return True
         except Exception:
